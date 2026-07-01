@@ -20,6 +20,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+.\scripts\build.ps1
+
 ## Run A Simulation
 
 ```powershell
@@ -50,6 +52,10 @@ uv run python tools/view_run.py runs/latest
 ```
 
 Open `runs/latest/viewer.html` in a browser to replay the best recorded trajectory with playback controls.
+
+## Combined plot
+
+.\scripts\visualize.ps1 -RunDir runs\latest
 
 ## Prototype Defaults To Revisit
 

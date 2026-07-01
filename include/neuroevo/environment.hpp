@@ -16,7 +16,7 @@ struct EnvironmentConfig {
     double target_radius = 0.075;
     double min_target_distance = 0.25;
     double max_speed = 0.80;
-    double motor_gain = 4.0;
+    double motor_gain = 8.0;
     double env_dt = 0.08;
     std::size_t episode_steps = 600;
     std::size_t brain_steps_per_env_step = 4;
