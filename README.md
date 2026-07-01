@@ -10,7 +10,7 @@ Prototype evolutionary simulator for creatures with spiking neural-network brain
 - Evolution loop with elitism, tournament selection, weight/bias/position mutation, and synapse add/remove mutation.
 - CSV outputs for generation statistics and the best-run trajectory.
 - Python plotting script for fitness and trajectory summaries.
-- Interactive HTML viewer for replaying a creature trajectory.
+- Interactive HTML viewer for replaying a creature trajectory, brain activity, and synapse firing.
 
 ## Build
 
@@ -33,6 +33,9 @@ This writes:
 - `runs/latest/metadata.csv`
 - `runs/latest/stats.csv`
 - `runs/latest/best_trajectory.csv`
+- `runs/latest/brain_activity.csv`
+- `runs/latest/brain_synapses.csv`
+- `runs/latest/synapse_events.csv`
 
 ## Plot Results
 
@@ -51,7 +54,7 @@ This writes:
 uv run python tools/view_run.py runs/latest
 ```
 
-Open `runs/latest/viewer.html` in a browser to replay the best recorded trajectory with playback controls.
+Open `runs/latest/viewer.html` in a browser to replay the best recorded trajectory, live neuron activations, and fired synapses with playback controls.
 
 ## Combined plot
 

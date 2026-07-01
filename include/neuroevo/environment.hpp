@@ -39,6 +39,30 @@ struct TrajectoryPoint {
     std::size_t foods_collected = 0;
 };
 
+struct BrainActivityPoint {
+    std::size_t step = 0;
+    std::size_t neuron_index = 0;
+    std::string neuron_type;
+    Vec2 position;
+    double potential = 0.0;
+    double threshold = 1.0;
+    double activation = 0.0;
+    bool spiked = false;
+};
+
+struct BrainSynapsePoint {
+    std::size_t synapse_index = 0;
+    std::size_t pre = 0;
+    std::size_t post = 0;
+    double weight = 0.0;
+    std::size_t delay_steps = 0;
+};
+
+struct SynapseEventPoint {
+    std::size_t step = 0;
+    std::size_t synapse_index = 0;
+};
+
 struct EvaluationResult {
     double fitness = 0.0;
     double reward = 0.0;
@@ -46,6 +70,9 @@ struct EvaluationResult {
     double spikes = 0.0;
     double foods_collected = 0.0;
     std::vector<TrajectoryPoint> trajectory;
+    std::vector<BrainActivityPoint> brain_activity;
+    std::vector<BrainSynapsePoint> brain_synapses;
+    std::vector<SynapseEventPoint> synapse_events;
 };
 
 class Environment {
@@ -64,5 +91,8 @@ private:
 };
 
 void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryPoint>& trajectory);
+void write_brain_activity_csv(const std::string& path, const std::vector<BrainActivityPoint>& activity);
+void write_brain_synapses_csv(const std::string& path, const std::vector<BrainSynapsePoint>& synapses);
+void write_synapse_events_csv(const std::string& path, const std::vector<SynapseEventPoint>& events);
 
 } // namespace neuroevo

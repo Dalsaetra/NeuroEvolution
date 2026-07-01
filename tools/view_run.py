@@ -53,10 +53,76 @@ def trajectory_payload(run_dir: Path) -> tuple[list[dict[str, float]], dict[str,
     return points, metadata
 
 
-def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[str, float]) -> str:
+def brain_activity_payload(run_dir: Path, point_count: int) -> list[list[dict[str, float | int | str | bool]]]:
+    path = run_dir / "brain_activity.csv"
+    frames: list[list[dict[str, float | int | str | bool]]] = [[] for _ in range(point_count)]
+    if not path.exists():
+        return frames
+
+    for row in read_csv(path):
+        step = int(row["step"])
+        if step >= len(frames):
+            frames.extend([] for _ in range(step - len(frames) + 1))
+        frames[step].append(
+            {
+                "index": int(row["neuron_index"]),
+                "type": row["neuron_type"],
+                "x": float(row["brain_x"]),
+                "y": float(row["brain_y"]),
+                "potential": float(row["potential"]),
+                "threshold": float(row["threshold"]),
+                "activation": float(row["activation"]),
+                "spiked": row["spiked"] == "1",
+            }
+        )
+    return frames
+
+
+def brain_synapse_payload(run_dir: Path) -> list[dict[str, float | int]]:
+    path = run_dir / "brain_synapses.csv"
+    if not path.exists():
+        return []
+
+    return [
+        {
+            "index": int(row["synapse_index"]),
+            "pre": int(row["pre"]),
+            "post": int(row["post"]),
+            "weight": float(row["weight"]),
+            "delay": int(row["delay_steps"]),
+        }
+        for row in read_csv(path)
+    ]
+
+
+def synapse_event_payload(run_dir: Path, point_count: int) -> list[list[int]]:
+    path = run_dir / "synapse_events.csv"
+    frames: list[list[int]] = [[] for _ in range(point_count)]
+    if not path.exists():
+        return frames
+
+    for row in read_csv(path):
+        step = int(row["step"])
+        if step >= len(frames):
+            frames.extend([] for _ in range(step - len(frames) + 1))
+        frames[step].append(int(row["synapse_index"]))
+    return frames
+
+
+def render_html(
+    run_dir: Path,
+    points: list[dict[str, float]],
+    metadata: dict[str, float],
+    brain_frames: list[list[dict[str, float | int | str | bool]]],
+    synapses: list[dict[str, float | int]],
+    synapse_events: list[list[int]],
+) -> str:
     title = f"NeuroEvolution Viewer - {run_dir.name}"
     payload = {
         "points": points,
+        "brain": brain_frames,
+        "synapses": synapses,
+        "synapseEvents": synapse_events,
         "metadata": metadata,
         "title": title,
     }
@@ -91,7 +157,7 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
     }}
     main {{
       display: grid;
-      grid-template-columns: minmax(280px, 1fr) 320px;
+      grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr) 320px;
       gap: 16px;
       min-height: 100vh;
       padding: 16px;
@@ -103,19 +169,29 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
       box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
     }}
     .stage {{
-      display: grid;
-      place-items: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
       min-height: calc(100vh - 32px);
       padding: 16px;
     }}
     canvas {{
-      width: min(calc(100vh - 64px), calc(100vw - 384px));
-      height: min(calc(100vh - 64px), calc(100vw - 384px));
+      width: min(100%, 680px);
+      height: auto;
+      aspect-ratio: 1 / 1;
       max-width: 100%;
       max-height: 100%;
       background: #fbfcfe;
       border: 1px solid var(--border);
       border-radius: 6px;
+    }}
+    h2 {{
+      align-self: stretch;
+      margin: 0;
+      font-size: 14px;
+      font-weight: 650;
     }}
     .side {{
       display: flex;
@@ -189,6 +265,9 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
       gap: 8px;
       font-size: 13px;
     }}
+    .legend h2 {{
+      margin: 0 0 2px;
+    }}
     .legend div {{
       display: flex;
       align-items: center;
@@ -201,9 +280,22 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
       border: 1px solid var(--border);
       flex: 0 0 auto;
     }}
+    @media (max-width: 1180px) {{
+      main {{
+        grid-template-columns: minmax(280px, 1fr) 320px;
+      }}
+      .side {{
+        grid-column: 2;
+        grid-row: 1 / span 2;
+      }}
+    }}
     @media (max-width: 860px) {{
       main {{
         grid-template-columns: 1fr;
+      }}
+      .side {{
+        grid-column: auto;
+        grid-row: auto;
       }}
       .stage {{
         min-height: auto;
@@ -218,7 +310,12 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
 <body>
   <main>
     <section class="stage">
+      <h2>World</h2>
       <canvas id="world" width="900" height="900"></canvas>
+    </section>
+    <section class="stage brain-stage">
+      <h2>Brain</h2>
+      <canvas id="brain" width="900" height="900"></canvas>
     </section>
     <aside class="side">
       <div>
@@ -253,13 +350,28 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
         <div class="metric"><span>Spikes</span><strong id="spikeText">0</strong></div>
         <div class="metric"><span>Motor X</span><strong id="motorXText">0.000</strong></div>
         <div class="metric"><span>Motor Y</span><strong id="motorYText">0.000</strong></div>
+        <div class="metric"><span>Active Neurons</span><strong id="activeText">0</strong></div>
+        <div class="metric"><span>Step Spikes</span><strong id="stepSpikeText">0</strong></div>
+        <div class="metric"><span>Synapses</span><strong id="synapseText">0</strong></div>
+        <div class="metric"><span>Fired Synapses</span><strong id="firedSynapseText">0</strong></div>
       </div>
 
       <div class="legend">
+        <h2>World Legend</h2>
         <div><span class="swatch" style="background: var(--creature);"></span>Creature</div>
         <div><span class="swatch" style="background: var(--target);"></span>Current food target</div>
         <div><span class="swatch" style="background: var(--path);"></span>Recent path</div>
         <div><span class="swatch" style="background: var(--start);"></span>Episode start</div>
+      </div>
+
+      <div class="legend">
+        <h2>Brain Legend</h2>
+        <div><span class="swatch" style="background: #16a34a;"></span>Input neurons</div>
+        <div><span class="swatch" style="background: #2563eb;"></span>Hidden neurons</div>
+        <div><span class="swatch" style="background: #f59e0b;"></span>Output neurons</div>
+        <div><span class="swatch" style="background: #0f766e;"></span>Excitatory synapse</div>
+        <div><span class="swatch" style="background: #be185d;"></span>Inhibitory synapse</div>
+        <div><span class="swatch" style="background: #facc15;"></span>Fired synapse pulse</div>
       </div>
     </aside>
   </main>
@@ -268,9 +380,15 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
   <script>
     const payload = JSON.parse(document.getElementById("payload").textContent);
     const points = payload.points;
+    const brainFrames = payload.brain || [];
+    const synapses = payload.synapses || [];
+    const synapseEvents = payload.synapseEvents || [];
+    const synapseByIndex = new Map(synapses.map((synapse) => [synapse.index, synapse]));
     const metadata = payload.metadata;
     const canvas = document.getElementById("world");
     const ctx = canvas.getContext("2d");
+    const brainCanvas = document.getElementById("brain");
+    const brainCtx = brainCanvas.getContext("2d");
     const stepSlider = document.getElementById("step");
     const speedSlider = document.getElementById("speed");
     const trailSlider = document.getElementById("trail");
@@ -314,6 +432,131 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
         ctx.lineTo(canvas.width - pad, gy);
         ctx.stroke();
       }}
+    }}
+
+    function neuronColor(type, activation) {{
+      const alpha = 0.25 + 0.75 * Math.max(0, Math.min(1, activation));
+      if (type === "input") return `rgba(22, 163, 74, ${{alpha}})`;
+      if (type === "output") return `rgba(245, 158, 11, ${{alpha}})`;
+      return `rgba(37, 99, 235, ${{alpha}})`;
+    }}
+
+    function synapseColor(weight, active) {{
+      if (active) return weight >= 0 ? "rgba(250, 204, 21, 0.95)" : "rgba(244, 63, 94, 0.95)";
+      return weight >= 0 ? "rgba(15, 118, 110, 0.18)" : "rgba(190, 24, 93, 0.18)";
+    }}
+
+    function drawSynapseLine(from, to, weight, active) {{
+      const x1 = pad + from.x * (brainCanvas.width - 2 * pad);
+      const y1 = brainCanvas.height - pad - from.y * (brainCanvas.height - 2 * pad);
+      const x2 = pad + to.x * (brainCanvas.width - 2 * pad);
+      const y2 = brainCanvas.height - pad - to.y * (brainCanvas.height - 2 * pad);
+      const magnitude = Math.min(1, Math.abs(weight) / 3);
+
+      brainCtx.strokeStyle = synapseColor(weight, active);
+      brainCtx.lineWidth = active ? 2.4 + 2.6 * magnitude : 0.6 + 1.6 * magnitude;
+      brainCtx.beginPath();
+      brainCtx.moveTo(x1, y1);
+      brainCtx.lineTo(x2, y2);
+      brainCtx.stroke();
+
+      if (active) {{
+        const midX = x1 + 0.68 * (x2 - x1);
+        const midY = y1 + 0.68 * (y2 - y1);
+        brainCtx.fillStyle = weight >= 0 ? "rgba(250, 204, 21, 0.95)" : "rgba(244, 63, 94, 0.95)";
+        brainCtx.beginPath();
+        brainCtx.arc(midX, midY, 4.5 + 3 * magnitude, 0, Math.PI * 2);
+        brainCtx.fill();
+      }}
+    }}
+
+    function drawBrain() {{
+      brainCtx.clearRect(0, 0, brainCanvas.width, brainCanvas.height);
+      brainCtx.fillStyle = "#fbfcfe";
+      brainCtx.fillRect(0, 0, brainCanvas.width, brainCanvas.height);
+      brainCtx.strokeStyle = "#d6dae1";
+      brainCtx.lineWidth = 1;
+      brainCtx.strokeRect(pad, pad, brainCanvas.width - 2 * pad, brainCanvas.height - 2 * pad);
+
+      const frame = brainFrames[index] || [];
+      if (!frame.length) {{
+        brainCtx.fillStyle = "#6b7280";
+        brainCtx.font = "18px Segoe UI, sans-serif";
+        brainCtx.fillText("No brain_activity.csv for this run", pad + 16, pad + 32);
+        document.getElementById("activeText").textContent = "0";
+        document.getElementById("stepSpikeText").textContent = "0";
+        document.getElementById("synapseText").textContent = String(synapses.length);
+        document.getElementById("firedSynapseText").textContent = "0";
+        return;
+      }}
+
+      const activeSynapses = new Set(synapseEvents[index] || []);
+      const byIndex = new Map(frame.map((neuron) => [neuron.index, neuron]));
+
+      brainCtx.strokeStyle = "#edf0f4";
+      brainCtx.lineWidth = 1;
+      for (const x of [0.2, 0.8]) {{
+        const gx = pad + x * (brainCanvas.width - 2 * pad);
+        brainCtx.beginPath();
+        brainCtx.moveTo(gx, pad);
+        brainCtx.lineTo(gx, brainCanvas.height - pad);
+        brainCtx.stroke();
+      }}
+
+      for (const synapse of synapses) {{
+        if (activeSynapses.has(synapse.index)) continue;
+        const from = byIndex.get(synapse.pre);
+        const to = byIndex.get(synapse.post);
+        if (from && to) drawSynapseLine(from, to, synapse.weight, false);
+      }}
+
+      for (const synapseIndex of activeSynapses) {{
+        const synapse = synapseByIndex.get(synapseIndex);
+        if (!synapse) continue;
+        const from = byIndex.get(synapse.pre);
+        const to = byIndex.get(synapse.post);
+        if (from && to) drawSynapseLine(from, to, synapse.weight, true);
+      }}
+
+      let activeCount = 0;
+      let spikeCount = 0;
+      for (const neuron of frame) {{
+        const activation = Math.max(0, Math.min(1, Number(neuron.activation)));
+        if (activation > 0.05) activeCount += 1;
+        if (neuron.spiked) spikeCount += 1;
+
+        const x = pad + neuron.x * (brainCanvas.width - 2 * pad);
+        const y = brainCanvas.height - pad - neuron.y * (brainCanvas.height - 2 * pad);
+        const radius = 7 + 12 * activation;
+
+        brainCtx.fillStyle = neuronColor(neuron.type, activation);
+        brainCtx.beginPath();
+        brainCtx.arc(x, y, radius, 0, Math.PI * 2);
+        brainCtx.fill();
+
+        brainCtx.strokeStyle = neuron.spiked ? "#dc2626" : "#334155";
+        brainCtx.lineWidth = neuron.spiked ? 3 : 1;
+        brainCtx.stroke();
+
+        brainCtx.fillStyle = "#111827";
+        brainCtx.font = "11px Segoe UI, sans-serif";
+        brainCtx.textAlign = "center";
+        brainCtx.textBaseline = "middle";
+        brainCtx.fillText(String(neuron.index), x, y);
+      }}
+
+      brainCtx.textAlign = "left";
+      brainCtx.textBaseline = "alphabetic";
+      brainCtx.fillStyle = "#6b7280";
+      brainCtx.font = "13px Segoe UI, sans-serif";
+      brainCtx.fillText("input", pad + 8, brainCanvas.height - pad + 24);
+      brainCtx.fillText("hidden", brainCanvas.width * 0.46, brainCanvas.height - pad + 24);
+      brainCtx.fillText("output", brainCanvas.width - pad - 52, brainCanvas.height - pad + 24);
+
+      document.getElementById("activeText").textContent = String(activeCount);
+      document.getElementById("stepSpikeText").textContent = String(spikeCount);
+      document.getElementById("synapseText").textContent = String(synapses.length);
+      document.getElementById("firedSynapseText").textContent = String(activeSynapses.size);
     }}
 
     function draw() {{
@@ -372,6 +615,7 @@ def render_html(run_dir: Path, points: list[dict[str, float]], metadata: dict[st
       document.getElementById("spikeText").textContent = String(point.cumulative_spikes);
       document.getElementById("motorXText").textContent = point.motor_x.toFixed(4);
       document.getElementById("motorYText").textContent = point.motor_y.toFixed(4);
+      drawBrain();
     }}
 
     function setIndex(next) {{
@@ -426,7 +670,10 @@ def main() -> None:
     run_dir = args.run_dir.resolve()
     output = args.out.resolve() if args.out else run_dir / "viewer.html"
     points, metadata = trajectory_payload(run_dir)
-    output.write_text(render_html(run_dir, points, metadata), encoding="utf-8")
+    brain_frames = brain_activity_payload(run_dir, len(points))
+    synapses = brain_synapse_payload(run_dir)
+    synapse_events = synapse_event_payload(run_dir, len(points))
+    output.write_text(render_html(run_dir, points, metadata, brain_frames, synapses, synapse_events), encoding="utf-8")
     print(f"Wrote {output}")
 
 

@@ -89,7 +89,10 @@ int main(int argc, char** argv)
                   << "Best foods collected: " << final.best_foods_collected << "\n"
                   << "Wrote metadata to: " << (std::filesystem::path(output_dir) / "metadata.csv") << "\n"
                   << "Wrote stats to: " << (std::filesystem::path(output_dir) / "stats.csv") << "\n"
-                  << "Wrote trajectory to: " << (std::filesystem::path(output_dir) / "best_trajectory.csv") << "\n";
+                  << "Wrote trajectory to: " << (std::filesystem::path(output_dir) / "best_trajectory.csv") << "\n"
+                  << "Wrote brain activity to: " << (std::filesystem::path(output_dir) / "brain_activity.csv") << "\n"
+                  << "Wrote brain synapses to: " << (std::filesystem::path(output_dir) / "brain_synapses.csv") << "\n"
+                  << "Wrote synapse events to: " << (std::filesystem::path(output_dir) / "synapse_events.csv") << "\n";
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << "\n";
         return 1;

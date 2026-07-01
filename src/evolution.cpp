@@ -84,6 +84,9 @@ EvolutionResult EvolutionRunner::run(const std::string& output_dir)
         write_run_metadata_csv((std::filesystem::path(output_dir) / "metadata.csv").string(), config_);
         write_generation_stats_csv((std::filesystem::path(output_dir) / "stats.csv").string(), result.stats);
         write_trajectory_csv((std::filesystem::path(output_dir) / "best_trajectory.csv").string(), result.best_evaluation.trajectory);
+        write_brain_activity_csv((std::filesystem::path(output_dir) / "brain_activity.csv").string(), result.best_evaluation.brain_activity);
+        write_brain_synapses_csv((std::filesystem::path(output_dir) / "brain_synapses.csv").string(), result.best_evaluation.brain_synapses);
+        write_synapse_events_csv((std::filesystem::path(output_dir) / "synapse_events.csv").string(), result.best_evaluation.synapse_events);
     }
 
     return result;
