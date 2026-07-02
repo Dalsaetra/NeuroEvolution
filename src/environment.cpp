@@ -8,6 +8,11 @@
 #include <stdexcept>
 
 namespace neuroevo {
+namespace {
+
+constexpr double pi = 3.14159265358979323846;
+
+} // namespace
 
 Environment::Environment(EnvironmentConfig config) : config_(config) {}
 
@@ -17,10 +22,17 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
     brain.reset_state();
 
     EvaluationResult result;
-    Vec2 position = random_position(rng);
-    Vec2 target = random_target_away_from(position, rng);
-    double previous_distance = length(target - position);
+    AgentState agent{random_position(rng), rng.uniform(-pi, pi)};
+    Vec2 target = random_target_away_from(agent.position, rng);
+    double previous_distance = length(target - agent.position);
+    double closest_distance_to_target = previous_distance;
     const double world_diagonal = length({config_.width, config_.height});
+    const double fov_radians = config_.fov_degrees * pi / 180.0;
+    if (config_.sensorimotor_regime == SensorimotorRegimeKind::DirectionalFov) {
+        const Vec2 initial_delta = target - agent.position;
+        const double target_heading = std::atan2(initial_delta.y, initial_delta.x);
+        agent.heading_radians = normalize_angle(target_heading + rng.uniform(-0.25 * fov_radians, 0.25 * fov_radians));
+    }
 
     if (record_trajectory) {
         const auto& synapses = brain.synapses();
@@ -38,7 +50,12 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
     }
 
     for (std::size_t step = 0; step < config_.episode_steps; ++step) {
-        std::vector<double> sensors = sense(position, target);
+        const SensoryState sensory = sense_target(
+            config_.sensorimotor_regime,
+            agent,
+            target,
+            world_diagonal,
+            fov_radians);
 
         std::vector<double> motors(brain.config().output_count, 0.0);
         std::vector<bool> neuron_spiked;
@@ -48,7 +65,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
             synapse_fired.assign(brain.synapses().size(), false);
         }
         for (std::size_t substep = 0; substep < config_.brain_steps_per_env_step; ++substep) {
-            BrainStepResult step_result = brain.step(sensors);
+            BrainStepResult step_result = brain.step(sensory.inputs);
             result.spikes += step_result.spikes;
             motors = step_result.motor_outputs;
             if (record_trajectory) {
@@ -63,28 +80,41 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
             }
         }
 
-        const double left = motors.size() > 0 ? motors[0] : 0.0;
-        const double right = motors.size() > 1 ? motors[1] : 0.0;
-        const double down = motors.size() > 2 ? motors[2] : 0.0;
-        const double up = motors.size() > 3 ? motors[3] : 0.0;
+        const MotorCommand command = decode_motor_command(
+            config_.sensorimotor_regime,
+            motors,
+            agent.heading_radians,
+            config_.max_speed,
+            config_.max_turn_rate,
+            config_.motor_gain,
+            config_.env_dt);
+        agent.heading_radians = command.heading_radians;
+        agent.position = clamp_to_bounds(agent.position + command.velocity * config_.env_dt, config_.width, config_.height);
 
-        Vec2 command{
-            std::tanh(config_.motor_gain * (right - left)),
-            std::tanh(config_.motor_gain * (up - down)),
-        };
-        Vec2 velocity = clamp_length(command, 1.0) * config_.max_speed;
-        position = clamp_to_bounds(position + velocity * config_.env_dt, config_.width, config_.height);
-
-        const double distance = length(target - position);
+        const double distance = length(target - agent.position);
         const double progress = previous_distance - distance;
         result.reward += config_.progress_reward_scale * progress;
+        const double improvement = std::max(0.0, closest_distance_to_target - distance);
+        if (improvement > 0.0) {
+            result.reward += config_.distance_improvement_reward_scale * (improvement / std::max(0.001, world_diagonal));
+            closest_distance_to_target = distance;
+        }
+        if (sensory.target_visible) {
+            const double half_fov = std::max(0.001, fov_radians * 0.5);
+            const double centered = 1.0 - std::clamp(std::abs(sensory.target_bearing) / half_fov, 0.0, 1.0);
+            const double speed_gate = std::clamp(command.speed_command, 0.0, 1.0);
+            result.reward += config_.visibility_reward_scale * centered * speed_gate;
+        }
+        result.penalty += config_.turn_penalty * std::abs(command.turn_command);
+        result.penalty += config_.inactivity_penalty * (1.0 - std::clamp(command.speed_command, 0.0, 1.0));
 
         double recorded_distance = distance;
         if (distance <= config_.target_radius) {
             result.foods_collected += 1.0;
             result.reward += config_.food_reward;
-            target = random_target_away_from(position, rng);
-            previous_distance = length(target - position);
+            target = random_target_away_from(agent.position, rng);
+            previous_distance = length(target - agent.position);
+            closest_distance_to_target = previous_distance;
             recorded_distance = previous_distance;
         } else {
             previous_distance = distance;
@@ -93,11 +123,16 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
         if (record_trajectory) {
             result.trajectory.push_back({
                 step,
-                position,
+                agent.position,
                 target,
                 recorded_distance,
-                velocity.x,
-                velocity.y,
+                command.velocity.x,
+                command.velocity.y,
+                agent.heading_radians,
+                command.speed_command,
+                command.turn_command,
+                sensory.target_visible,
+                sensory.target_bearing,
                 static_cast<std::size_t>(result.spikes),
                 static_cast<std::size_t>(result.foods_collected),
             });
@@ -128,6 +163,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
                     i,
                     neuron_type,
                     neuron.position,
+                    neuron.bias,
                     neuron.potential,
                     neuron.threshold,
                     activation,
@@ -140,6 +176,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
     const double final_distance = previous_distance / std::max(0.001, world_diagonal);
     const BrainStats stats = brain.stats();
     result.penalty = config_.final_distance_penalty * final_distance
+        + result.penalty
         + config_.spike_penalty * static_cast<double>(result.spikes)
         + config_.synapse_penalty * static_cast<double>(stats.synapse_count)
         + config_.neuron_penalty * static_cast<double>(stats.neuron_count);
@@ -165,23 +202,6 @@ Vec2 Environment::random_target_away_from(Vec2 position, Random& rng) const
     return random_position(rng);
 }
 
-std::vector<double> Environment::sense(Vec2 position, Vec2 target) const
-{
-    const Vec2 delta = target - position;
-    const double distance = length(delta);
-    const double normalized_dx = distance > 0.001 ? std::clamp(delta.x / distance, -1.0, 1.0) : 0.0;
-    const double normalized_dy = distance > 0.001 ? std::clamp(delta.y / distance, -1.0, 1.0) : 0.0;
-    const double normalized_distance = std::clamp(distance / std::max(0.001, length({config_.width, config_.height})), 0.0, 1.0);
-
-    return {
-        std::max(0.0, normalized_dx),
-        std::max(0.0, -normalized_dx),
-        std::max(0.0, normalized_dy),
-        std::max(0.0, -normalized_dy),
-        normalized_distance,
-    };
-}
-
 void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryPoint>& trajectory)
 {
     const std::filesystem::path output_path(path);
@@ -194,7 +214,8 @@ void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryP
         throw std::runtime_error("Could not open trajectory CSV for writing: " + path);
     }
 
-    output << "step,x,y,target_x,target_y,distance,motor_x,motor_y,cumulative_spikes,foods_collected\n";
+    output << "step,x,y,target_x,target_y,distance,motor_x,motor_y,heading,speed_command,turn_command,"
+              "target_visible,target_bearing,cumulative_spikes,foods_collected\n";
     output << std::setprecision(10);
     for (const auto& point : trajectory) {
         output << point.step << ','
@@ -205,6 +226,11 @@ void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryP
                << point.distance << ','
                << point.motor_x << ','
                << point.motor_y << ','
+               << point.heading << ','
+               << point.speed_command << ','
+               << point.turn_command << ','
+               << (point.target_visible ? 1 : 0) << ','
+               << point.target_bearing << ','
                << point.cumulative_spikes << ','
                << point.foods_collected << '\n';
     }
@@ -222,7 +248,7 @@ void write_brain_activity_csv(const std::string& path, const std::vector<BrainAc
         throw std::runtime_error("Could not open brain activity CSV for writing: " + path);
     }
 
-    output << "step,neuron_index,neuron_type,brain_x,brain_y,potential,threshold,activation,spiked\n";
+    output << "step,neuron_index,neuron_type,brain_x,brain_y,bias,potential,threshold,activation,spiked\n";
     output << std::setprecision(10);
     for (const auto& point : activity) {
         output << point.step << ','
@@ -230,6 +256,7 @@ void write_brain_activity_csv(const std::string& path, const std::vector<BrainAc
                << point.neuron_type << ','
                << point.position.x << ','
                << point.position.y << ','
+               << point.bias << ','
                << point.potential << ','
                << point.threshold << ','
                << point.activation << ','

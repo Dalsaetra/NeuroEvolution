@@ -10,6 +10,7 @@ add_library(neuroevo_core
     src/brain.cpp
     src/environment.cpp
     src/evolution.cpp
+    src/sensorimotor.cpp
 )
 
 target_include_directories(neuroevo_core

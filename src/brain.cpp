@@ -26,7 +26,7 @@ Brain Brain::random(BrainConfig config, Random& rng)
             const std::size_t local = i - brain.first_output_index();
             const double t = config.output_count <= 1 ? 0.5 : static_cast<double>(local) / static_cast<double>(config.output_count - 1);
             neuron.position = {0.95, 0.1 + 0.8 * t};
-            neuron.bias = rng.normal(0.0, 0.03);
+            neuron.bias = 0.0;
         } else {
             neuron.position = {rng.uniform(0.25, 0.75), rng.uniform(0.05, 0.95)};
             neuron.bias = rng.normal(0.0, 0.05);
@@ -51,6 +51,22 @@ Brain Brain::random(BrainConfig config, Random& rng)
             synapse.weight = sign * magnitude;
             synapse.delay_steps = brain.compute_delay_steps(brain.neurons_[pre].position, brain.neurons_[post].position);
             brain.synapses_.push_back(synapse);
+        }
+    }
+
+    if (config.seed_input_output_synapses) {
+        for (std::size_t pre = 0; pre < config.input_count; ++pre) {
+            for (std::size_t post = brain.first_output_index(); post < total; ++post) {
+                if (brain.synapse_exists(pre, post)) {
+                    continue;
+                }
+                Brain::Synapse synapse;
+                synapse.pre = pre;
+                synapse.post = post;
+                synapse.weight = config.seed_input_output_weight;
+                synapse.delay_steps = brain.compute_delay_steps(brain.neurons_[pre].position, brain.neurons_[post].position);
+                brain.synapses_.push_back(synapse);
+            }
         }
     }
 
@@ -117,7 +133,7 @@ BrainStepResult Brain::step(const std::vector<double>& inputs)
         for (const std::size_t synapse_index : outgoing_[pre]) {
             const Synapse& synapse = synapses_[synapse_index];
             const std::size_t target_cursor = (buffer_cursor_ + synapse.delay_steps) % current_buffers_[synapse.post].size();
-            current_buffers_[synapse.post][target_cursor] += synapse.weight;
+            current_buffers_[synapse.post][target_cursor] += synapse.weight * config_.synaptic_gain;
         }
     }
 
@@ -127,11 +143,7 @@ BrainStepResult Brain::step(const std::vector<double>& inputs)
         if (neurons_[neuron_index].spiked) {
             motor_traces_[i] += 1.0;
         }
-        const double normalized_potential = std::clamp(
-            neurons_[neuron_index].potential / std::max(0.001, neurons_[neuron_index].threshold),
-            0.0,
-            1.0);
-        result.motor_outputs[i] = motor_traces_[i] + 0.5 * normalized_potential;
+        result.motor_outputs[i] = motor_traces_[i];
     }
 
     buffer_cursor_ = (buffer_cursor_ + 1) % current_buffers_.front().size();
@@ -150,7 +162,21 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
     for (std::size_t i = config_.input_count; i < neurons_.size(); ++i) {
         auto& neuron = neurons_[i];
         if (rng.chance(config.mutate_neuron_probability)) {
-            neuron.bias = std::clamp(neuron.bias + rng.normal(0.0, config.bias_sigma), -2.0, 2.0);
+            if (!is_output(i)) {
+                if (rng.chance(config.hidden_bias_jump_probability)) {
+                    const double magnitude = rng.uniform(
+                        std::min(config.hidden_bias_jump_min_magnitude, config.hidden_bias_max),
+                        config.hidden_bias_max);
+                    neuron.bias = rng.chance(0.5) ? magnitude : -magnitude;
+                } else {
+                    neuron.bias = std::clamp(
+                        neuron.bias + rng.normal(0.0, config.bias_sigma),
+                        config.hidden_bias_min,
+                        config.hidden_bias_max);
+                }
+            } else {
+                neuron.bias = 0.0;
+            }
             neuron.threshold = std::clamp(neuron.threshold + rng.normal(0.0, config.threshold_sigma), 0.2, 3.0);
             if (!is_output(i)) {
                 neuron.position.x = std::clamp(neuron.position.x + rng.normal(0.0, config.position_sigma), 0.05, 0.95);

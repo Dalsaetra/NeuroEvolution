@@ -38,6 +38,11 @@ def trajectory_payload(run_dir: Path) -> tuple[list[dict[str, float]], dict[str,
             "distance": float(row["distance"]),
             "motor_x": float(row["motor_x"]),
             "motor_y": float(row["motor_y"]),
+            "heading": float(row.get("heading", "0") or 0.0),
+            "speed_command": float(row.get("speed_command", "0") or 0.0),
+            "turn_command": float(row.get("turn_command", "0") or 0.0),
+            "target_visible": row.get("target_visible", "1") == "1",
+            "target_bearing": float(row.get("target_bearing", "0") or 0.0),
             "cumulative_spikes": int(row["cumulative_spikes"]),
             "foods_collected": int(row["foods_collected"]),
         }
@@ -69,6 +74,7 @@ def brain_activity_payload(run_dir: Path, point_count: int) -> list[list[dict[st
                 "type": row["neuron_type"],
                 "x": float(row["brain_x"]),
                 "y": float(row["brain_y"]),
+                "bias": float(row.get("bias", "0") or 0.0),
                 "potential": float(row["potential"]),
                 "threshold": float(row["threshold"]),
                 "activation": float(row["activation"]),
@@ -348,8 +354,12 @@ def render_html(
         <div class="metric"><span>Food</span><strong id="foodText">0</strong></div>
         <div class="metric"><span>Distance</span><strong id="distanceText">0.000</strong></div>
         <div class="metric"><span>Spikes</span><strong id="spikeText">0</strong></div>
-        <div class="metric"><span>Motor X</span><strong id="motorXText">0.000</strong></div>
-        <div class="metric"><span>Motor Y</span><strong id="motorYText">0.000</strong></div>
+        <div class="metric"><span>Velocity X</span><strong id="motorXText">0.000</strong></div>
+        <div class="metric"><span>Velocity Y</span><strong id="motorYText">0.000</strong></div>
+        <div class="metric"><span>Speed Cmd</span><strong id="speedText">0.000</strong></div>
+        <div class="metric"><span>Turn Cmd</span><strong id="turnText">0.000</strong></div>
+        <div class="metric"><span>Food Visible</span><strong id="visibleText">0</strong></div>
+        <div class="metric"><span>Bearing</span><strong id="bearingText">0.000</strong></div>
         <div class="metric"><span>Active Neurons</span><strong id="activeText">0</strong></div>
         <div class="metric"><span>Step Spikes</span><strong id="stepSpikeText">0</strong></div>
         <div class="metric"><span>Synapses</span><strong id="synapseText">0</strong></div>
@@ -360,6 +370,7 @@ def render_html(
         <h2>World Legend</h2>
         <div><span class="swatch" style="background: var(--creature);"></span>Creature</div>
         <div><span class="swatch" style="background: var(--target);"></span>Current food target</div>
+        <div><span class="swatch" style="background: rgb(232 111 25 / 18%);"></span>Field of view</div>
         <div><span class="swatch" style="background: var(--path);"></span>Recent path</div>
         <div><span class="swatch" style="background: var(--start);"></span>Episode start</div>
       </div>
@@ -396,6 +407,7 @@ def render_html(
     const width = metadata.environment_width || 1;
     const height = metadata.environment_height || 1;
     const targetRadius = metadata.environment_target_radius || 0.075;
+    const fovRadians = (metadata.environment_fov_degrees || 120) * Math.PI / 180;
     const pad = 48;
     let index = 0;
     let playing = false;
@@ -408,6 +420,43 @@ def render_html(
     function sx(x) {{ return pad + (x / width) * (canvas.width - 2 * pad); }}
     function sy(y) {{ return canvas.height - pad - (y / height) * (canvas.height - 2 * pad); }}
     function sr(r) {{ return r * Math.min(canvas.width - 2 * pad, canvas.height - 2 * pad) / Math.max(width, height); }}
+
+    function drawFov(point) {{
+      const radius = Math.max(width, height) * 1.6;
+      const segments = 28;
+      ctx.fillStyle = point.target_visible ? "rgba(232, 111, 25, 0.18)" : "rgba(107, 114, 128, 0.10)";
+      ctx.strokeStyle = point.target_visible ? "rgba(232, 111, 25, 0.34)" : "rgba(107, 114, 128, 0.22)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx(point.x), sy(point.y));
+      for (let i = 0; i <= segments; i += 1) {{
+        const angle = point.heading - fovRadians / 2 + (fovRadians * i) / segments;
+        ctx.lineTo(sx(point.x + Math.cos(angle) * radius), sy(point.y + Math.sin(angle) * radius));
+      }}
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }}
+
+    function drawCreature(point) {{
+      const cx = sx(point.x);
+      const cy = sy(point.y);
+      const forwardX = Math.cos(point.heading);
+      const forwardY = -Math.sin(point.heading);
+      const sideX = -forwardY;
+      const sideY = forwardX;
+      const nose = 14;
+      const rear = 9;
+      const halfWidth = 8;
+
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.moveTo(cx + forwardX * nose, cy + forwardY * nose);
+      ctx.lineTo(cx - forwardX * rear + sideX * halfWidth, cy - forwardY * rear + sideY * halfWidth);
+      ctx.lineTo(cx - forwardX * rear - sideX * halfWidth, cy - forwardY * rear - sideY * halfWidth);
+      ctx.closePath();
+      ctx.fill();
+    }}
 
     function drawGrid() {{
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -585,6 +634,8 @@ def render_html(
       ctx.arc(sx(start.x), sy(start.y), 7, 0, Math.PI * 2);
       ctx.fill();
 
+      drawFov(point);
+
       ctx.strokeStyle = "#e86f19";
       ctx.fillStyle = "rgb(232 111 25 / 20%)";
       ctx.lineWidth = 2;
@@ -593,10 +644,7 @@ def render_html(
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = "#111827";
-      ctx.beginPath();
-      ctx.arc(sx(point.x), sy(point.y), 9, 0, Math.PI * 2);
-      ctx.fill();
+      drawCreature(point);
 
       const vx = point.motor_x;
       const vy = point.motor_y;
@@ -615,6 +663,10 @@ def render_html(
       document.getElementById("spikeText").textContent = String(point.cumulative_spikes);
       document.getElementById("motorXText").textContent = point.motor_x.toFixed(4);
       document.getElementById("motorYText").textContent = point.motor_y.toFixed(4);
+      document.getElementById("speedText").textContent = point.speed_command.toFixed(4);
+      document.getElementById("turnText").textContent = point.turn_command.toFixed(4);
+      document.getElementById("visibleText").textContent = point.target_visible ? "yes" : "no";
+      document.getElementById("bearingText").textContent = point.target_bearing.toFixed(4);
       drawBrain();
     }}
 

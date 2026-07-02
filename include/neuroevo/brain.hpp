@@ -18,6 +18,9 @@ struct BrainConfig {
     double reset_potential = 0.0;
     double refractory_time = 0.04;
     double input_gain = 25.0;
+    double synaptic_gain = 8.0;
+    bool seed_input_output_synapses = true;
+    double seed_input_output_weight = 1.6;
     double motor_trace_decay = 0.82;
     double conduction_speed = 1.5;
     double initial_connection_probability = 0.25;
@@ -26,9 +29,13 @@ struct BrainConfig {
 
 struct MutationConfig {
     double weight_sigma = 0.20;
-    double bias_sigma = 0.05;
+    double bias_sigma = 0.35;
     double threshold_sigma = 0.03;
     double position_sigma = 0.03;
+    double hidden_bias_min = -15.0;
+    double hidden_bias_max = 15.0;
+    double hidden_bias_jump_min_magnitude = 8.0;
+    double hidden_bias_jump_probability = 0.08;
     double add_synapse_probability = 0.08;
     double remove_synapse_probability = 0.04;
     double mutate_weight_probability = 0.12;
