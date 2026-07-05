@@ -10,6 +10,9 @@ add_library(neuroevo_core
     src/brain.cpp
     src/environment.cpp
     src/evolution.cpp
+    src/neat.cpp
+    src/nsga2.cpp
+    src/objectives.cpp
     src/sensorimotor.cpp
 )
 
@@ -33,3 +36,13 @@ add_executable(neuroevo_smoke tests/smoke.cpp)
 target_link_libraries(neuroevo_smoke PRIVATE neuroevo_core)
 
 add_test(NAME neuroevo_smoke COMMAND neuroevo_smoke)
+
+add_executable(neuroevo_neat_nsga2_tests tests/neat_nsga2.cpp)
+target_link_libraries(neuroevo_neat_nsga2_tests PRIVATE neuroevo_core)
+
+add_test(NAME neuroevo_neat_nsga2_tests COMMAND neuroevo_neat_nsga2_tests)
+
+add_executable(neuroevo_sensorimotor_tests tests/sensorimotor.cpp)
+target_link_libraries(neuroevo_sensorimotor_tests PRIVATE neuroevo_core)
+
+add_test(NAME neuroevo_sensorimotor_tests COMMAND neuroevo_sensorimotor_tests)

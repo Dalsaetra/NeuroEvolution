@@ -3,8 +3,45 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 namespace neuroevo {
+namespace {
+
+bool is_directional_fov_shape(const BrainConfig& config)
+{
+    return (config.input_count == 4 || config.input_count == 5) && config.output_count == 3;
+}
+
+bool is_clock_input(const BrainConfig& config, std::size_t node_id)
+{
+    return config.has_clock_input
+        && node_id == config.clock_input_index
+        && node_id < config.input_count;
+}
+
+bool is_directional_fov_seed_pair(const Brain& brain, std::size_t pre, std::size_t post)
+{
+    const std::size_t output = post - brain.config().input_count - brain.config().hidden_count;
+    return (pre == 0 && output == 0)
+        || (pre == 3 && output == 0)
+        || (pre == 1 && output == 1)
+        || (pre == 2 && output == 2);
+}
+
+double directional_fov_seed_weight(const Brain& brain, std::size_t, std::size_t post)
+{
+    const std::size_t output = post - brain.config().input_count - brain.config().hidden_count;
+    return brain.config().seed_input_output_weight * (output == 1 || output == 2 ? 2.0 : 1.0);
+}
+
+double random_synapse_weight(Random& rng)
+{
+    const double sign = rng.chance(0.82) ? 1.0 : -1.0;
+    return sign * std::exp(rng.normal(-0.25, 0.55));
+}
+
+} // namespace
 
 Brain::Brain(BrainConfig config) : config_(config)
 {
@@ -36,40 +73,72 @@ Brain Brain::random(BrainConfig config, Random& rng)
 
     const std::size_t total = brain.total_neurons();
     for (std::size_t pre = 0; pre < total; ++pre) {
-        if (brain.is_output(pre)) {
+        if (brain.is_output(pre) || is_clock_input(config, pre)) {
             continue;
         }
         for (std::size_t post = config.input_count; post < total; ++post) {
             if (pre == post || rng.chance(1.0 - config.initial_connection_probability)) {
                 continue;
             }
-            const double sign = rng.chance(0.82) ? 1.0 : -1.0;
-            const double magnitude = std::exp(rng.normal(-0.25, 0.55));
             Brain::Synapse synapse;
             synapse.pre = pre;
             synapse.post = post;
-            synapse.weight = sign * magnitude;
+            synapse.weight = random_synapse_weight(rng);
             synapse.delay_steps = brain.compute_delay_steps(brain.neurons_[pre].position, brain.neurons_[post].position);
             brain.synapses_.push_back(synapse);
         }
     }
 
     if (config.seed_input_output_synapses) {
+        const bool structured_directional_seed = is_directional_fov_shape(config);
         for (std::size_t pre = 0; pre < config.input_count; ++pre) {
+            if (is_clock_input(config, pre)) {
+                continue;
+            }
             for (std::size_t post = brain.first_output_index(); post < total; ++post) {
+                if (structured_directional_seed && !is_directional_fov_seed_pair(brain, pre, post)) {
+                    continue;
+                }
                 if (brain.synapse_exists(pre, post)) {
                     continue;
                 }
                 Brain::Synapse synapse;
                 synapse.pre = pre;
                 synapse.post = post;
-                synapse.weight = config.seed_input_output_weight;
+                synapse.weight = structured_directional_seed
+                    ? directional_fov_seed_weight(brain, pre, post)
+                    : config.seed_input_output_weight;
                 synapse.delay_steps = brain.compute_delay_steps(brain.neurons_[pre].position, brain.neurons_[post].position);
                 brain.synapses_.push_back(synapse);
             }
         }
     }
 
+    brain.ensure_io_connectivity(rng);
+    brain.rebuild_runtime_state();
+    return brain;
+}
+
+Brain Brain::from_components(
+    BrainConfig config,
+    std::vector<Neuron> neurons,
+    std::vector<Synapse> synapses)
+{
+    Brain brain(config);
+    if (neurons.size() != brain.total_neurons()) {
+        throw std::invalid_argument("Brain::from_components neuron count does not match BrainConfig");
+    }
+
+    brain.neurons_ = std::move(neurons);
+    brain.synapses_ = std::move(synapses);
+    for (auto& synapse : brain.synapses_) {
+        if (synapse.pre >= brain.neurons_.size() || synapse.post >= brain.neurons_.size()) {
+            throw std::invalid_argument("Brain::from_components synapse endpoint is out of range");
+        }
+        synapse.delay_steps = brain.compute_delay_steps(
+            brain.neurons_[synapse.pre].position,
+            brain.neurons_[synapse.post].position);
+    }
     brain.rebuild_runtime_state();
     return brain;
 }
@@ -194,6 +263,18 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
         add_random_synapse(rng);
     }
 
+    if (config_.has_clock_input
+        && config_.clock_input_index < config_.input_count
+        && rng.chance(config.mutate_clock_threshold_probability)) {
+        auto& clock = neurons_[config_.clock_input_index];
+        clock.threshold = std::clamp(
+            clock.threshold + rng.normal(0.0, config.clock_threshold_sigma),
+            config.clock_threshold_min,
+            config.clock_threshold_max);
+    }
+
+    ensure_io_connectivity(rng);
+
     for (auto& synapse : synapses_) {
         synapse.delay_steps = compute_delay_steps(neurons_[synapse.pre].position, neurons_[synapse.post].position);
     }
@@ -251,18 +332,76 @@ void Brain::add_random_synapse(Random& rng)
     for (std::size_t attempt = 0; attempt < max_attempts; ++attempt) {
         const std::size_t pre = rng.uniform_index(total_neurons());
         const std::size_t post = config_.input_count + rng.uniform_index(total_neurons() - config_.input_count);
-        if (pre == post || is_output(pre) || synapse_exists(pre, post)) {
+        if (pre == post
+            || is_output(pre)
+            || (is_clock_input(config_, pre) && is_output(post))
+            || synapse_exists(pre, post)) {
             continue;
         }
 
-        const double sign = rng.chance(0.82) ? 1.0 : -1.0;
         Synapse synapse;
         synapse.pre = pre;
         synapse.post = post;
-        synapse.weight = sign * std::exp(rng.normal(-0.25, 0.55));
+        synapse.weight = random_synapse_weight(rng);
         synapse.delay_steps = compute_delay_steps(neurons_[pre].position, neurons_[post].position);
         synapses_.push_back(synapse);
         return;
+    }
+}
+
+void Brain::ensure_io_connectivity(Random& rng)
+{
+    auto add_synapse = [&](std::size_t pre, std::size_t post) {
+        if (pre == post || pre >= total_neurons() || post >= total_neurons() || synapse_exists(pre, post)) {
+            return;
+        }
+
+        Synapse synapse;
+        synapse.pre = pre;
+        synapse.post = post;
+        synapse.weight = random_synapse_weight(rng);
+        if (is_directional_fov_shape(config_) && is_directional_fov_seed_pair(*this, pre, post)) {
+            synapse.weight = directional_fov_seed_weight(*this, pre, post);
+        }
+        synapse.delay_steps = compute_delay_steps(neurons_[pre].position, neurons_[post].position);
+        synapses_.push_back(synapse);
+    };
+
+    for (std::size_t input = 0; input < config_.input_count; ++input) {
+        if (is_clock_input(config_, input)) {
+            continue;
+        }
+        const bool has_outgoing = std::any_of(synapses_.begin(), synapses_.end(), [&](const Synapse& synapse) {
+            return synapse.pre == input;
+        });
+        if (has_outgoing) {
+            continue;
+        }
+
+        const std::size_t output = first_output_index() + rng.uniform_index(config_.output_count);
+        add_synapse(input, output);
+    }
+
+    for (std::size_t output = first_output_index(); output < total_neurons(); ++output) {
+        const bool has_incoming = std::any_of(synapses_.begin(), synapses_.end(), [&](const Synapse& synapse) {
+            return synapse.post == output;
+        });
+        if (has_incoming) {
+            continue;
+        }
+
+        std::vector<std::size_t> sensory_inputs;
+        sensory_inputs.reserve(config_.input_count);
+        for (std::size_t input = 0; input < config_.input_count; ++input) {
+            if (!is_clock_input(config_, input)) {
+                sensory_inputs.push_back(input);
+            }
+        }
+        if (sensory_inputs.empty()) {
+            continue;
+        }
+        const std::size_t input = sensory_inputs[rng.uniform_index(sensory_inputs.size())];
+        add_synapse(input, output);
     }
 }
 

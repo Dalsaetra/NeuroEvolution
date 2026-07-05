@@ -1,0 +1,59 @@
+{
+  "name": "fitness_search_example",
+  "output_dir": "runs/searches/fitness_search_example",
+  "executable": "build/neuroevo_sim.exe",
+  "base_args": {
+    "generations": 30,
+    "population": 48,
+    "steps": 350,
+    "trials": 2,
+    "record-trials": 8,
+    "sensorimotor": "directional-fov"
+  },
+  "seeds": [101, 102],
+  "objective": {
+    "metric": "best_foods_collected",
+    "mode": "max"
+  },
+  "search_seed": 12345,
+  "startup_trials": 8,
+  "tpe_quantile": 0.25,
+  "parameters": {
+    "distance-reward": {
+      "type": "float",
+      "min": 4.0,
+      "max": 12.0,
+      "steps": 3,
+      "grid": [8.0, 4.0, 12.0]
+    },
+    "visibility-reward": {
+      "type": "float",
+      "min": 0.0,
+      "max": 0.001,
+      "steps": 3,
+      "grid": [0.001, 0.0, 0.0005]
+    },
+    "inactivity-penalty": {
+      "type": "float",
+      "min": 0.0001,
+      "max": 0.001,
+      "scale": "log",
+      "steps": 3,
+      "grid": [0.0005, 0.0001, 0.001]
+    },
+    "synaptic-gain": {
+      "type": "float",
+      "min": 4.0,
+      "max": 12.0,
+      "steps": 3,
+      "grid": [8.0, 4.0, 12.0]
+    },
+    "seed-io-weight": {
+      "type": "float",
+      "min": 0.8,
+      "max": 2.4,
+      "steps": 3,
+      "grid": [1.6, 0.8, 2.4]
+    }
+  }
+}

@@ -12,6 +12,23 @@ namespace {
 
 constexpr double pi = 3.14159265358979323846;
 
+std::vector<double> brain_inputs_with_optional_clock(
+    const SensoryState& sensory,
+    const BrainConfig& brain_config,
+    const EnvironmentConfig& environment_config)
+{
+    std::vector<double> inputs = sensory.inputs;
+    if (environment_config.clock_input_enabled && inputs.size() + 1 == brain_config.input_count) {
+        inputs.push_back(std::clamp(environment_config.clock_input_value, 0.0, 1.0));
+    }
+
+    if (inputs.size() != brain_config.input_count) {
+        throw std::invalid_argument("Environment sensory input count does not match BrainConfig::input_count");
+    }
+
+    return inputs;
+}
+
 } // namespace
 
 Environment::Environment(EnvironmentConfig config) : config_(config) {}
@@ -26,12 +43,15 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
     Vec2 target = random_target_away_from(agent.position, rng);
     double previous_distance = length(target - agent.position);
     double closest_distance_to_target = previous_distance;
+    double accumulated_turn_effort = 0.0;
+    double accumulated_stillness = 0.0;
     const double world_diagonal = length({config_.width, config_.height});
     const double fov_radians = config_.fov_degrees * pi / 180.0;
     if (config_.sensorimotor_regime == SensorimotorRegimeKind::DirectionalFov) {
         const Vec2 initial_delta = target - agent.position;
         const double target_heading = std::atan2(initial_delta.y, initial_delta.x);
-        agent.heading_radians = normalize_angle(target_heading + rng.uniform(-0.25 * fov_radians, 0.25 * fov_radians));
+        const double max_initial_offset = 0.5 * fov_radians * std::clamp(config_.initial_heading_fov_fraction, 0.0, 1.0);
+        agent.heading_radians = normalize_angle(target_heading + rng.uniform(-max_initial_offset, max_initial_offset));
     }
 
     if (record_trajectory) {
@@ -56,6 +76,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
             target,
             world_diagonal,
             fov_radians);
+        const std::vector<double> brain_inputs = brain_inputs_with_optional_clock(sensory, brain.config(), config_);
 
         std::vector<double> motors(brain.config().output_count, 0.0);
         std::vector<bool> neuron_spiked;
@@ -65,7 +86,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
             synapse_fired.assign(brain.synapses().size(), false);
         }
         for (std::size_t substep = 0; substep < config_.brain_steps_per_env_step; ++substep) {
-            BrainStepResult step_result = brain.step(sensory.inputs);
+            BrainStepResult step_result = brain.step(brain_inputs);
             result.spikes += step_result.spikes;
             motors = step_result.motor_outputs;
             if (record_trajectory) {
@@ -105,8 +126,8 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
             const double speed_gate = std::clamp(command.speed_command, 0.0, 1.0);
             result.reward += config_.visibility_reward_scale * centered * speed_gate;
         }
-        result.penalty += config_.turn_penalty * std::abs(command.turn_command);
-        result.penalty += config_.inactivity_penalty * (1.0 - std::clamp(command.speed_command, 0.0, 1.0));
+        accumulated_turn_effort += std::abs(command.turn_command);
+        accumulated_stillness += 1.0 - std::clamp(command.speed_command, 0.0, 1.0);
 
         double recorded_distance = distance;
         if (distance <= config_.target_radius) {
@@ -175,11 +196,20 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
 
     const double final_distance = previous_distance / std::max(0.001, world_diagonal);
     const BrainStats stats = brain.stats();
+    const double turn_budget = config_.turn_budget_per_step * static_cast<double>(config_.episode_steps);
+    const double inactivity_budget = config_.inactivity_budget_per_step * static_cast<double>(config_.episode_steps);
+    const double brain_steps = static_cast<double>(config_.episode_steps * config_.brain_steps_per_env_step);
+    const double spike_budget = config_.spike_budget_per_neuron_per_brain_step
+        * static_cast<double>(stats.neuron_count)
+        * brain_steps;
+    const double synapse_excess = std::max(0.0, static_cast<double>(stats.synapse_count) - config_.synapse_budget);
+    const double neuron_excess = std::max(0.0, static_cast<double>(stats.neuron_count) - config_.neuron_budget);
     result.penalty = config_.final_distance_penalty * final_distance
-        + result.penalty
-        + config_.spike_penalty * static_cast<double>(result.spikes)
-        + config_.synapse_penalty * static_cast<double>(stats.synapse_count)
-        + config_.neuron_penalty * static_cast<double>(stats.neuron_count);
+        + config_.turn_penalty * std::max(0.0, accumulated_turn_effort - turn_budget)
+        + config_.inactivity_penalty * std::max(0.0, accumulated_stillness - inactivity_budget)
+        + config_.spike_penalty * std::max(0.0, static_cast<double>(result.spikes) - spike_budget)
+        + config_.synapse_penalty * synapse_excess
+        + config_.neuron_penalty * neuron_excess;
     result.fitness = result.reward - result.penalty;
 
     return result;

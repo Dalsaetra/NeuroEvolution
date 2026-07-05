@@ -156,7 +156,7 @@ MotorCommand decode_motor_command(
         const double turn_left = motors.size() > 1 ? motors[1] : 0.0;
         const double turn_right = motors.size() > 2 ? motors[2] : 0.0;
         const double speed_command = std::tanh(motor_gain * speed_output);
-        const double turn_command = std::tanh(motor_gain * (turn_right - turn_left));
+        const double turn_command = std::tanh(motor_gain * (turn_left - turn_right));
         const double updated_heading = normalize_angle(heading_radians + turn_command * max_turn_rate * env_dt);
         const Vec2 velocity = heading_vector(updated_heading) * (std::max(0.0, speed_command) * max_speed);
         return {velocity, updated_heading, speed_command, turn_command};

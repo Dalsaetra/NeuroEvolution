@@ -20,7 +20,9 @@ struct BrainConfig {
     double input_gain = 25.0;
     double synaptic_gain = 8.0;
     bool seed_input_output_synapses = true;
-    double seed_input_output_weight = 1.6;
+    double seed_input_output_weight = 3.0;
+    bool has_clock_input = false;
+    std::size_t clock_input_index = 0;
     double motor_trace_decay = 0.82;
     double conduction_speed = 1.5;
     double initial_connection_probability = 0.25;
@@ -36,10 +38,14 @@ struct MutationConfig {
     double hidden_bias_max = 15.0;
     double hidden_bias_jump_min_magnitude = 8.0;
     double hidden_bias_jump_probability = 0.08;
-    double add_synapse_probability = 0.08;
+    double add_synapse_probability = 0.24;
     double remove_synapse_probability = 0.04;
     double mutate_weight_probability = 0.12;
     double mutate_neuron_probability = 0.08;
+    double mutate_clock_threshold_probability = 0.08;
+    double clock_threshold_sigma = 0.08;
+    double clock_threshold_min = 0.2;
+    double clock_threshold_max = 5.0;
 };
 
 struct BrainStepResult {
@@ -74,6 +80,10 @@ public:
     explicit Brain(BrainConfig config);
 
     static Brain random(BrainConfig config, Random& rng);
+    static Brain from_components(
+        BrainConfig config,
+        std::vector<Neuron> neurons,
+        std::vector<Synapse> synapses);
 
     void reset_state();
     BrainStepResult step(const std::vector<double>& inputs);
@@ -103,6 +113,7 @@ private:
     std::size_t compute_delay_steps(Vec2 pre, Vec2 post) const noexcept;
     void rebuild_runtime_state();
     void add_random_synapse(Random& rng);
+    void ensure_io_connectivity(Random& rng);
 };
 
 } // namespace neuroevo

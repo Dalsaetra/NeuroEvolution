@@ -21,6 +21,9 @@ struct EnvironmentConfig {
     double max_turn_rate = 3.14159265358979323846;
     double motor_gain = 8.0;
     double fov_degrees = 120.0;
+    double initial_heading_fov_fraction = 0.90;
+    bool clock_input_enabled = true;
+    double clock_input_value = 1.0;
     double env_dt = 0.08;
     std::size_t episode_steps = 600;
     std::size_t brain_steps_per_env_step = 4;
@@ -32,8 +35,13 @@ struct EnvironmentConfig {
     double spike_penalty = 0.00005;
     double synapse_penalty = 0.002;
     double neuron_penalty = 0.001;
-    double turn_penalty = 0.001;
+    double turn_penalty = 0.0001;
     double inactivity_penalty = 0.0005;
+    double turn_budget_per_step = 0.25;
+    double inactivity_budget_per_step = 0.50;
+    double spike_budget_per_neuron_per_brain_step = 0.02;
+    double synapse_budget = 64.0;
+    double neuron_budget = 64.0;
 };
 
 struct TrajectoryPoint {
