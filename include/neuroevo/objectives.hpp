@@ -34,6 +34,7 @@ struct EvaluationMetrics {
     double raw_reward = 0.0;
     double raw_penalty = 0.0;
     double raw_foods_collected = 0.0;
+    double raw_occluded_foods_collected = 0.0;
     double raw_spikes = 0.0;
     double raw_steps_used = 0.0;
     double mean_spike_rate = 0.0;

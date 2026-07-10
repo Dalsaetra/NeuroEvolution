@@ -1,8 +1,10 @@
 #pragma once
 
 #include "neuroevo/brain.hpp"
+#include "neuroevo/fitness.hpp"
 #include "neuroevo/random.hpp"
 #include "neuroevo/sensorimotor.hpp"
+#include "neuroevo/task.hpp"
 #include "neuroevo/vector2.hpp"
 
 #include <cstddef>
@@ -13,6 +15,8 @@ namespace neuroevo {
 
 struct EnvironmentConfig {
     SensorimotorRegimeKind sensorimotor_regime = SensorimotorRegimeKind::DirectionalFov;
+    TaskConfig task;
+    FitnessConfig fitness;
     double width = 1.0;
     double height = 1.0;
     double target_radius = 0.075;
@@ -22,16 +26,14 @@ struct EnvironmentConfig {
     double motor_gain = 8.0;
     double fov_degrees = 120.0;
     double initial_heading_fov_fraction = 0.90;
-    bool clock_input_enabled = true;
+    bool clock_input_enabled = false;
     double clock_input_value = 1.0;
+    bool episode_start_input_enabled = true;
+    std::size_t episode_start_pulse_brain_steps = 2;
     double env_dt = 0.08;
     std::size_t episode_steps = 600;
     std::size_t brain_steps_per_env_step = 4;
     double food_reward = 10.0;
-    double progress_reward_scale = 3.0;
-    double distance_improvement_reward_scale = 8.0;
-    double visibility_reward_scale = 0.001;
-    double final_distance_penalty = 0.5;
     double spike_penalty = 0.00005;
     double synapse_penalty = 0.002;
     double neuron_penalty = 0.001;
@@ -55,7 +57,9 @@ struct TrajectoryPoint {
     double speed_command = 0.0;
     double turn_command = 0.0;
     bool target_visible = true;
+    bool target_sensory_available = true;
     double target_bearing = 0.0;
+    std::string task_phase;
     std::size_t cumulative_spikes = 0;
     std::size_t foods_collected = 0;
 };
@@ -68,6 +72,7 @@ struct BrainActivityPoint {
     double bias = 0.0;
     double potential = 0.0;
     double threshold = 1.0;
+    double background_sensitivity = 0.0;
     double activation = 0.0;
     bool spiked = false;
 };
@@ -91,6 +96,7 @@ struct EvaluationResult {
     double penalty = 0.0;
     double spikes = 0.0;
     double foods_collected = 0.0;
+    double occluded_foods_collected = 0.0;
     std::vector<TrajectoryPoint> trajectory;
     std::vector<BrainActivityPoint> brain_activity;
     std::vector<BrainSynapsePoint> brain_synapses;
@@ -106,9 +112,6 @@ public:
 
 private:
     EnvironmentConfig config_;
-
-    Vec2 random_position(Random& rng) const;
-    Vec2 random_target_away_from(Vec2 position, Random& rng) const;
 };
 
 void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryPoint>& trajectory);

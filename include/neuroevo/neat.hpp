@@ -23,6 +23,7 @@ struct NodeGene {
     Vec2 position;
     double bias = 0.0;
     double threshold = 1.0;
+    double background_sensitivity = 0.0;
 };
 
 struct ConnectionGene {
@@ -90,12 +91,16 @@ struct NeatMutationConfig {
     double clock_threshold_min = 0.2;
     double clock_threshold_max = 5.0;
     double position_sigma = 0.03;
+    double background_sensitivity_sigma = 0.08;
+    double background_sensitivity_min = 0.0;
+    double background_sensitivity_max = 2.0;
     double hidden_bias_min = -15.0;
     double hidden_bias_max = 15.0;
     double hidden_bias_jump_min_magnitude = 8.0;
-    double hidden_bias_jump_probability = 0.04;
+    double hidden_bias_jump_probability = 0.0;
     double add_node_probability = 0.03;
     double add_connection_probability = 0.16;
+    double add_reciprocal_motif_probability = 0.06;
     double enable_disable_probability = 0.02;
     double disabled_gene_inheritance_probability = 0.75;
     double crossover_probability = 0.75;
@@ -155,6 +160,11 @@ bool mutate_add_connection(
     Genome& genome,
     const BrainConfig& brain_config,
     const NeatMutationConfig& mutation_config,
+    InnovationTracker& innovation_tracker,
+    Random& rng);
+bool mutate_add_reciprocal_motif(
+    Genome& genome,
+    const BrainConfig& brain_config,
     InnovationTracker& innovation_tracker,
     Random& rng);
 void repair_io_connectivity(

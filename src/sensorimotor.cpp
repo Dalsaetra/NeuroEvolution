@@ -79,7 +79,8 @@ SensoryState sense_target(
     AgentState agent,
     Vec2 target,
     double world_diagonal,
-    double fov_radians)
+    double fov_radians,
+    bool target_sensory_available)
 {
     const Vec2 delta = target - agent.position;
     const double distance = length(delta);
@@ -91,6 +92,9 @@ SensoryState sense_target(
     case SensorimotorRegimeKind::TargetVector: {
         const double normalized_dx = distance > 0.001 ? std::clamp(delta.x / distance, -1.0, 1.0) : 0.0;
         const double normalized_dy = distance > 0.001 ? std::clamp(delta.y / distance, -1.0, 1.0) : 0.0;
+        if (!target_sensory_available) {
+            return {{0.0, 0.0, 0.0, 0.0, 0.0}, false, bearing, distance};
+        }
         return {
             {
                 std::max(0.0, normalized_dx),
@@ -106,7 +110,7 @@ SensoryState sense_target(
     }
     case SensorimotorRegimeKind::DirectionalFov: {
         const double half_fov = std::max(0.001, fov_radians * 0.5);
-        const bool visible = std::abs(bearing) <= half_fov;
+        const bool visible = target_sensory_available && std::abs(bearing) <= half_fov;
         const double normalized_bearing = visible ? std::clamp(bearing / half_fov, -1.0, 1.0) : 0.0;
         return {
             {

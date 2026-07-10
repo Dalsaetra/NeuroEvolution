@@ -25,6 +25,9 @@ public:
 
     double normal(double mean, double stddev)
     {
+        if (stddev <= 0.0) {
+            return mean;
+        }
         std::normal_distribution<double> dist(mean, stddev);
         return dist(engine_);
     }
@@ -33,6 +36,11 @@ public:
     {
         const double clipped = std::clamp(probability, 0.0, 1.0);
         return uniform(0.0, 1.0) < clipped;
+    }
+
+    std::uint64_t next_u64()
+    {
+        return engine_();
     }
 
 private:

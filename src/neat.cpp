@@ -30,7 +30,12 @@ double random_weight(Random& rng)
 
 bool is_directional_fov_shape(const BrainConfig& config)
 {
-    return (config.input_count == 4 || config.input_count == 5) && config.output_count == 3;
+    const std::size_t auxiliary_count = (config.has_clock_input ? 1 : 0)
+        + (config.has_episode_start_input ? 1 : 0);
+    const std::size_t sensory_count = config.sensory_input_count > 0
+        ? config.sensory_input_count
+        : config.input_count - std::min(config.input_count, auxiliary_count);
+    return sensory_count == 4 && config.output_count == 3;
 }
 
 bool is_clock_input(const BrainConfig& config, std::size_t node_id)
@@ -38,6 +43,18 @@ bool is_clock_input(const BrainConfig& config, std::size_t node_id)
     return config.has_clock_input
         && node_id == config.clock_input_index
         && node_id < config.input_count;
+}
+
+bool is_episode_start_input(const BrainConfig& config, std::size_t node_id)
+{
+    return config.has_episode_start_input
+        && node_id == config.episode_start_input_index
+        && node_id < config.input_count;
+}
+
+bool is_auxiliary_input(const BrainConfig& config, std::size_t node_id)
+{
+    return is_clock_input(config, node_id) || is_episode_start_input(config, node_id);
 }
 
 bool is_directional_fov_seed_pair(
@@ -187,7 +204,7 @@ void ensure_connection(
     if (source.id == target.id
         || source.kind == NodeKind::Output
         || target.kind == NodeKind::Input
-        || (is_clock_input(brain_config, source.id) && target.kind == NodeKind::Output)) {
+        || (is_auxiliary_input(brain_config, source.id) && target.kind == NodeKind::Output)) {
         return;
     }
 
@@ -250,6 +267,15 @@ Brain Genome::to_brain(BrainConfig config) const
         neuron.position = gene.position;
         neuron.bias = gene.kind == NodeKind::Hidden ? gene.bias : 0.0;
         neuron.threshold = std::max(0.2, gene.threshold);
+        neuron.background_sensitivity = gene.background_sensitivity;
+        if (gene.kind == NodeKind::Hidden) {
+            neuron.bias = clamp_subthreshold_bias(
+                neuron.bias,
+                neuron.threshold,
+                config.membrane_tau,
+                config.max_bias_fraction_of_threshold,
+                -15.0);
+        }
         neurons[index] = neuron;
         index_by_node_id[gene.id] = index;
     };
@@ -511,6 +537,11 @@ Genome make_minimal_genome(
             {0.05, 0.1 + 0.8 * t},
             0.0,
             std::max(0.2, brain_config.threshold + rng.normal(0.0, 0.08)),
+            std::clamp(
+                brain_config.initial_background_sensitivity
+                    + rng.normal(0.0, brain_config.initial_background_sensitivity_sigma),
+                0.0,
+                2.0),
         });
     }
 
@@ -523,6 +554,11 @@ Genome make_minimal_genome(
             {0.95, 0.1 + 0.8 * t},
             0.0,
             std::max(0.2, brain_config.threshold + rng.normal(0.0, 0.08)),
+            std::clamp(
+                brain_config.initial_background_sensitivity
+                    + rng.normal(0.0, brain_config.initial_background_sensitivity_sigma),
+                0.0,
+                2.0),
         });
     }
 
@@ -533,6 +569,11 @@ Genome make_minimal_genome(
             {rng.uniform(0.25, 0.75), rng.uniform(0.05, 0.95)},
             rng.normal(0.0, 0.05),
             std::max(0.2, brain_config.threshold + rng.normal(0.0, 0.08)),
+            std::clamp(
+                brain_config.initial_background_sensitivity
+                    + rng.normal(0.0, brain_config.initial_background_sensitivity_sigma),
+                0.0,
+                2.0),
         });
     }
 
@@ -546,7 +587,7 @@ Genome make_minimal_genome(
         for (const auto& target : genome.nodes) {
             if (target.kind == NodeKind::Input
                 || source.id == target.id
-                || is_clock_input(brain_config, source.id)) {
+                || (is_auxiliary_input(brain_config, source.id) && target.kind == NodeKind::Output)) {
                 continue;
             }
 
@@ -632,6 +673,7 @@ bool mutate_add_node(Genome& genome, InnovationTracker& innovation_tracker, Rand
             },
             0.0,
             std::max(0.2, (source.threshold + target.threshold) * 0.5),
+            (source.background_sensitivity + target.background_sensitivity) * 0.5,
         });
     }
 
@@ -679,7 +721,7 @@ bool mutate_add_connection(
         for (const auto& target : genome.nodes) {
             if (target.kind == NodeKind::Input
                 || source.id == target.id
-                || (is_clock_input(brain_config, source.id) && target.kind == NodeKind::Output)
+                || (is_auxiliary_input(brain_config, source.id) && target.kind == NodeKind::Output)
                 || genome.has_connection(source.id, target.id)) {
                 continue;
             }
@@ -704,6 +746,50 @@ bool mutate_add_connection(
     return true;
 }
 
+bool mutate_add_reciprocal_motif(
+    Genome& genome,
+    const BrainConfig& brain_config,
+    InnovationTracker& innovation_tracker,
+    Random& rng)
+{
+    std::vector<std::pair<std::size_t, std::size_t>> candidates;
+    for (std::size_t i = 0; i < genome.nodes.size(); ++i) {
+        if (genome.nodes[i].kind != NodeKind::Hidden) {
+            continue;
+        }
+        for (std::size_t j = i + 1; j < genome.nodes.size(); ++j) {
+            if (genome.nodes[j].kind != NodeKind::Hidden) {
+                continue;
+            }
+            const ConnectionGene* forward = nullptr;
+            const ConnectionGene* reverse = nullptr;
+            for (const auto& connection : genome.connections) {
+                if (connection.source_node_id == genome.nodes[i].id && connection.target_node_id == genome.nodes[j].id) {
+                    forward = &connection;
+                }
+                if (connection.source_node_id == genome.nodes[j].id && connection.target_node_id == genome.nodes[i].id) {
+                    reverse = &connection;
+                }
+            }
+            if (forward == nullptr || reverse == nullptr || !forward->enabled || !reverse->enabled) {
+                candidates.emplace_back(genome.nodes[i].id, genome.nodes[j].id);
+            }
+        }
+    }
+
+    if (candidates.empty()) {
+        return false;
+    }
+
+    const auto [first_id, second_id] = candidates[rng.uniform_index(candidates.size())];
+    const NodeGene& first = require_node(genome, first_id);
+    const NodeGene& second = require_node(genome, second_id);
+    ensure_connection(genome, brain_config, first, second, innovation_tracker, rng);
+    ensure_connection(genome, brain_config, second, first, innovation_tracker, rng);
+    sort_genes(genome);
+    return true;
+}
+
 void repair_io_connectivity(
     Genome& genome,
     const BrainConfig& brain_config,
@@ -712,7 +798,7 @@ void repair_io_connectivity(
 {
     for (const auto& node : genome.nodes) {
         if (node.kind != NodeKind::Input
-            || is_clock_input(brain_config, node.id)
+            || is_auxiliary_input(brain_config, node.id)
             || has_enabled_outgoing(genome, node.id)) {
             continue;
         }
@@ -754,7 +840,7 @@ void repair_io_connectivity(
         if (!repaired) {
             const NodeGene* source = nullptr;
             for (const auto& candidate : genome.nodes) {
-                if (candidate.kind == NodeKind::Input && !is_clock_input(brain_config, candidate.id)) {
+                if (candidate.kind == NodeKind::Input && !is_auxiliary_input(brain_config, candidate.id)) {
                     source = &candidate;
                     break;
                 }
@@ -793,6 +879,11 @@ void mutate_genome(
             continue;
         }
 
+        node.background_sensitivity = std::clamp(
+            node.background_sensitivity + rng.normal(0.0, mutation_config.background_sensitivity_sigma),
+            mutation_config.background_sensitivity_min,
+            mutation_config.background_sensitivity_max);
+
         if (node.kind == NodeKind::Input) {
             if (is_clock_input(brain_config, node.id)) {
                 node.threshold = std::clamp(
@@ -822,6 +913,14 @@ void mutate_genome(
         }
 
         node.threshold = std::clamp(node.threshold + rng.normal(0.0, mutation_config.threshold_sigma), 0.2, 3.0);
+        if (node.kind == NodeKind::Hidden) {
+            node.bias = clamp_subthreshold_bias(
+                node.bias,
+                node.threshold,
+                brain_config.membrane_tau,
+                brain_config.max_bias_fraction_of_threshold,
+                mutation_config.hidden_bias_min);
+        }
     }
 
     if (rng.chance(mutation_config.add_connection_probability)) {
@@ -829,6 +928,9 @@ void mutate_genome(
     }
     if (rng.chance(mutation_config.add_node_probability)) {
         mutate_add_node(genome, innovation_tracker, rng);
+    }
+    if (rng.chance(mutation_config.add_reciprocal_motif_probability)) {
+        mutate_add_reciprocal_motif(genome, brain_config, innovation_tracker, rng);
     }
     if (!genome.connections.empty() && rng.chance(mutation_config.enable_disable_probability)) {
         auto& connection = genome.connections[rng.uniform_index(genome.connections.size())];

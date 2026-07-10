@@ -304,11 +304,13 @@ void write_solution_metrics_csv(
     output << "neuron_count_norm," << genome.metrics.neuron_count_norm << '\n';
     output << "time_cost_norm," << genome.metrics.time_cost_norm << '\n';
     output << "raw_foods," << genome.metrics.raw_foods_collected << '\n';
+    output << "raw_occluded_foods," << genome.metrics.raw_occluded_foods_collected << '\n';
     output << "raw_fitness," << genome.metrics.raw_fitness << '\n';
     output << "raw_reward," << genome.metrics.raw_reward << '\n';
     output << "raw_penalty," << genome.metrics.raw_penalty << '\n';
     output << "raw_spikes," << genome.metrics.raw_spikes << '\n';
     output << "recorded_foods," << recorded.foods_collected << '\n';
+    output << "recorded_occluded_foods," << recorded.occluded_foods_collected << '\n';
     output << "recorded_fitness," << recorded.fitness << '\n';
     output << "recorded_spikes," << recorded.spikes << '\n';
     output << "neurons," << genome.nodes.size() << '\n';
@@ -346,10 +348,17 @@ EvolutionRunner::EvolutionRunner(EvolutionConfig config)
     : config_(config), rng_(config.seed), environment_(config.environment)
 {
     const SensorimotorSpec spec = sensorimotor_spec(config_.environment.sensorimotor_regime);
-    config_.brain.input_count = spec.input_count + (config_.environment.clock_input_enabled ? 1 : 0);
+    config_.brain.sensory_input_count = spec.input_count;
+    config_.brain.input_count = spec.input_count
+        + (config_.environment.clock_input_enabled ? 1 : 0)
+        + (config_.environment.episode_start_input_enabled ? 1 : 0);
     config_.brain.output_count = spec.output_count;
     config_.brain.has_clock_input = config_.environment.clock_input_enabled;
     config_.brain.clock_input_index = config_.environment.clock_input_enabled ? spec.input_count : 0;
+    config_.brain.has_episode_start_input = config_.environment.episode_start_input_enabled;
+    config_.brain.episode_start_input_index = config_.environment.episode_start_input_enabled
+        ? spec.input_count + (config_.environment.clock_input_enabled ? 1 : 0)
+        : 0;
 
     if (config_.population_size == 0) {
         throw std::invalid_argument("population_size must be greater than zero");
@@ -616,7 +625,7 @@ void EvolutionRunner::write_neat_pareto_front_recordings(
 
     manifest << "solution_index,genome_id,species_id,pareto_rank,crowding_distance,"
                 "task_score_norm,spike_energy_norm,synapse_count_norm,neuron_count_norm,time_cost_norm,"
-                "raw_foods,raw_fitness,raw_spikes,recorded_foods,recorded_fitness,recorded_spikes,"
+                "raw_foods,raw_occluded_foods,raw_fitness,raw_spikes,recorded_foods,recorded_occluded_foods,recorded_fitness,recorded_spikes,"
                 "neurons,hidden_nodes,enabled_synapses,disabled_synapses,clock_input_threshold,trajectory_dir\n";
     manifest << std::setprecision(10);
 
@@ -657,9 +666,11 @@ void EvolutionRunner::write_neat_pareto_front_recordings(
                  << genome.metrics.neuron_count_norm << ','
                  << genome.metrics.time_cost_norm << ','
                  << genome.metrics.raw_foods_collected << ','
+                 << genome.metrics.raw_occluded_foods_collected << ','
                  << genome.metrics.raw_fitness << ','
                  << genome.metrics.raw_spikes << ','
                  << best_recorded_life.foods_collected << ','
+                 << best_recorded_life.occluded_foods_collected << ','
                  << best_recorded_life.fitness << ','
                  << best_recorded_life.spikes << ','
                  << genome.nodes.size() << ','
@@ -685,6 +696,7 @@ std::vector<EvolutionRunner::ScoredGenome> EvolutionRunner::evaluate_population(
             aggregate.penalty += trial_result.penalty;
             aggregate.spikes += trial_result.spikes;
             aggregate.foods_collected += trial_result.foods_collected;
+            aggregate.occluded_foods_collected += trial_result.occluded_foods_collected;
         }
 
         const double trials = static_cast<double>(config_.trials_per_genome);
@@ -693,6 +705,7 @@ std::vector<EvolutionRunner::ScoredGenome> EvolutionRunner::evaluate_population(
         aggregate.penalty /= trials;
         aggregate.spikes /= trials;
         aggregate.foods_collected /= trials;
+        aggregate.occluded_foods_collected /= trials;
         scored.push_back({brain, aggregate});
     }
 
@@ -711,6 +724,7 @@ void EvolutionRunner::evaluate_neat_population(std::vector<Genome>& population)
             aggregate.penalty += trial_result.penalty;
             aggregate.spikes += trial_result.spikes;
             aggregate.foods_collected += trial_result.foods_collected;
+            aggregate.occluded_foods_collected += trial_result.occluded_foods_collected;
         }
 
         const double trials = static_cast<double>(config_.trials_per_genome);
@@ -719,6 +733,7 @@ void EvolutionRunner::evaluate_neat_population(std::vector<Genome>& population)
         aggregate.penalty /= trials;
         aggregate.spikes /= trials;
         aggregate.foods_collected /= trials;
+        aggregate.occluded_foods_collected /= trials;
 
         genome.metrics = make_evaluation_metrics(
             aggregate,
@@ -765,6 +780,7 @@ GenerationStats EvolutionRunner::summarize(std::size_t generation, const std::ve
     stats.best_spikes = scored.front().evaluation.spikes;
     stats.best_synapses = scored.front().brain.stats().synapse_count;
     stats.best_foods_collected = scored.front().evaluation.foods_collected;
+    stats.best_occluded_foods_collected = scored.front().evaluation.occluded_foods_collected;
     stats.best_max_hidden_bias = max_hidden_bias(scored.front().brain);
     stats.best_task_score = scored.front().evaluation.foods_collected;
     stats.best_scalar_display_score = scored.front().evaluation.fitness;
@@ -776,6 +792,7 @@ GenerationStats EvolutionRunner::summarize(std::size_t generation, const std::ve
         stats.mean_spikes += static_cast<double>(item.evaluation.spikes);
         stats.mean_synapses += static_cast<double>(item.brain.stats().synapse_count);
         stats.mean_foods_collected += static_cast<double>(item.evaluation.foods_collected);
+        stats.mean_occluded_foods_collected += item.evaluation.occluded_foods_collected;
         stats.mean_max_hidden_bias += max_hidden_bias(item.brain);
         if (has_clock_candidate(item.brain)) {
             ++stats.clock_candidate_genomes;
@@ -789,6 +806,7 @@ GenerationStats EvolutionRunner::summarize(std::size_t generation, const std::ve
     stats.mean_spikes /= count;
     stats.mean_synapses /= count;
     stats.mean_foods_collected /= count;
+    stats.mean_occluded_foods_collected /= count;
     stats.mean_max_hidden_bias /= count;
     stats.mean_task_score = stats.mean_foods_collected;
 
@@ -819,6 +837,7 @@ GenerationStats EvolutionRunner::summarize_neat(
     stats.best_spikes = best->metrics.raw_spikes;
     stats.best_synapses = best->enabled_connection_count();
     stats.best_foods_collected = best->metrics.raw_foods_collected;
+    stats.best_occluded_foods_collected = best->metrics.raw_occluded_foods_collected;
     stats.best_max_hidden_bias = max_hidden_bias(*best);
     stats.best_task_score = best->metrics.task_score_norm;
     stats.best_pareto_rank = best->pareto_rank;
@@ -834,6 +853,7 @@ GenerationStats EvolutionRunner::summarize_neat(
         stats.mean_spikes += genome.metrics.raw_spikes;
         stats.mean_synapses += static_cast<double>(genome.enabled_connection_count());
         stats.mean_foods_collected += genome.metrics.raw_foods_collected;
+        stats.mean_occluded_foods_collected += genome.metrics.raw_occluded_foods_collected;
         stats.mean_max_hidden_bias += max_hidden_bias(genome);
         stats.mean_task_score += genome.metrics.task_score_norm;
         stats.mean_spike_energy_norm += genome.metrics.spike_energy_norm;
@@ -863,6 +883,7 @@ GenerationStats EvolutionRunner::summarize_neat(
     stats.mean_spikes /= count;
     stats.mean_synapses /= count;
     stats.mean_foods_collected /= count;
+    stats.mean_occluded_foods_collected /= count;
     stats.mean_max_hidden_bias /= count;
     stats.mean_task_score /= count;
     stats.mean_spike_energy_norm /= count;
@@ -917,11 +938,19 @@ void write_run_metadata_csv(const std::string& path, const EvolutionConfig& conf
     output << "recorded_trajectory_trials," << config.recorded_trajectory_trials << '\n';
     output << "seed," << config.seed << '\n';
     output << "sensorimotor_regime," << to_string(config.environment.sensorimotor_regime) << '\n';
+    output << "task_regime," << to_string(config.environment.task.regime) << '\n';
+    output << "fitness_regime," << to_string(config.environment.fitness.regime) << '\n';
     output << "brain_input_count," << config.brain.input_count << '\n';
     output << "brain_hidden_count," << config.brain.hidden_count << '\n';
     output << "brain_output_count," << config.brain.output_count << '\n';
     output << "brain_has_clock_input," << (config.brain.has_clock_input ? 1 : 0) << '\n';
     output << "brain_clock_input_index," << config.brain.clock_input_index << '\n';
+    output << "brain_has_episode_start_input," << (config.brain.has_episode_start_input ? 1 : 0) << '\n';
+    output << "brain_episode_start_input_index," << config.brain.episode_start_input_index << '\n';
+    output << "brain_background_activity_enabled," << (config.brain.background_activity_enabled ? 1 : 0) << '\n';
+    output << "brain_background_event_rate_hz," << config.brain.background_event_rate_hz << '\n';
+    output << "brain_background_event_current," << config.brain.background_event_current << '\n';
+    output << "brain_max_bias_fraction_of_threshold," << config.brain.max_bias_fraction_of_threshold << '\n';
     output << "brain_synaptic_gain," << config.brain.synaptic_gain << '\n';
     output << "brain_seed_input_output_synapses," << (config.brain.seed_input_output_synapses ? 1 : 0) << '\n';
     output << "brain_seed_input_output_weight," << config.brain.seed_input_output_weight << '\n';
@@ -930,6 +959,7 @@ void write_run_metadata_csv(const std::string& path, const EvolutionConfig& conf
     output << "mutation_hidden_bias_max," << config.mutation.hidden_bias_max << '\n';
     output << "mutation_hidden_bias_jump_min_magnitude," << config.mutation.hidden_bias_jump_min_magnitude << '\n';
     output << "mutation_hidden_bias_jump_probability," << config.mutation.hidden_bias_jump_probability << '\n';
+    output << "mutation_add_reciprocal_motif_probability," << config.mutation.add_reciprocal_motif_probability << '\n';
     output << "mutation_mutate_clock_threshold_probability," << config.mutation.mutate_clock_threshold_probability << '\n';
     output << "mutation_clock_threshold_sigma," << config.mutation.clock_threshold_sigma << '\n';
     output << "mutation_clock_threshold_min," << config.mutation.clock_threshold_min << '\n';
@@ -947,6 +977,7 @@ void write_run_metadata_csv(const std::string& path, const EvolutionConfig& conf
     output << "neat_mutation_clock_threshold_max," << config.neat.mutation.clock_threshold_max << '\n';
     output << "neat_mutation_add_node_probability," << config.neat.mutation.add_node_probability << '\n';
     output << "neat_mutation_add_connection_probability," << config.neat.mutation.add_connection_probability << '\n';
+    output << "neat_mutation_add_reciprocal_motif_probability," << config.neat.mutation.add_reciprocal_motif_probability << '\n';
     output << "neat_mutation_enable_disable_probability," << config.neat.mutation.enable_disable_probability << '\n';
     output << "neat_mutation_crossover_probability," << config.neat.mutation.crossover_probability << '\n';
     output << "neat_speciation_compatibility_threshold," << config.neat.speciation.compatibility_threshold << '\n';
@@ -969,14 +1000,20 @@ void write_run_metadata_csv(const std::string& path, const EvolutionConfig& conf
     output << "environment_initial_heading_fov_fraction," << config.environment.initial_heading_fov_fraction << '\n';
     output << "environment_clock_input_enabled," << (config.environment.clock_input_enabled ? 1 : 0) << '\n';
     output << "environment_clock_input_value," << config.environment.clock_input_value << '\n';
+    output << "environment_episode_start_input_enabled," << (config.environment.episode_start_input_enabled ? 1 : 0) << '\n';
+    output << "environment_episode_start_pulse_brain_steps," << config.environment.episode_start_pulse_brain_steps << '\n';
+    output << "task_cue_visible_steps," << config.environment.task.cue_visible_steps << '\n';
+    output << "task_occlusion_min_steps," << config.environment.task.occlusion_min_steps << '\n';
+    output << "task_occlusion_max_steps," << config.environment.task.occlusion_max_steps << '\n';
+    output << "task_reveal_distance," << config.environment.task.reveal_distance << '\n';
     output << "environment_dt," << config.environment.env_dt << '\n';
     output << "environment_episode_steps," << config.environment.episode_steps << '\n';
     output << "environment_brain_steps_per_env_step," << config.environment.brain_steps_per_env_step << '\n';
     output << "environment_food_reward," << config.environment.food_reward << '\n';
-    output << "environment_progress_reward_scale," << config.environment.progress_reward_scale << '\n';
-    output << "environment_distance_improvement_reward_scale," << config.environment.distance_improvement_reward_scale << '\n';
-    output << "environment_visibility_reward_scale," << config.environment.visibility_reward_scale << '\n';
-    output << "environment_final_distance_penalty," << config.environment.final_distance_penalty << '\n';
+    output << "fitness_progress_reward_scale," << config.environment.fitness.progress_reward_scale << '\n';
+    output << "fitness_distance_improvement_reward_scale," << config.environment.fitness.distance_improvement_reward_scale << '\n';
+    output << "fitness_visibility_reward_scale," << config.environment.fitness.visibility_reward_scale << '\n';
+    output << "fitness_final_distance_penalty," << config.environment.fitness.final_distance_penalty << '\n';
     output << "environment_spike_penalty," << config.environment.spike_penalty << '\n';
     output << "environment_synapse_penalty," << config.environment.synapse_penalty << '\n';
     output << "environment_neuron_penalty," << config.environment.neuron_penalty << '\n';
@@ -1003,6 +1040,7 @@ void write_generation_stats_csv(const std::string& path, const std::vector<Gener
 
     output << "generation,best_fitness,mean_fitness,best_reward,mean_reward,best_penalty,mean_penalty,"
               "best_spikes,mean_spikes,best_synapses,mean_synapses,best_foods_collected,mean_foods_collected,"
+              "best_occluded_foods_collected,mean_occluded_foods_collected,"
               "best_max_hidden_bias,mean_max_hidden_bias,clock_candidate_genomes,best_task_score,mean_task_score,"
               "best_pareto_rank,number_non_dominated,mean_spike_energy_norm,mean_synapse_count_norm,"
               "mean_time_cost_norm,mean_neurons,mean_enabled_synapses,species_count,largest_species_size,"
@@ -1022,6 +1060,8 @@ void write_generation_stats_csv(const std::string& path, const std::vector<Gener
                << row.mean_synapses << ','
                << row.best_foods_collected << ','
                << row.mean_foods_collected << ','
+               << row.best_occluded_foods_collected << ','
+               << row.mean_occluded_foods_collected << ','
                << row.best_max_hidden_bias << ','
                << row.mean_max_hidden_bias << ','
                << row.clock_candidate_genomes << ','

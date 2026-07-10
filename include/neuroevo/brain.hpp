@@ -10,6 +10,7 @@ namespace neuroevo {
 
 struct BrainConfig {
     std::size_t input_count = 5;
+    std::size_t sensory_input_count = 0;
     std::size_t hidden_count = 16;
     std::size_t output_count = 4;
     double dt = 0.02;
@@ -23,6 +24,14 @@ struct BrainConfig {
     double seed_input_output_weight = 3.0;
     bool has_clock_input = false;
     std::size_t clock_input_index = 0;
+    bool has_episode_start_input = false;
+    std::size_t episode_start_input_index = 0;
+    bool background_activity_enabled = true;
+    double background_event_rate_hz = 2.0;
+    double background_event_current = 25.0;
+    double initial_background_sensitivity = 0.10;
+    double initial_background_sensitivity_sigma = 0.03;
+    double max_bias_fraction_of_threshold = 0.95;
     double motor_trace_decay = 0.82;
     double conduction_speed = 1.5;
     double initial_connection_probability = 0.25;
@@ -37,8 +46,12 @@ struct MutationConfig {
     double hidden_bias_min = -15.0;
     double hidden_bias_max = 15.0;
     double hidden_bias_jump_min_magnitude = 8.0;
-    double hidden_bias_jump_probability = 0.08;
+    double hidden_bias_jump_probability = 0.0;
+    double background_sensitivity_sigma = 0.08;
+    double background_sensitivity_min = 0.0;
+    double background_sensitivity_max = 2.0;
     double add_synapse_probability = 0.24;
+    double add_reciprocal_motif_probability = 0.06;
     double remove_synapse_probability = 0.04;
     double mutate_weight_probability = 0.12;
     double mutate_neuron_probability = 0.08;
@@ -65,6 +78,7 @@ public:
         double potential = 0.0;
         double bias = 0.0;
         double threshold = 1.0;
+        double background_sensitivity = 0.0;
         double refractory_remaining = 0.0;
         bool spiked = false;
     };
@@ -86,7 +100,7 @@ public:
         std::vector<Synapse> synapses);
 
     void reset_state();
-    BrainStepResult step(const std::vector<double>& inputs);
+    BrainStepResult step(const std::vector<double>& inputs, Random* rng = nullptr);
     void mutate(const MutationConfig& config, Random& rng);
 
     const BrainConfig& config() const noexcept { return config_; }
@@ -113,7 +127,15 @@ private:
     std::size_t compute_delay_steps(Vec2 pre, Vec2 post) const noexcept;
     void rebuild_runtime_state();
     void add_random_synapse(Random& rng);
+    void add_reciprocal_motif(Random& rng);
     void ensure_io_connectivity(Random& rng);
 };
+
+double clamp_subthreshold_bias(
+    double bias,
+    double threshold,
+    double membrane_tau,
+    double subthreshold_fraction,
+    double lower_bound);
 
 } // namespace neuroevo

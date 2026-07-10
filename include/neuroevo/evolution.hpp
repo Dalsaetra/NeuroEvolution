@@ -56,6 +56,8 @@ struct GenerationStats {
     std::size_t best_synapses = 0;
     double mean_foods_collected = 0.0;
     double best_foods_collected = 0.0;
+    double mean_occluded_foods_collected = 0.0;
+    double best_occluded_foods_collected = 0.0;
     double best_max_hidden_bias = 0.0;
     double mean_max_hidden_bias = 0.0;
     std::size_t clock_candidate_genomes = 0;

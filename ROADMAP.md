@@ -21,6 +21,14 @@ Create a simulator that uses evolutionary algorithms and concepts to evolve crea
 
 The main methods in this projects relate to simulation the environment, 
 
+## Current experimental foundation
+
+- Sensorimotor, task, and external-fitness regimes are independently selectable.
+- Available tasks include continuously visible food seeking and cue-occlusion foraging with variable hidden delays.
+- Autonomous activity can be initiated by an episode-start pulse and maintained or restarted by low-rate Poisson background current with per-neuron evolvable sensitivity.
+- Hidden-neuron bias changes excitability but is constrained below the isolated self-spiking threshold.
+- Scalar and NEAT mutation can introduce a simple reciprocal hidden-neuron motif as one structural mutation.
+
 ## The "Brains"
 
 - Use varying degrees of biological realism to simulate brains

@@ -10,7 +10,12 @@ namespace {
 
 bool is_directional_fov_shape(const BrainConfig& config)
 {
-    return (config.input_count == 4 || config.input_count == 5) && config.output_count == 3;
+    const std::size_t auxiliary_count = (config.has_clock_input ? 1 : 0)
+        + (config.has_episode_start_input ? 1 : 0);
+    const std::size_t sensory_count = config.sensory_input_count > 0
+        ? config.sensory_input_count
+        : config.input_count - std::min(config.input_count, auxiliary_count);
+    return sensory_count == 4 && config.output_count == 3;
 }
 
 bool is_clock_input(const BrainConfig& config, std::size_t node_id)
@@ -18,6 +23,18 @@ bool is_clock_input(const BrainConfig& config, std::size_t node_id)
     return config.has_clock_input
         && node_id == config.clock_input_index
         && node_id < config.input_count;
+}
+
+bool is_episode_start_input(const BrainConfig& config, std::size_t node_id)
+{
+    return config.has_episode_start_input
+        && node_id == config.episode_start_input_index
+        && node_id < config.input_count;
+}
+
+bool is_auxiliary_input(const BrainConfig& config, std::size_t node_id)
+{
+    return is_clock_input(config, node_id) || is_episode_start_input(config, node_id);
 }
 
 bool is_directional_fov_seed_pair(const Brain& brain, std::size_t pre, std::size_t post)
@@ -42,6 +59,19 @@ double random_synapse_weight(Random& rng)
 }
 
 } // namespace
+
+double clamp_subthreshold_bias(
+    double bias,
+    double threshold,
+    double membrane_tau,
+    double subthreshold_fraction,
+    double lower_bound)
+{
+    const double safe_tau = std::max(0.001, membrane_tau);
+    const double safe_fraction = std::clamp(subthreshold_fraction, 0.0, 0.999999);
+    const double upper_bound = safe_fraction * std::max(0.2, threshold) / safe_tau;
+    return std::clamp(bias, lower_bound, upper_bound);
+}
 
 Brain::Brain(BrainConfig config) : config_(config)
 {
@@ -69,15 +99,30 @@ Brain Brain::random(BrainConfig config, Random& rng)
             neuron.bias = rng.normal(0.0, 0.05);
         }
         neuron.threshold = std::max(0.2, config.threshold + rng.normal(0.0, 0.08));
+        neuron.background_sensitivity = std::clamp(
+            config.initial_background_sensitivity
+                + rng.normal(0.0, config.initial_background_sensitivity_sigma),
+            0.0,
+            2.0);
+        if (!brain.is_input(i) && !brain.is_output(i)) {
+            neuron.bias = clamp_subthreshold_bias(
+                neuron.bias,
+                neuron.threshold,
+                config.membrane_tau,
+                config.max_bias_fraction_of_threshold,
+                -15.0);
+        }
     }
 
     const std::size_t total = brain.total_neurons();
     for (std::size_t pre = 0; pre < total; ++pre) {
-        if (brain.is_output(pre) || is_clock_input(config, pre)) {
+        if (brain.is_output(pre)) {
             continue;
         }
         for (std::size_t post = config.input_count; post < total; ++post) {
-            if (pre == post || rng.chance(1.0 - config.initial_connection_probability)) {
+            if (pre == post
+                || (is_auxiliary_input(config, pre) && brain.is_output(post))
+                || rng.chance(1.0 - config.initial_connection_probability)) {
                 continue;
             }
             Brain::Synapse synapse;
@@ -92,7 +137,7 @@ Brain Brain::random(BrainConfig config, Random& rng)
     if (config.seed_input_output_synapses) {
         const bool structured_directional_seed = is_directional_fov_shape(config);
         for (std::size_t pre = 0; pre < config.input_count; ++pre) {
-            if (is_clock_input(config, pre)) {
+            if (is_auxiliary_input(config, pre)) {
                 continue;
             }
             for (std::size_t post = brain.first_output_index(); post < total; ++post) {
@@ -139,6 +184,14 @@ Brain Brain::from_components(
             brain.neurons_[synapse.pre].position,
             brain.neurons_[synapse.post].position);
     }
+    for (std::size_t i = brain.first_hidden_index(); i < brain.first_output_index(); ++i) {
+        brain.neurons_[i].bias = clamp_subthreshold_bias(
+            brain.neurons_[i].bias,
+            brain.neurons_[i].threshold,
+            config.membrane_tau,
+            config.max_bias_fraction_of_threshold,
+            -15.0);
+    }
     brain.rebuild_runtime_state();
     return brain;
 }
@@ -157,7 +210,7 @@ void Brain::reset_state()
     buffer_cursor_ = 0;
 }
 
-BrainStepResult Brain::step(const std::vector<double>& inputs)
+BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
 {
     if (inputs.size() != config_.input_count) {
         throw std::invalid_argument("Brain::step input count does not match BrainConfig::input_count");
@@ -173,6 +226,13 @@ BrainStepResult Brain::step(const std::vector<double>& inputs)
         double current = current_buffers_[i][buffer_cursor_];
         current_buffers_[i][buffer_cursor_] = 0.0;
         current += neuron.bias;
+
+        if (rng != nullptr && config_.background_activity_enabled) {
+            const double event_probability = std::clamp(config_.background_event_rate_hz * config_.dt, 0.0, 1.0);
+            if (rng->chance(event_probability)) {
+                current += config_.background_event_current * neuron.background_sensitivity;
+            }
+        }
 
         if (is_input(i)) {
             current += std::clamp(inputs[i], 0.0, 1.0) * config_.input_gain;
@@ -238,19 +298,31 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
                         config.hidden_bias_max);
                     neuron.bias = rng.chance(0.5) ? magnitude : -magnitude;
                 } else {
-                    neuron.bias = std::clamp(
-                        neuron.bias + rng.normal(0.0, config.bias_sigma),
-                        config.hidden_bias_min,
-                        config.hidden_bias_max);
+                    neuron.bias += rng.normal(0.0, config.bias_sigma);
                 }
             } else {
                 neuron.bias = 0.0;
             }
             neuron.threshold = std::clamp(neuron.threshold + rng.normal(0.0, config.threshold_sigma), 0.2, 3.0);
             if (!is_output(i)) {
+                neuron.bias = clamp_subthreshold_bias(
+                    neuron.bias,
+                    neuron.threshold,
+                    config_.membrane_tau,
+                    config_.max_bias_fraction_of_threshold,
+                    config.hidden_bias_min);
                 neuron.position.x = std::clamp(neuron.position.x + rng.normal(0.0, config.position_sigma), 0.05, 0.95);
                 neuron.position.y = std::clamp(neuron.position.y + rng.normal(0.0, config.position_sigma), 0.05, 0.95);
             }
+        }
+    }
+
+    for (auto& neuron : neurons_) {
+        if (rng.chance(config.mutate_neuron_probability)) {
+            neuron.background_sensitivity = std::clamp(
+                neuron.background_sensitivity + rng.normal(0.0, config.background_sensitivity_sigma),
+                config.background_sensitivity_min,
+                config.background_sensitivity_max);
         }
     }
 
@@ -261,6 +333,9 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
 
     if (rng.chance(config.add_synapse_probability)) {
         add_random_synapse(rng);
+    }
+    if (rng.chance(config.add_reciprocal_motif_probability)) {
+        add_reciprocal_motif(rng);
     }
 
     if (config_.has_clock_input
@@ -334,7 +409,7 @@ void Brain::add_random_synapse(Random& rng)
         const std::size_t post = config_.input_count + rng.uniform_index(total_neurons() - config_.input_count);
         if (pre == post
             || is_output(pre)
-            || (is_clock_input(config_, pre) && is_output(post))
+            || (is_auxiliary_input(config_, pre) && is_output(post))
             || synapse_exists(pre, post)) {
             continue;
         }
@@ -347,6 +422,36 @@ void Brain::add_random_synapse(Random& rng)
         synapses_.push_back(synapse);
         return;
     }
+}
+
+void Brain::add_reciprocal_motif(Random& rng)
+{
+    if (config_.hidden_count < 2) {
+        return;
+    }
+
+    const std::size_t first = first_hidden_index() + rng.uniform_index(config_.hidden_count);
+    std::size_t second = first;
+    for (std::size_t attempt = 0; attempt < 8 && second == first; ++attempt) {
+        second = first_hidden_index() + rng.uniform_index(config_.hidden_count);
+    }
+    if (first == second) {
+        return;
+    }
+
+    auto add_if_missing = [&](std::size_t pre, std::size_t post) {
+        if (synapse_exists(pre, post)) {
+            return;
+        }
+        synapses_.push_back({
+            pre,
+            post,
+            random_synapse_weight(rng),
+            compute_delay_steps(neurons_[pre].position, neurons_[post].position),
+        });
+    };
+    add_if_missing(first, second);
+    add_if_missing(second, first);
 }
 
 void Brain::ensure_io_connectivity(Random& rng)
@@ -368,7 +473,7 @@ void Brain::ensure_io_connectivity(Random& rng)
     };
 
     for (std::size_t input = 0; input < config_.input_count; ++input) {
-        if (is_clock_input(config_, input)) {
+        if (is_auxiliary_input(config_, input)) {
             continue;
         }
         const bool has_outgoing = std::any_of(synapses_.begin(), synapses_.end(), [&](const Synapse& synapse) {
@@ -393,7 +498,7 @@ void Brain::ensure_io_connectivity(Random& rng)
         std::vector<std::size_t> sensory_inputs;
         sensory_inputs.reserve(config_.input_count);
         for (std::size_t input = 0; input < config_.input_count; ++input) {
-            if (!is_clock_input(config_, input)) {
+            if (!is_auxiliary_input(config_, input)) {
                 sensory_inputs.push_back(input);
             }
         }

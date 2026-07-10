@@ -74,6 +74,7 @@ EvaluationMetrics make_evaluation_metrics(
     metrics.raw_reward = evaluation.reward;
     metrics.raw_penalty = evaluation.penalty;
     metrics.raw_foods_collected = evaluation.foods_collected;
+    metrics.raw_occluded_foods_collected = evaluation.occluded_foods_collected;
     metrics.raw_spikes = evaluation.spikes;
     metrics.raw_steps_used = static_cast<double>(environment_config.episode_steps);
     metrics.complexity = complexity;

@@ -5,9 +5,9 @@ Prototype evolutionary simulator for creatures with spiking neural-network brain
 ## Current Prototype
 
 - C++17 simulation runtime built with CMake.
-- 2D food-seeking environment.
+- Modular 2D tasks and independently selectable fitness regimes.
 - Leaky integrate-and-fire neurons with spatially embedded synapses and distance-based delays.
-- Evolution loop with elitism, tournament selection, weight/bias/position mutation, and synapse add/remove mutation.
+- Evolution loop with elitism, tournament selection, neuron/synapse mutation, and simple reciprocal recurrent-motif mutation.
 - CSV outputs for generation statistics and the best-run trajectory.
 - Python plotting script for fitness and trajectory summaries.
 - Interactive HTML viewer for replaying a creature trajectory, brain activity, and synapse firing.
@@ -94,9 +94,30 @@ The default regime is `directional-fov`.
 - `directional-fov`: directional creature with a facing angle, 120 degree food visibility arc, 4 sensory inputs (`food_visible`, `food_left`, `food_right`, `food_distance`) and 3 motor outputs (`walk_speed`, `turn_left`, `turn_right`).
 - `target-vector`: older direct relative-target regime with 5 sensory inputs (`target_right`, `target_left`, `target_up`, `target_down`, `target_distance`) and 4 motor outputs (`move_left`, `move_right`, `move_down`, `move_up`).
 
-Motor/output neurons have no bias, and motor commands are decoded from output spike traces only. Hidden neurons can still evolve large positive or negative bias, including rare large-magnitude hidden-bias jumps controlled by `--hidden-bias-jump` and `--hidden-bias-jump-min`, which allows self-spiking "clock" neurons if evolution finds them useful. The environment also adds a tonic clock input by default, controlled by `--clock-input` and `--clock-input-value`, so brains can evolve internal exploratory activity when no food is visible. The clock input is not seeded directly to motor outputs and is exempt from the required sensory-to-motor scaffold; later add-connection mutations may connect it into hidden neurons. Its spiking speed is evolvable through the clock input threshold, controlled by `--clock-threshold-sigma`, `--clock-threshold-min`, and `--clock-threshold-max`. Delivered synaptic spike current is scaled by `--synaptic-gain` so spikes can drive downstream neurons without adding motor bias. Initial genomes are seeded with direct sensory-to-motor synapses controlled by `--seed-io-weight`; those synapses remain evolvable and removable. In the directional-FOV regime, default seed wiring is structured so food visibility/distance drive walking, food-left drives left turning, and food-right drives right turning.
+Motor/output neurons have no bias, and motor commands are decoded from output spike traces only. Hidden-neuron bias is evolvable but is clamped so the isolated steady-state membrane potential remains below a configurable fraction of threshold (`--max-bias-fraction`, default `0.95`). Bias can therefore change excitability without creating a free-running neuron by itself.
 
-NEAT genomes are repaired after creation and mutation so every sensory input neuron has at least one enabled outgoing synapse and every output neuron has at least one enabled incoming synapse. The tonic clock input is excluded from this repair so it must become useful through evolved clock-to-hidden wiring rather than hard-coded motor drive. This prevents Pareto pressure from collapsing the brain into a single speed-only synapse while still allowing topology to evolve around that minimal viable I/O scaffold.
+The default autonomous-activity mechanisms are an episode-start pulse (`--episode-start-input`, `--episode-start-pulse-steps`) and low-rate Poisson background-current events (`--background-activity`, `--background-rate`, `--background-current`). Every neuron has its own inherited and mutable non-negative background sensitivity. The tonic clock remains available as a legacy experimental control through `--clock-input 1`, but is disabled by default.
+
+Scalar and NEAT evolution can add a two-hidden-neuron reciprocal connection motif in one mutation. Control its probability with `--mutate-reciprocal-motif-prob`. Delivered synaptic spike current is scaled by `--synaptic-gain`. Initial genomes retain their evolvable direct sensory-to-motor scaffold; auxiliary start/clock inputs are excluded from forced I/O repair and direct motor seeding.
+
+NEAT genomes are repaired after creation and mutation so every ordinary sensory input neuron has at least one enabled outgoing synapse and every output neuron has at least one enabled incoming synapse. Auxiliary inputs are excluded from this repair, so they become useful through evolved wiring rather than hard-coded motor drive.
+
+## Task and Fitness Regimes
+
+Tasks and external fitness are separate strategy interfaces. Select them independently with `--task` and `--fitness`.
+
+- `--task food-seeking`: the original continuously observable target task.
+- `--task cue-occlusion`: shows each target for `--cue-steps`, hides it for a duration sampled between `--occlusion-min-steps` and `--occlusion-max-steps`, then reveals it again. An occluded target also reappears inside `--reveal-distance`.
+- `--fitness shaped`: food reward plus progress, closest-approach, visibility, and final-distance shaping.
+- `--fitness sparse`: food collection reward only; generic spike, motion, and structural penalties remain separate.
+
+For example:
+
+```powershell
+.\build\neuroevo_sim.exe --ea-mode neat-nsga2 --task cue-occlusion --fitness shaped --initial-hidden 2 --cue-steps 40 --occlusion-min-steps 80 --occlusion-max-steps 160 --episode-start-input 1 --background-activity 1 --clock-input 0 --out runs/cue_occlusion
+```
+
+Trajectory output records both geometric target visibility and task-controlled sensory availability, along with the current `cue`, `occluded`, or `revealed` phase. Brain activity output includes each neuron's evolved background sensitivity.
 
 The directional regime rewards food collection most strongly. It also adds a one-time shaping reward whenever the creature reaches a new closest distance to the current food, configurable with `--distance-reward`. Initial target bearing is sampled within the visible FOV but over a wide range controlled by `--initial-heading-fov-frac`, so steering is useful without making the first target invisible. The visibility-alignment reward is small, speed-gated, and configurable with `--visibility-reward`, so a stationary creature is not rewarded for merely looking at food. Turning, stillness, spikes, and structural complexity use budget-excess penalties: costs apply only after `--turn-budget`, `--inactivity-budget`, `--spike-budget-rate`, `--structural-synapse-budget`, or `--structural-neuron-budget` are exceeded.
 
@@ -111,7 +132,7 @@ Switch regimes with:
 Tune directional vision with:
 
 ```powershell
-.\build\neuroevo_sim.exe --sensorimotor directional-fov --clock-input 1 --clock-input-value 1 --clock-threshold-sigma 0.08 --fov-degrees 120 --initial-heading-fov-frac 0.9 --turn-rate 3.14159 --turn-penalty 0.0001 --turn-budget 0.25 --inactivity-penalty 0.0005 --inactivity-budget 0.5 --hidden-bias-jump 0.08 --hidden-bias-jump-min 8 --synaptic-gain 8 --seed-io-weight 3 --distance-reward 8 --visibility-reward 0.001 --out runs/fov_test
+.\build\neuroevo_sim.exe --sensorimotor directional-fov --episode-start-input 1 --episode-start-pulse-steps 2 --background-activity 1 --background-rate 2 --background-current 25 --clock-input 0 --fov-degrees 120 --initial-heading-fov-frac 0.9 --turn-rate 3.14159 --turn-penalty 0.0001 --turn-budget 0.25 --inactivity-penalty 0.0005 --inactivity-budget 0.5 --synaptic-gain 8 --seed-io-weight 3 --distance-reward 8 --visibility-reward 0.001 --out runs/fov_test
 ```
 
 ## Combined Visualization

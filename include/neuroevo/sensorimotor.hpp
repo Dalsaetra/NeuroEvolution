@@ -51,7 +51,8 @@ SensoryState sense_target(
     AgentState agent,
     Vec2 target,
     double world_diagonal,
-    double fov_radians);
+    double fov_radians,
+    bool target_sensory_available = true);
 
 MotorCommand decode_motor_command(
     SensorimotorRegimeKind kind,

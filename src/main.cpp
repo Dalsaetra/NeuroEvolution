@@ -48,10 +48,22 @@ void print_help(const char* executable)
         << "  --record-pareto-front N  NEAT Pareto-front solutions to replay and save (default: 6, 0 disables)\n"
         << "  --record-pareto-trials N Replay trials per saved Pareto solution (default: 4)\n"
         << "  --sensorimotor X  Sensorimotor regime: directional-fov or target-vector (default: directional-fov)\n"
+        << "  --task X          Task regime: food-seeking or cue-occlusion (default: food-seeking)\n"
+        << "  --fitness X       Fitness regime: shaped or sparse (default: shaped)\n"
         << "  --fov-degrees N   Directional FOV width in degrees (default: 120)\n"
         << "  --initial-heading-fov-frac N  Initial target-bearing range as fraction of half-FOV (default: 0.9)\n"
-        << "  --clock-input N   Add tonic clock input neuron: 1 enabled, 0 disabled (default: 1)\n"
+        << "  --clock-input N   Add legacy tonic clock input: 1 enabled, 0 disabled (default: 0)\n"
         << "  --clock-input-value N  Tonic clock input value clamped to [0, 1] (default: 1)\n"
+        << "  --episode-start-input N  Add episode-start pulse input (default: 1)\n"
+        << "  --episode-start-pulse-steps N  Pulse duration in brain steps (default: 2)\n"
+        << "  --background-activity N  Enable Poisson background current (default: 1)\n"
+        << "  --background-rate N  Background event rate per neuron in Hz (default: 2)\n"
+        << "  --background-current N  Current delivered per background event (default: 25)\n"
+        << "  --max-bias-fraction N  Maximum isolated steady-state threshold fraction (default: 0.95)\n"
+        << "  --cue-steps N     Visible cue duration for cue-occlusion (default: 40 env steps)\n"
+        << "  --occlusion-min-steps N  Minimum hidden duration (default: 80 env steps)\n"
+        << "  --occlusion-max-steps N  Maximum hidden duration (default: 160 env steps)\n"
+        << "  --reveal-distance N  Distance at which an occluded target reappears (default: 0.12)\n"
         << "  --turn-rate N     Max turn rate in radians per simulated second (default: pi)\n"
         << "  --turn-penalty N  Fitness penalty per excess turning intensity (default: 0.0001)\n"
         << "  --inactivity-penalty N  Fitness penalty per step for not walking (default: 0.0005)\n"
@@ -60,7 +72,7 @@ void print_help(const char* executable)
         << "  --spike-budget-rate N  Spikes per neuron per brain step before spike penalty (default: 0.02)\n"
         << "  --structural-synapse-budget N  Enabled synapses before scalar structural penalty (default: 64)\n"
         << "  --structural-neuron-budget N  Neurons before scalar structural penalty (default: 64)\n"
-        << "  --hidden-bias-jump N  Probability that a hidden-neuron mutation jumps bias to large magnitude (default: 0.08)\n"
+        << "  --hidden-bias-jump N  Legacy large bias-jump probability; still subthreshold-clamped (default: 0)\n"
         << "  --hidden-bias-jump-min N  Minimum absolute bias for hidden jump mutations (default: 8)\n"
         << "  --mutate-clock-threshold-prob N  Scalar-mode clock input threshold mutation probability (default: 0.08)\n"
         << "  --clock-threshold-sigma N  Clock input threshold mutation sigma (default: 0.08)\n"
@@ -76,7 +88,9 @@ void print_help(const char* executable)
         << "  --species-c3 N    NEAT weight-difference compatibility coefficient (default: 0.4)\n"
         << "  --mutate-weight-prob N  NEAT per-connection weight mutation probability (default: 0.8)\n"
         << "  --mutate-add-node-prob N  NEAT add-node mutation probability (default: 0.03)\n"
-        << "  --mutate-add-conn-prob N  NEAT add-connection mutation probability (default: 0.08)\n"
+        << "  --mutate-add-conn-prob N  NEAT add-connection mutation probability (default: 0.16)\n"
+        << "  --mutate-reciprocal-motif-prob N  Add a hidden-neuron reciprocal pair (default: 0.06)\n"
+        << "  --initial-hidden N  Initial hidden nodes in NEAT genomes (default: 0)\n"
         << "  --mutate-enable-disable-prob N  NEAT connection toggle mutation probability (default: 0.02)\n"
         << "  --interspecies-mate-prob N  NEAT probability of mating outside species (default: 0.02)\n"
         << "  --target-foods N  Target foods per trial for task-score normalization (default: 3)\n"
@@ -127,6 +141,10 @@ int main(int argc, char** argv)
                 config.neat.recorded_pareto_front_trials = parse_size_arg(value, arg);
             } else if (arg == "--sensorimotor") {
                 config.environment.sensorimotor_regime = neuroevo::parse_sensorimotor_regime(value);
+            } else if (arg == "--task") {
+                config.environment.task.regime = neuroevo::parse_task_regime(value);
+            } else if (arg == "--fitness") {
+                config.environment.fitness.regime = neuroevo::parse_fitness_regime(value);
             } else if (arg == "--fov-degrees") {
                 config.environment.fov_degrees = parse_double_arg(value, arg);
             } else if (arg == "--initial-heading-fov-frac") {
@@ -135,6 +153,26 @@ int main(int argc, char** argv)
                 config.environment.clock_input_enabled = parse_size_arg(value, arg) != 0;
             } else if (arg == "--clock-input-value") {
                 config.environment.clock_input_value = parse_double_arg(value, arg);
+            } else if (arg == "--episode-start-input") {
+                config.environment.episode_start_input_enabled = parse_size_arg(value, arg) != 0;
+            } else if (arg == "--episode-start-pulse-steps") {
+                config.environment.episode_start_pulse_brain_steps = parse_size_arg(value, arg);
+            } else if (arg == "--background-activity") {
+                config.brain.background_activity_enabled = parse_size_arg(value, arg) != 0;
+            } else if (arg == "--background-rate") {
+                config.brain.background_event_rate_hz = parse_double_arg(value, arg);
+            } else if (arg == "--background-current") {
+                config.brain.background_event_current = parse_double_arg(value, arg);
+            } else if (arg == "--max-bias-fraction") {
+                config.brain.max_bias_fraction_of_threshold = parse_double_arg(value, arg);
+            } else if (arg == "--cue-steps") {
+                config.environment.task.cue_visible_steps = parse_size_arg(value, arg);
+            } else if (arg == "--occlusion-min-steps") {
+                config.environment.task.occlusion_min_steps = parse_size_arg(value, arg);
+            } else if (arg == "--occlusion-max-steps") {
+                config.environment.task.occlusion_max_steps = parse_size_arg(value, arg);
+            } else if (arg == "--reveal-distance") {
+                config.environment.task.reveal_distance = parse_double_arg(value, arg);
             } else if (arg == "--turn-rate") {
                 config.environment.max_turn_rate = parse_double_arg(value, arg);
             } else if (arg == "--turn-penalty") {
@@ -173,9 +211,9 @@ int main(int argc, char** argv)
             } else if (arg == "--seed-io-weight") {
                 config.brain.seed_input_output_weight = parse_double_arg(value, arg);
             } else if (arg == "--distance-reward") {
-                config.environment.distance_improvement_reward_scale = parse_double_arg(value, arg);
+                config.environment.fitness.distance_improvement_reward_scale = parse_double_arg(value, arg);
             } else if (arg == "--visibility-reward") {
-                config.environment.visibility_reward_scale = parse_double_arg(value, arg);
+                config.environment.fitness.visibility_reward_scale = parse_double_arg(value, arg);
             } else if (arg == "--compat-threshold") {
                 config.neat.speciation.compatibility_threshold = parse_double_arg(value, arg);
             } else if (arg == "--species-c1") {
@@ -191,6 +229,11 @@ int main(int argc, char** argv)
                 config.neat.mutation.add_node_probability = parse_double_arg(value, arg);
             } else if (arg == "--mutate-add-conn-prob") {
                 config.neat.mutation.add_connection_probability = parse_double_arg(value, arg);
+            } else if (arg == "--mutate-reciprocal-motif-prob") {
+                config.neat.mutation.add_reciprocal_motif_probability = parse_double_arg(value, arg);
+                config.mutation.add_reciprocal_motif_probability = config.neat.mutation.add_reciprocal_motif_probability;
+            } else if (arg == "--initial-hidden") {
+                config.neat.initial_hidden_count = parse_size_arg(value, arg);
             } else if (arg == "--mutate-enable-disable-prob") {
                 config.neat.mutation.enable_disable_probability = parse_double_arg(value, arg);
             } else if (arg == "--interspecies-mate-prob") {
@@ -223,10 +266,12 @@ int main(int argc, char** argv)
                   << "Final-generation selected fitness: " << final.best_fitness << "\n"
                   << "Mean fitness: " << final.mean_fitness << "\n"
                   << "Final-generation selected foods collected: " << final.best_foods_collected << "\n"
+                  << "Final-generation selected foods collected during occlusion: " << final.best_occluded_foods_collected << "\n"
                   << "Final-generation best task score: " << final.best_task_score << "\n"
                   << "Final-generation non-dominated genomes: " << final.number_non_dominated << "\n"
                   << "Final-generation species count: " << final.species_count << "\n"
                   << "Best recorded life foods collected: " << result.best_evaluation.foods_collected << "\n"
+                  << "Best recorded life foods collected during occlusion: " << result.best_evaluation.occluded_foods_collected << "\n"
                   << "Best recorded life fitness: " << result.best_evaluation.fitness << "\n"
                   << "Wrote metadata to: " << (std::filesystem::path(output_dir) / "metadata.csv") << "\n"
                   << "Wrote stats to: " << (std::filesystem::path(output_dir) / "stats.csv") << "\n"

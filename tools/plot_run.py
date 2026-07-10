@@ -33,6 +33,7 @@ def plot_stats(run_dir: Path) -> None:
     best = [float(row["best_fitness"]) for row in rows]
     mean = [float(row["mean_fitness"]) for row in rows]
     foods = [float(row["mean_foods_collected"]) for row in rows]
+    occluded_foods = [float(row.get("mean_occluded_foods_collected", 0) or 0) for row in rows]
 
     fig, (fitness_ax, food_ax) = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
     fitness_ax.plot(generations, best, label="best fitness", color="#1f77b4")
@@ -42,6 +43,9 @@ def plot_stats(run_dir: Path) -> None:
     fitness_ax.grid(True, alpha=0.25)
 
     food_ax.plot(generations, foods, label="mean food", color="#2ca02c")
+    if any(value > 0 for value in occluded_foods):
+        food_ax.plot(generations, occluded_foods, label="mean food during occlusion", color="#9467bd")
+        food_ax.legend()
     food_ax.set_xlabel("generation")
     food_ax.set_ylabel("foods collected")
     food_ax.grid(True, alpha=0.25)

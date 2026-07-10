@@ -12,14 +12,18 @@ namespace {
 
 constexpr double pi = 3.14159265358979323846;
 
-std::vector<double> brain_inputs_with_optional_clock(
+std::vector<double> brain_inputs_with_auxiliary_channels(
     const SensoryState& sensory,
     const BrainConfig& brain_config,
-    const EnvironmentConfig& environment_config)
+    const EnvironmentConfig& environment_config,
+    bool episode_start_active)
 {
     std::vector<double> inputs = sensory.inputs;
-    if (environment_config.clock_input_enabled && inputs.size() + 1 == brain_config.input_count) {
+    if (environment_config.clock_input_enabled) {
         inputs.push_back(std::clamp(environment_config.clock_input_value, 0.0, 1.0));
+    }
+    if (environment_config.episode_start_input_enabled) {
+        inputs.push_back(episode_start_active ? 1.0 : 0.0);
     }
 
     if (inputs.size() != brain_config.input_count) {
@@ -37,10 +41,22 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
 {
     Brain brain = genome;
     brain.reset_state();
+    Random neural_rng(rng.next_u64());
 
     EvaluationResult result;
-    AgentState agent{random_position(rng), rng.uniform(-pi, pi)};
-    Vec2 target = random_target_away_from(agent.position, rng);
+    AgentState agent{{rng.uniform(0.0, config_.width), rng.uniform(0.0, config_.height)}, rng.uniform(-pi, pi)};
+    const TaskWorldConfig task_world{
+        config_.width,
+        config_.height,
+        config_.target_radius,
+        config_.min_target_distance,
+        config_.food_reward,
+    };
+    std::unique_ptr<TaskScenario> task = make_task_scenario(config_.task, task_world);
+    std::unique_ptr<FitnessRegime> fitness = make_fitness_regime(config_.fitness);
+    task->reset(agent.position, rng);
+    TaskObservation task_observation = task->observe(agent.position, 0);
+    Vec2 target = task_observation.target;
     double previous_distance = length(target - agent.position);
     double closest_distance_to_target = previous_distance;
     double accumulated_turn_effort = 0.0;
@@ -70,13 +86,15 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
     }
 
     for (std::size_t step = 0; step < config_.episode_steps; ++step) {
+        task_observation = task->observe(agent.position, step);
+        target = task_observation.target;
         const SensoryState sensory = sense_target(
             config_.sensorimotor_regime,
             agent,
             target,
             world_diagonal,
-            fov_radians);
-        const std::vector<double> brain_inputs = brain_inputs_with_optional_clock(sensory, brain.config(), config_);
+            fov_radians,
+            task_observation.sensory_available);
 
         std::vector<double> motors(brain.config().output_count, 0.0);
         std::vector<bool> neuron_spiked;
@@ -86,7 +104,14 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
             synapse_fired.assign(brain.synapses().size(), false);
         }
         for (std::size_t substep = 0; substep < config_.brain_steps_per_env_step; ++substep) {
-            BrainStepResult step_result = brain.step(brain_inputs);
+            const std::size_t brain_step = step * config_.brain_steps_per_env_step + substep;
+            const bool episode_start_active = brain_step < config_.episode_start_pulse_brain_steps;
+            const std::vector<double> brain_inputs = brain_inputs_with_auxiliary_channels(
+                sensory,
+                brain.config(),
+                config_,
+                episode_start_active);
+            BrainStepResult step_result = brain.step(brain_inputs, &neural_rng);
             result.spikes += step_result.spikes;
             motors = step_result.motor_outputs;
             if (record_trajectory) {
@@ -114,26 +139,29 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
 
         const double distance = length(target - agent.position);
         const double progress = previous_distance - distance;
-        result.reward += config_.progress_reward_scale * progress;
-        const double improvement = std::max(0.0, closest_distance_to_target - distance);
-        if (improvement > 0.0) {
-            result.reward += config_.distance_improvement_reward_scale * (improvement / std::max(0.001, world_diagonal));
-            closest_distance_to_target = distance;
-        }
-        if (sensory.target_visible) {
-            const double half_fov = std::max(0.001, fov_radians * 0.5);
-            const double centered = 1.0 - std::clamp(std::abs(sensory.target_bearing) / half_fov, 0.0, 1.0);
-            const double speed_gate = std::clamp(command.speed_command, 0.0, 1.0);
-            result.reward += config_.visibility_reward_scale * centered * speed_gate;
-        }
+        const TaskStepResult task_step = task->advance(agent.position, step, rng);
+        const FitnessStepResult fitness_step = fitness->score_step({
+            task_step.reward,
+            progress,
+            distance,
+            closest_distance_to_target,
+            world_diagonal,
+            fov_radians * 0.5,
+            sensory,
+            command,
+        });
+        result.reward += fitness_step.reward;
+        closest_distance_to_target = fitness_step.closest_distance;
+        result.foods_collected += task_step.foods_collected;
+        result.occluded_foods_collected += task_step.occluded_foods_collected;
         accumulated_turn_effort += std::abs(command.turn_command);
         accumulated_stillness += 1.0 - std::clamp(command.speed_command, 0.0, 1.0);
 
         double recorded_distance = distance;
-        if (distance <= config_.target_radius) {
-            result.foods_collected += 1.0;
-            result.reward += config_.food_reward;
-            target = random_target_away_from(agent.position, rng);
+        TaskObservation recorded_observation = task_observation;
+        if (task_step.target_changed) {
+            recorded_observation = task->observe(agent.position, step + 1);
+            target = recorded_observation.target;
             previous_distance = length(target - agent.position);
             closest_distance_to_target = previous_distance;
             recorded_distance = previous_distance;
@@ -153,7 +181,9 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
                 command.speed_command,
                 command.turn_command,
                 sensory.target_visible,
+                recorded_observation.sensory_available,
                 sensory.target_bearing,
+                to_string(recorded_observation.phase),
                 static_cast<std::size_t>(result.spikes),
                 static_cast<std::size_t>(result.foods_collected),
             });
@@ -187,6 +217,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
                     neuron.bias,
                     neuron.potential,
                     neuron.threshold,
+                    neuron.background_sensitivity,
                     activation,
                     neuron_spiked[i],
                 });
@@ -204,7 +235,7 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
         * brain_steps;
     const double synapse_excess = std::max(0.0, static_cast<double>(stats.synapse_count) - config_.synapse_budget);
     const double neuron_excess = std::max(0.0, static_cast<double>(stats.neuron_count) - config_.neuron_budget);
-    result.penalty = config_.final_distance_penalty * final_distance
+    result.penalty = fitness->terminal_penalty(final_distance)
         + config_.turn_penalty * std::max(0.0, accumulated_turn_effort - turn_budget)
         + config_.inactivity_penalty * std::max(0.0, accumulated_stillness - inactivity_budget)
         + config_.spike_penalty * std::max(0.0, static_cast<double>(result.spikes) - spike_budget)
@@ -213,23 +244,6 @@ EvaluationResult Environment::evaluate(const Brain& genome, Random& rng, bool re
     result.fitness = result.reward - result.penalty;
 
     return result;
-}
-
-Vec2 Environment::random_position(Random& rng) const
-{
-    return {rng.uniform(0.0, config_.width), rng.uniform(0.0, config_.height)};
-}
-
-Vec2 Environment::random_target_away_from(Vec2 position, Random& rng) const
-{
-    constexpr std::size_t max_attempts = 64;
-    for (std::size_t attempt = 0; attempt < max_attempts; ++attempt) {
-        Vec2 candidate = random_position(rng);
-        if (length(candidate - position) >= config_.min_target_distance) {
-            return candidate;
-        }
-    }
-    return random_position(rng);
 }
 
 void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryPoint>& trajectory)
@@ -245,7 +259,7 @@ void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryP
     }
 
     output << "step,x,y,target_x,target_y,distance,motor_x,motor_y,heading,speed_command,turn_command,"
-              "target_visible,target_bearing,cumulative_spikes,foods_collected\n";
+              "target_visible,target_sensory_available,target_bearing,task_phase,cumulative_spikes,foods_collected\n";
     output << std::setprecision(10);
     for (const auto& point : trajectory) {
         output << point.step << ','
@@ -260,7 +274,9 @@ void write_trajectory_csv(const std::string& path, const std::vector<TrajectoryP
                << point.speed_command << ','
                << point.turn_command << ','
                << (point.target_visible ? 1 : 0) << ','
+               << (point.target_sensory_available ? 1 : 0) << ','
                << point.target_bearing << ','
+               << point.task_phase << ','
                << point.cumulative_spikes << ','
                << point.foods_collected << '\n';
     }
@@ -278,7 +294,7 @@ void write_brain_activity_csv(const std::string& path, const std::vector<BrainAc
         throw std::runtime_error("Could not open brain activity CSV for writing: " + path);
     }
 
-    output << "step,neuron_index,neuron_type,brain_x,brain_y,bias,potential,threshold,activation,spiked\n";
+    output << "step,neuron_index,neuron_type,brain_x,brain_y,bias,potential,threshold,background_sensitivity,activation,spiked\n";
     output << std::setprecision(10);
     for (const auto& point : activity) {
         output << point.step << ','
@@ -289,6 +305,7 @@ void write_brain_activity_csv(const std::string& path, const std::vector<BrainAc
                << point.bias << ','
                << point.potential << ','
                << point.threshold << ','
+               << point.background_sensitivity << ','
                << point.activation << ','
                << (point.spiked ? 1 : 0) << '\n';
     }
