@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <numeric>
@@ -385,6 +386,13 @@ EvolutionResult EvolutionRunner::run(const std::string& output_dir)
 
 EvolutionResult EvolutionRunner::run_scalar(const std::string& output_dir)
 {
+    const std::filesystem::path live_stats_path = std::filesystem::path(output_dir) / "stats.csv";
+    if (!output_dir.empty()) {
+        std::filesystem::create_directories(output_dir);
+        write_run_metadata_csv((std::filesystem::path(output_dir) / "metadata.csv").string(), config_);
+        write_generation_stats_csv(live_stats_path.string(), {});
+    }
+
     std::vector<Brain> population;
     population.reserve(config_.population_size);
     for (std::size_t i = 0; i < config_.population_size; ++i) {
@@ -402,6 +410,12 @@ EvolutionResult EvolutionRunner::run_scalar(const std::string& output_dir)
         });
 
         result.stats.push_back(summarize(generation, scored));
+        if (!output_dir.empty()) {
+            append_generation_stats_csv(live_stats_path.string(), result.stats.back());
+        }
+        std::cout << "Generation " << (generation + 1) << '/' << config_.generations
+                  << " best_fitness=" << result.stats.back().best_fitness
+                  << " foods=" << result.stats.back().best_foods_collected << '\n' << std::flush;
 
         if (!has_best_seen || better_evaluation(scored.front().evaluation, best_evaluation_seen)) {
             best_evaluation_seen = scored.front().evaluation;
@@ -440,8 +454,6 @@ EvolutionResult EvolutionRunner::run_scalar(const std::string& output_dir)
     result.best_evaluation = std::move(best_recorded_life);
 
     if (!output_dir.empty()) {
-        std::filesystem::create_directories(output_dir);
-        write_run_metadata_csv((std::filesystem::path(output_dir) / "metadata.csv").string(), config_);
         write_generation_stats_csv((std::filesystem::path(output_dir) / "stats.csv").string(), result.stats);
         write_trajectory_csv((std::filesystem::path(output_dir) / "best_trajectory.csv").string(), result.best_evaluation.trajectory);
         write_brain_activity_csv((std::filesystem::path(output_dir) / "brain_activity.csv").string(), result.best_evaluation.brain_activity);
@@ -454,6 +466,13 @@ EvolutionResult EvolutionRunner::run_scalar(const std::string& output_dir)
 
 EvolutionResult EvolutionRunner::run_neat_nsga2(const std::string& output_dir)
 {
+    const std::filesystem::path live_stats_path = std::filesystem::path(output_dir) / "stats.csv";
+    if (!output_dir.empty()) {
+        std::filesystem::create_directories(output_dir);
+        write_run_metadata_csv((std::filesystem::path(output_dir) / "metadata.csv").string(), config_);
+        write_generation_stats_csv(live_stats_path.string(), {});
+    }
+
     InnovationTracker innovation_tracker(config_.brain.input_count + config_.brain.output_count);
     Speciator speciator(config_.neat.speciation);
 
@@ -552,6 +571,13 @@ EvolutionResult EvolutionRunner::run_neat_nsga2(const std::string& output_dir)
         assign_nsga2_metadata(population);
 
         result.stats.push_back(summarize_neat(generation, population, speciator.species()));
+        if (!output_dir.empty()) {
+            append_generation_stats_csv(live_stats_path.string(), result.stats.back());
+        }
+        std::cout << "Generation " << (generation + 1) << '/' << config_.generations
+                  << " best_fitness=" << result.stats.back().best_fitness
+                  << " foods=" << result.stats.back().best_foods_collected
+                  << " species=" << result.stats.back().species_count << '\n' << std::flush;
 
         for (const auto& genome : population) {
             if (!has_best_seen || better_genome_for_recording(genome, best_genome_seen)) {
@@ -587,8 +613,6 @@ EvolutionResult EvolutionRunner::run_neat_nsga2(const std::string& output_dir)
     result.best_evaluation = std::move(best_recorded_life);
 
     if (!output_dir.empty()) {
-        std::filesystem::create_directories(output_dir);
-        write_run_metadata_csv((std::filesystem::path(output_dir) / "metadata.csv").string(), config_);
         write_generation_stats_csv((std::filesystem::path(output_dir) / "stats.csv").string(), result.stats);
         write_trajectory_csv((std::filesystem::path(output_dir) / "best_trajectory.csv").string(), result.best_evaluation.trajectory);
         write_brain_activity_csv((std::filesystem::path(output_dir) / "brain_activity.csv").string(), result.best_evaluation.brain_activity);
@@ -1026,6 +1050,57 @@ void write_run_metadata_csv(const std::string& path, const EvolutionConfig& conf
     output << "environment_neuron_budget," << config.environment.neuron_budget << '\n';
 }
 
+namespace {
+
+void write_generation_stats_header(std::ostream& output)
+{
+    output << "generation,best_fitness,mean_fitness,best_reward,mean_reward,best_penalty,mean_penalty,"
+              "best_spikes,mean_spikes,best_synapses,mean_synapses,best_foods_collected,mean_foods_collected,"
+              "best_occluded_foods_collected,mean_occluded_foods_collected,"
+              "best_max_hidden_bias,mean_max_hidden_bias,clock_candidate_genomes,best_task_score,mean_task_score,"
+              "best_pareto_rank,number_non_dominated,mean_spike_energy_norm,mean_synapse_count_norm,"
+              "mean_time_cost_norm,mean_neurons,mean_enabled_synapses,species_count,largest_species_size,"
+              "mean_crowding_distance,best_scalar_display_score\n";
+}
+
+void write_generation_stats_row(std::ostream& output, const GenerationStats& row)
+{
+    output << std::setprecision(10);
+    output << row.generation << ','
+           << row.best_fitness << ','
+           << row.mean_fitness << ','
+           << row.best_reward << ','
+           << row.mean_reward << ','
+           << row.best_penalty << ','
+           << row.mean_penalty << ','
+           << row.best_spikes << ','
+           << row.mean_spikes << ','
+           << row.best_synapses << ','
+           << row.mean_synapses << ','
+           << row.best_foods_collected << ','
+           << row.mean_foods_collected << ','
+           << row.best_occluded_foods_collected << ','
+           << row.mean_occluded_foods_collected << ','
+           << row.best_max_hidden_bias << ','
+           << row.mean_max_hidden_bias << ','
+           << row.clock_candidate_genomes << ','
+           << row.best_task_score << ','
+           << row.mean_task_score << ','
+           << row.best_pareto_rank << ','
+           << row.number_non_dominated << ','
+           << row.mean_spike_energy_norm << ','
+           << row.mean_synapse_count_norm << ','
+           << row.mean_time_cost_norm << ','
+           << row.mean_neurons << ','
+           << row.mean_enabled_synapses << ','
+           << row.species_count << ','
+           << row.largest_species_size << ','
+           << row.mean_crowding_distance << ','
+           << row.best_scalar_display_score << '\n';
+}
+
+} // namespace
+
 void write_generation_stats_csv(const std::string& path, const std::vector<GenerationStats>& stats)
 {
     const std::filesystem::path output_path(path);
@@ -1038,47 +1113,19 @@ void write_generation_stats_csv(const std::string& path, const std::vector<Gener
         throw std::runtime_error("Could not open generation stats CSV for writing: " + path);
     }
 
-    output << "generation,best_fitness,mean_fitness,best_reward,mean_reward,best_penalty,mean_penalty,"
-              "best_spikes,mean_spikes,best_synapses,mean_synapses,best_foods_collected,mean_foods_collected,"
-              "best_occluded_foods_collected,mean_occluded_foods_collected,"
-              "best_max_hidden_bias,mean_max_hidden_bias,clock_candidate_genomes,best_task_score,mean_task_score,"
-              "best_pareto_rank,number_non_dominated,mean_spike_energy_norm,mean_synapse_count_norm,"
-              "mean_time_cost_norm,mean_neurons,mean_enabled_synapses,species_count,largest_species_size,"
-              "mean_crowding_distance,best_scalar_display_score\n";
-    output << std::setprecision(10);
+    write_generation_stats_header(output);
     for (const auto& row : stats) {
-        output << row.generation << ','
-               << row.best_fitness << ','
-               << row.mean_fitness << ','
-               << row.best_reward << ','
-               << row.mean_reward << ','
-               << row.best_penalty << ','
-               << row.mean_penalty << ','
-               << row.best_spikes << ','
-               << row.mean_spikes << ','
-               << row.best_synapses << ','
-               << row.mean_synapses << ','
-               << row.best_foods_collected << ','
-               << row.mean_foods_collected << ','
-               << row.best_occluded_foods_collected << ','
-               << row.mean_occluded_foods_collected << ','
-               << row.best_max_hidden_bias << ','
-               << row.mean_max_hidden_bias << ','
-               << row.clock_candidate_genomes << ','
-               << row.best_task_score << ','
-               << row.mean_task_score << ','
-               << row.best_pareto_rank << ','
-               << row.number_non_dominated << ','
-               << row.mean_spike_energy_norm << ','
-               << row.mean_synapse_count_norm << ','
-               << row.mean_time_cost_norm << ','
-               << row.mean_neurons << ','
-               << row.mean_enabled_synapses << ','
-               << row.species_count << ','
-               << row.largest_species_size << ','
-               << row.mean_crowding_distance << ','
-               << row.best_scalar_display_score << '\n';
+        write_generation_stats_row(output, row);
     }
+}
+
+void append_generation_stats_csv(const std::string& path, const GenerationStats& stats)
+{
+    std::ofstream output(path, std::ios::app);
+    if (!output) {
+        throw std::runtime_error("Could not open generation stats CSV for appending: " + path);
+    }
+    write_generation_stats_row(output, stats);
 }
 
 } // namespace neuroevo

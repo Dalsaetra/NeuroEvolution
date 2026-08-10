@@ -26,6 +26,31 @@ Or:
 .\scripts\build.ps1
 ```
 
+## Local Dashboard
+
+Launch the experiment dashboard with:
+
+```powershell
+.\scripts\dashboard.ps1
+```
+
+The dashboard opens at `http://127.0.0.1:8765` and provides:
+
+- schema-driven controls for every simulator command-line parameter;
+- saved browser-local parameter presets and workload estimates;
+- buttons to configure/build/test the C++ simulator, start a run, or stop the active process;
+- live generation progress, fitness curves, task metrics, topology summaries, and process logs;
+- a recent-run archive and embedded creature/brain episode replays;
+- Pareto-front visualization for completed NEAT + NSGA-II runs.
+
+You do not need to build first: use **Build & test** in the dashboard. If you prefer the terminal, run `scripts/build.ps1` before opening it. Generated controls are defined in `tools/dashboard/parameters.json`; adding a parameter descriptor there makes it appear in the GUI without editing the dashboard frontend. A test checks that the schema and simulator CLI stay in sync.
+
+Use a different port or prevent automatic browser opening with:
+
+```powershell
+.\scripts\dashboard.ps1 -Port 9000 -NoOpen
+```
+
 ## Run A Simulation
 
 ```powershell

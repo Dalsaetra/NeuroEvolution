@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroEvolution Lab</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="NeuroEvolution dashboard">
+      <span class="brand-mark"><i></i><i></i><i></i><i></i></span>
+      <span><strong>NEURO</strong><em>EVOLUTION LAB</em></span>
+    </a>
+    <div class="top-actions">
+      <span id="buildState" class="status-pill neutral"><span></span>Checking build</span>
+      <button id="buildButton" class="button ghost">Build &amp; test</button>
+      <button id="latestButton" class="button ghost">Visualize latest</button>
+      <button id="runButton" class="button primary">Start evolution</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="config-panel">
+      <div class="config-heading">
+        <div>
+          <span class="eyebrow">Experiment setup</span>
+          <h1>Simulation parameters</h1>
+        </div>
+        <button id="resetButton" class="icon-button" title="Reset all parameters">↺</button>
+      </div>
+
+      <label class="search-box">
+        <span>⌕</span>
+        <input id="parameterSearch" type="search" placeholder="Find a parameter…">
+      </label>
+
+      <div class="preset-row">
+        <select id="presetSelect" aria-label="Saved parameter presets">
+          <option value="">Saved presets</option>
+        </select>
+        <button id="savePresetButton" class="button mini">Save</button>
+        <button id="deletePresetButton" class="button mini subtle">Delete</button>
+      </div>
+
+      <div id="parameterGroups" class="parameter-groups"></div>
+
+      <div class="run-launcher">
+        <label for="runName">Run name</label>
+        <div class="run-name-row">
+          <input id="runName" autocomplete="off" spellcheck="false">
+          <button id="refreshNameButton" class="icon-button" title="Generate a new run name">↻</button>
+        </div>
+        <div id="workEstimate" class="work-estimate"></div>
+        <button id="sidebarRunButton" class="button primary wide">Start evolution</button>
+      </div>
+    </aside>
+
+    <main class="dashboard">
+      <section class="hero-panel">
+        <div>
+          <span class="eyebrow">Live experiment</span>
+          <h2 id="selectedRunTitle">No run selected</h2>
+          <p id="selectedRunSubtitle">Build the simulator or select a previous experiment below.</p>
+        </div>
+        <div class="hero-progress">
+          <div class="progress-copy"><span id="progressLabel">Idle</span><strong id="progressPercent">0%</strong></div>
+          <div class="progress-track"><i id="progressBar"></i></div>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="Latest metrics">
+        <article class="metric-card accent"><span>Best fitness</span><strong id="bestFitness">—</strong><small id="fitnessDelta">Awaiting data</small></article>
+        <article class="metric-card"><span>Mean fitness</span><strong id="meanFitness">—</strong><small>Current population</small></article>
+        <article class="metric-card"><span>Foods collected</span><strong id="foodsCollected">—</strong><small id="occludedFoods">Best genome</small></article>
+        <article class="metric-card"><span id="topologyMetricLabel">Topology</span><strong id="speciesCount">—</strong><small id="topologySummary">Population topology</small></article>
+      </section>
+
+      <section id="jobPanel" class="job-panel hidden">
+        <div class="job-header">
+          <div><span id="jobKind" class="eyebrow">Process</span><h3 id="jobTitle">Working…</h3></div>
+          <div class="job-actions"><span id="jobStatus" class="status-pill running"><span></span>Running</span><button id="stopButton" class="button danger">Stop</button></div>
+        </div>
+        <pre id="jobLog" class="job-log"></pre>
+      </section>
+
+      <section class="chart-grid">
+        <article class="panel chart-panel">
+          <div class="panel-heading"><div><span class="eyebrow">Selection pressure</span><h3>Fitness over generations</h3></div><div class="legend"><span class="best">Best</span><span class="mean">Mean</span></div></div>
+          <canvas id="fitnessChart" height="280"></canvas>
+          <div id="fitnessEmpty" class="empty-chart">Fitness data will appear after generation one.</div>
+        </article>
+        <article class="panel chart-panel">
+          <div class="panel-heading"><div><span class="eyebrow">Behavior</span><h3>Task performance</h3></div><div class="legend"><span class="food">Food</span><span class="occluded">During occlusion</span></div></div>
+          <canvas id="taskChart" height="280"></canvas>
+          <div id="taskEmpty" class="empty-chart">Task metrics will appear during evolution.</div>
+        </article>
+      </section>
+
+      <section class="panel runs-panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">Experiment archive</span><h3>Simulation runs</h3></div>
+          <button id="refreshRunsButton" class="button mini">Refresh</button>
+        </div>
+        <div class="run-table-wrap">
+          <table class="run-table">
+            <thead><tr><th>Run</th><th>Mode</th><th>Task</th><th>Progress</th><th>Best fitness</th><th>Food</th><th>Updated</th></tr></thead>
+            <tbody id="runsBody"></tbody>
+          </table>
+          <div id="runsEmpty" class="empty-state">No simulation runs found yet.</div>
+        </div>
+      </section>
+
+      <section id="replayPanel" class="panel replay-panel">
+        <div class="panel-heading replay-heading">
+          <div><span class="eyebrow">Behavior inspection</span><h3>Episode &amp; brain replay</h3></div>
+          <div class="replay-actions">
+            <button id="episodeTab" class="tab active">Best episode</button>
+            <button id="paretoTab" class="tab">Pareto front</button>
+            <button id="generateViewerButton" class="button mini">Generate views</button>
+            <a id="openViewerButton" class="button mini subtle disabled" target="_blank" rel="noopener">Open full screen</a>
+          </div>
+        </div>
+        <div id="replayPlaceholder" class="replay-placeholder">
+          <div class="replay-orbit"><i></i><i></i><i></i></div>
+          <h4>Select a completed run</h4>
+          <p>The interactive replay combines creature movement, motor output, neuron activity, and synaptic events.</p>
+        </div>
+        <iframe id="replayFrame" class="replay-frame hidden" title="Simulation episode replay"></iframe>
+      </section>
+    </main>
+  </div>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

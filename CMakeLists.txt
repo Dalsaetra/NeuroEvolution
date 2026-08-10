@@ -53,3 +53,11 @@ add_executable(neuroevo_mechanics_tests tests/mechanics.cpp)
 target_link_libraries(neuroevo_mechanics_tests PRIVATE neuroevo_core)
 
 add_test(NAME neuroevo_mechanics_tests COMMAND neuroevo_mechanics_tests)
+
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME neuroevo_dashboard_tests
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/dashboard_test.py
+    )
+endif()

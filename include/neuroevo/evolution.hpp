@@ -119,6 +119,7 @@ EAMode parse_ea_mode(const std::string& value);
 std::string to_string(EAMode mode);
 
 void write_generation_stats_csv(const std::string& path, const std::vector<GenerationStats>& stats);
+void append_generation_stats_csv(const std::string& path, const GenerationStats& stats);
 void write_run_metadata_csv(const std::string& path, const EvolutionConfig& config);
 
 } // namespace neuroevo
