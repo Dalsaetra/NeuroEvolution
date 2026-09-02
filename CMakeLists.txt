@@ -8,6 +8,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(neuroevo_core
     src/brain.cpp
+    src/brain_state.cpp
+    src/ecosystem.cpp
+    src/ecosystem_sensing.cpp
+    src/ecosystem_io.cpp
     src/environment.cpp
     src/evolution.cpp
     src/fitness.cpp
@@ -32,7 +36,22 @@ endif()
 add_executable(neuroevo_sim src/main.cpp)
 target_link_libraries(neuroevo_sim PRIVATE neuroevo_core)
 
+add_executable(neuroevo_ecosystem src/ecosystem_main.cpp)
+target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
+
 enable_testing()
+
+add_executable(neuroevo_ecosystem_mechanics tests/ecosystem_mechanics.cpp)
+target_link_libraries(neuroevo_ecosystem_mechanics PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_mechanics COMMAND neuroevo_ecosystem_mechanics)
+
+add_executable(neuroevo_ecosystem_sensing tests/ecosystem_sensing.cpp)
+target_link_libraries(neuroevo_ecosystem_sensing PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_sensing COMMAND neuroevo_ecosystem_sensing)
+
+add_executable(neuroevo_ecosystem_checkpoint tests/ecosystem_checkpoint.cpp)
+target_link_libraries(neuroevo_ecosystem_checkpoint PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_checkpoint COMMAND neuroevo_ecosystem_checkpoint)
 
 add_executable(neuroevo_smoke tests/smoke.cpp)
 target_link_libraries(neuroevo_smoke PRIVATE neuroevo_core)
@@ -56,6 +75,10 @@ add_test(NAME neuroevo_mechanics_tests COMMAND neuroevo_mechanics_tests)
 
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
+    add_test(NAME neuroevo_ecosystem_viewer
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ecosystem_viewer_test.py)
+    add_test(NAME neuroevo_ecosystem_cli
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ecosystem_cli_test.py $<TARGET_FILE:neuroevo_ecosystem>)
     add_test(
         NAME neuroevo_dashboard_tests
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/dashboard_test.py

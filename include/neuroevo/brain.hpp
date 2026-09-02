@@ -4,6 +4,7 @@
 #include "neuroevo/vector2.hpp"
 
 #include <cstddef>
+#include <iosfwd>
 #include <vector>
 
 namespace neuroevo {
@@ -107,6 +108,10 @@ public:
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
     const std::vector<Synapse>& synapses() const noexcept { return synapses_; }
     BrainStats stats() const noexcept;
+
+    // Includes delayed currents, refractory periods, and motor traces, not just a genome.
+    void save_state(std::ostream& stream) const;
+    static Brain load_state(std::istream& stream);
 
 private:
     BrainConfig config_;

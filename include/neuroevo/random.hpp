@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <random>
+#include <istream>
+#include <ostream>
+#include <stdexcept>
 
 namespace neuroevo {
 
@@ -41,6 +44,14 @@ public:
     std::uint64_t next_u64()
     {
         return engine_();
+    }
+
+    void save_state(std::ostream& stream) const { stream << engine_ << '\n'; }
+    void load_state(std::istream& stream)
+    {
+        if (!(stream >> engine_)) {
+            throw std::runtime_error("Invalid random generator checkpoint");
+        }
     }
 
 private:

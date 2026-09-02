@@ -11,6 +11,7 @@ Prototype evolutionary simulator for creatures with spiking neural-network brain
 - CSV outputs for generation statistics and the best-run trajectory.
 - Python plotting script for fitness and trajectory summaries.
 - Interactive HTML viewer for replaying a creature trajectory, brain activity, and synapse firing.
+- Shared ecosystem with continuous movement, local senses, food competition, cooperative pods, storms, and energy-funded reproduction.
 
 ## Build
 
@@ -25,6 +26,18 @@ Or:
 ```powershell
 .\scripts\build.ps1
 ```
+
+## Shared Ecosystem
+
+Run the first ecosystem with independent spiking brains:
+
+```powershell
+.\scripts\ecosystem.ps1 -Build -Creatures 24 -Steps 4800 -Open
+```
+
+This runs 480 simulated seconds at the default timestep and saves a fresh timestamped directory under `runs/`. Change `-Creatures` for solitary or group experiments; use `-NoReproduction` to keep births disabled, or `-Controller reactive` for a scripted comparison. The replay includes terrain, depleted food, cooperative pod opening, weather, individual diets, sensory inputs, neural activity, and population histories.
+
+The ecosystem has its own `neuroevo_ecosystem` executable and offline replay. It runs independently of the existing generation-based experiment dashboard. See [the environment guide](docs/environment-v1.md) for mixed populations, food-learning comparisons, continuation from checkpoints, parameters, and current limitations.
 
 ## Local Dashboard
 
