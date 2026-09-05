@@ -48,7 +48,7 @@ void geography_and_inheritance()
         if (w.in_nursery(r.position)) {
             ++nursery_food;
             require(r.energy_per_unit==cfg.nursery_food_energy
-                && r.capacity==cfg.nursery_food_capacity && r.regrowth==cfg.nursery_food_regrowth,
+                && r.capacity==cfg.nursery_food_capacity && r.regrowth==(cfg.nursery_food_relocates?0:cfg.nursery_food_regrowth),
                 "Nursery patches must use the configured nutrition, capacity, and regrowth");
         } else {
             // Relative nutrition and carrying capacity are experimental tuning
@@ -62,7 +62,7 @@ void geography_and_inheritance()
     for (std::size_t y=0;y<cfg.height;++y) for (std::size_t x=0;x<cfg.width;++x)
         if (!w.in_nursery({double(x)+.5,double(y)+.5}) && w.terrain[y*cfg.width+x]==Terrain::Shelter) ++frontier_shelter;
     const auto patches_per_axis=(cfg.nursery_size-3)/2;
-    require(frontier_shelter==cfg.shelters*cfg.shelter_size*cfg.shelter_size && nursery_food==patches_per_axis*patches_per_axis,
+    require(frontier_shelter==cfg.shelters*cfg.shelter_size*cfg.shelter_size && nursery_food==(cfg.nursery_food_relocates?cfg.nursery_food_patches:patches_per_axis*patches_per_axis),
         "Habitat food or shelter count does not match its configured dimensions");
     // Every open cell, including each gate and outer refuge, must be reachable.
     std::vector<bool> seen(w.terrain.size()); std::queue<std::size_t> queue;
@@ -94,7 +94,8 @@ void weather_and_costs()
     EcoCreature b=a;b.id=2;b.position=outer->position;
     w.creatures={a,b};w.next_creature_id=3;
     const auto storm_input=eco_sectors*eco_sector_channels+8+5;
-    require(w.observe(0)[storm_input]==0 && w.observe(1)[storm_input]==1,"Storm cue must be local to protected nursery");
+    require(w.observe(0)[storm_input]==1 && w.observe(1)[storm_input]==1,
+        "Nursery protection must not hide the global storm cue");
     w.resources[inner_index].stock=0;w.resources[outer_index].stock=0;
     w.step({{}, {}});
     require(std::abs(w.creatures[0].energy-w.creatures[1].energy-cfg.storm_cost*cfg.dt)<1e-8,"Nursery protection is incorrect");
@@ -128,5 +129,25 @@ void feeding_efficiency()
             "Feeding efficiency broke stock conservation");
     }
 }
+void relocation()
+{
+    auto cfg=nursery_frontier_config();cfg.initial_creatures=0;cfg.reproduction=false;
+    EcosystemWorld w(cfg);
+    auto& patch=w.resources.front();const auto old=patch.position;const auto id=patch.id;
+    patch.stock=0;
+    std::istringstream checkpoint(saved(w));auto resumed=EcosystemWorld::load_checkpoint(checkpoint);
+    w.step();resumed.step();
+    require(saved(w)==saved(resumed),"Checkpoint resume changed food relocation RNG or positions");
+    require(w.resources.front().id==id && length(w.resources.front().position-old)>1.7,
+        "Depleted nursery patch did not relocate with its stable ID");
+    require(w.in_nursery(w.resources.front().position) && w.resources.front().stock==cfg.nursery_food_capacity,
+        "Replacement patch must be full and inside nursery");
+    require(std::any_of(w.events.begin(),w.events.end(),[](const auto& e){return e.type=="nursery_food_relocated";}),
+        "Relocation event missing");
+    const auto new_position=w.resources.front().position;w.step();
+    require(length(w.resources.front().position-new_position)==0,"Nondepleted food moved");
+    require(w.resources.size()==cfg.nursery_food_patches+cfg.grazing_patches+cfg.fruit_patches+cfg.pods,
+        "Relocation changed fixed resource count");
 }
-int main(){try{geography_and_inheritance();weather_and_costs();feeding_efficiency();std::cout<<"Nursery frontier passed\n";}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(){try{geography_and_inheritance();weather_and_costs();feeding_efficiency();relocation();std::cout<<"Nursery frontier passed\n";}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

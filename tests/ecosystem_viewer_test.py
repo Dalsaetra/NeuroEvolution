@@ -133,14 +133,14 @@ class EcosystemReplayTests(unittest.TestCase):
 const assert=require('node:assert/strict'),vm=require('node:vm');
 const nodes=new Map();
 const context=new Proxy({measureText:t=>({width:String(t).length*6})},{get:(o,k)=>k in o?o[k]:(()=>{})});
-function element(tag='div') {return {tagName:tag.toUpperCase(),style:{},children:[],listeners:{},checked:false,value:0,width:0,height:0,hidden:false,textContent:'',
-classList:{add(){},remove(){}},getContext:()=>context,getBoundingClientRect:()=>({width:400,height:220}),
-append(...children){this.children.push(...children)},replaceChildren(...children){this.children=children},setAttribute(){},
+function element(tag='div') {return {tagName:tag.toUpperCase(),style:{},dataset:{},children:[],listeners:{},checked:false,value:0,width:0,height:0,hidden:false,textContent:'',
+classList:{add(){},remove(){}},getContext:()=>context,getBoundingClientRect:()=>({left:0,top:0,width:400,height:220}),
+add(child){this.children.push(child)},append(...children){this.children.push(...children)},replaceChildren(...children){this.children=children},setAttribute(){},
 addEventListener(name,fn){this.listeners[name]=fn}};}
 const document={getElementById(id){if(!nodes.has(id))nodes.set(id,element());return nodes.get(id)},createElement:element,addEventListener(){}};
 document.getElementById('replay-data').textContent=PAYLOAD;
 document.getElementById('speed').value='5';
-const scope={document,window:{devicePixelRatio:1,innerWidth:1200,innerHeight:900,addEventListener(){}},performance:{now:()=>0},requestAnimationFrame(){}};
+const scope={document,Option:function(text,value){return {...element('option'),textContent:text,value}},window:{devicePixelRatio:1,innerWidth:1200,innerHeight:900,addEventListener(){}},performance:{now:()=>0},requestAnimationFrame(){}};
 vm.runInNewContext(SOURCE,scope);
 assert.equal(nodes.get('statSelect').children.length,2);
 nodes.get('statSelect').value='net_energy';
@@ -157,6 +157,7 @@ vm.runInNewContext('render()',scope);
 assert.equal(String(nodes.get('population').textContent),'1');
 assert.equal(nodes.get('brainEmpty').style.display,'block');
 assert.equal(nodes.get('establishmentPanel').hidden,true);
+assert.equal(nodes.get('neuronDetails').children.length,0);
 nodes.get('stepForward').listeners.click();
 assert.equal(nodes.get('selectedContent').hidden,true);
 assert.equal(nodes.get('establishmentPanel').hidden,false);
@@ -167,6 +168,50 @@ nodes.get('creatureSelect').listeners.change({target:{value:'2'}});
 assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
 assert.equal(nodes.get('agentParent').textContent,'archive clone · source 1');
 assert.equal(nodes.get('brainEmpty').style.display,'none');
+vm.runInNewContext(`
+ const edges=brains.get(2).synapses;
+ edges.push({pre:1,post:0,weight:-0.125},{pre:0,post:0,weight:0},{pre:0,post:1,weight:0.00000001});
+ drawBrain(F[index].creatures[0]);
+ const p=brainPoints.find(p=>p.i===0);
+ brain.listeners.click({clientX:p.x,clientY:p.y});
+ if(selectedNeuron!==0)throw Error('Click did not select neuron zero');
+`,scope);
+const lists=nodes.get('neuronDetails').children[1].children;
+assert.equal(lists[0].children[0].textContent,'Incoming synapses (2)');
+assert.equal(lists[1].children[0].textContent,'Outgoing synapses (3)');
+const rows=lists[0].children[1].children[0].children[0].children;
+assert.equal(rows[0].children[1].textContent,'-0.125');
+assert.equal(rows[1].children[1].textContent,'0');
+vm.runInNewContext('render(); if(selectedNeuron!==0)throw Error("Selection lost during playback")',scope);
+nodes.get('neuronSelect').listeners.change({target:{value:'1'}});
+assert.match(nodes.get('neuronDetails').children[0].textContent,/#1/);
+assert.equal(nodes.get('potentialHistory').hidden,false);
+assert.match(nodes.get('potentialTitle').textContent,/Potential V history/);
+assert.match(nodes.get('potentialCaption').textContent,/Current V: 0.5/);
+vm.runInNewContext(`
+ const history=potentialSamples(2,1);
+ if(JSON.stringify(history.map(p=>p.value))!=='[null,0.5,null]')throw Error('History must retain missing samples and creature identity');
+ selectNeuron(0);
+ if(potentialCache.samples[1].value!==0)throw Error('Zero potential was lost');
+ if(potentialCache.samples[1].threshold!==1||potentialCache.samples[1].spiked!==true)throw Error('Threshold or spike missing');
+ if(potentialCache.samples[0].threshold!==null||potentialCache.samples[0].spiked!==null)throw Error('Absent creature has spike data');
+ if(potentialSamples(2,1)[1].spiked!==false)throw Error('Non-spiking neuron marked as firing');
+ M.calibrated_io=true;F[1].creatures[0].brain.neurons[0].threshold=2;
+ if(potentialSamples(2,0)[1].threshold!==1)throw Error('Calibrated input must fire at phase 1');
+ M.calibrated_io=false;F[1].creatures[0].brain.neurons[0].threshold=1;
+
+ const saved=F[1].creatures[0].brain.potentials;
+ F[1].creatures[0].brain.potentials=[null,NaN];
+ if(potentialSamples(2,0).some(p=>p.value!==null)||potentialSamples(2,1).some(p=>p.value!==null))throw Error('Invalid samples were plotted');
+ potentialCache={};drawPotentialHistory(brainData(F[1].creatures[0]));
+ F[1].creatures[0].brain.potentials=saved;potentialCache={};
+`,scope);
+assert.match(nodes.get('potentialCaption').textContent,/was not recorded/);
+nodes.get('clearNeuron').listeners.click();
+assert.equal(nodes.get('neuronDetails').children.length,0);
+assert.equal(nodes.get('potentialHistory').hidden,true);
+vm.runInNewContext('selectNeuron(0)',scope);
+
 nodes.get('sensorsTab').listeners.click();
 assert.equal(nodes.get('sensors').children.length,1);
 nodes.get('stepForward').listeners.click();

@@ -30,8 +30,10 @@ struct EcosystemConfig {
     bool nursery_frontier = false;
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 4;
-    std::size_t shelter_size = 5;
-    double nursery_food_energy = 25.0, nursery_food_capacity = 24, nursery_food_regrowth = 0.02;
+    std::size_t shelter_size = 6;
+    std::size_t nursery_food_patches = 16;
+    bool nursery_food_relocates = true;
+    double nursery_food_energy = 30.0, nursery_food_capacity = 16, nursery_food_regrowth = 0.02;
     std::size_t width = 48, height = 48, initial_creatures = 24, max_population = 128;
     std::size_t shelters = 12, grazing_patches = 80, fruit_patches = 32, pods = 8;
     std::uint64_t seed = 7;
@@ -178,6 +180,7 @@ public:
     bool sheltered(Vec2 position) const;
     bool in_nursery(Vec2 position) const;
     void generate_nursery_frontier();
+    bool relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures);
     bool traversable(Vec2 position) const;
     bool line_of_sight(Vec2 from, Vec2 to) const;
     void generate_world();

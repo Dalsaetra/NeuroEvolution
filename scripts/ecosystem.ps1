@@ -17,6 +17,8 @@ param(
     [ValidateSet("generated", "nursery-frontier")][string]$Habitat = "generated",
     [ValidateRange(0, 100000)][int]$NurseryExitWidth = 3,
     [ValidateRange(1, 100000)][int]$ShelterSize = 3,
+    [ValidateRange(1, 100000)][int]$NurseryFoodPatches = 18,
+    [ValidateRange(0.000001, 1000000)][double]$NurseryFoodEnergy = 50,
     [switch]$NoReproduction,
     [switch]$NoStorms,
     [switch]$Establishment,
@@ -48,7 +50,7 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
         "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
         "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
         "RichFruitEnergy", "PodEnergy", "KeepImmigration",
-        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize")) {
+        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize", "NurseryFoodPatches", "NurseryFoodEnergy")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) {
             throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration."
         }
@@ -118,6 +120,8 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     $EffectiveCreatures = if ($SoloAncestorTrial) { 1 } else { $Creatures }
     if ($SoloAncestorTrial -and $Habitat -ne "generated") { throw "-SoloAncestorTrial cannot be combined with -Habitat nursery-frontier" }
     $SimulationArguments += @("--habitat", $Habitat)
+    if ($PSBoundParameters.ContainsKey("NurseryFoodPatches")) { $SimulationArguments += @("--nursery-food-patches", $NurseryFoodPatches) }
+    if ($PSBoundParameters.ContainsKey("NurseryFoodEnergy")) { $SimulationArguments += @("--nursery-food-energy", $NurseryFoodEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture)) }
     if ($PSBoundParameters.ContainsKey("ShelterSize")) {
         $SimulationArguments += @("--shelter-size", $ShelterSize)
     }

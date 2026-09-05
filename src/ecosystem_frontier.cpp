@@ -12,9 +12,9 @@ EcosystemConfig nursery_frontier_config()
     c.max_population = 256;
     c.shelters = 32;
     c.grazing_patches = 240; c.fruit_patches = 64; c.pods = 48;
-    c.graze_energy = 14; c.poor_fruit_energy = 24; c.rich_fruit_energy = 40; c.pod_energy = 80;
+    c.graze_energy = 30; c.poor_fruit_energy = 44; c.rich_fruit_energy = 60; c.pod_energy = 100;
     c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 3.0;
+    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 7.5;
     c.maturity_age = 60; c.reproduction_threshold = 110;
     c.reproduction_cost = 65; c.offspring_energy = 60; c.reproduction_cooldown = 90;
     c.establishment = false; c.archive_eval_trials = 0;
@@ -75,7 +75,15 @@ void EcosystemWorld::generate_nursery_frontier()
     };
     // Finite separated patches. One patch's steady supply is below basal cost
     // at the preset, so a creature must move between patches and forage.
-    for (auto y=y0+2; y+2<=y1; y+=2) for (auto x=x0+2; x+2<=x1; x+=2)
+    if (config.nursery_food_relocates) {
+        Random food_rng(config.seed ^ 0x6e757273666f6f64ULL);
+        for (std::size_t i=0;i<config.nursery_food_patches;++i) {
+            EcoResource r;r.id=resources.size()+1;r.kind=FoodKind::Graze;r.position={-100,-100};
+            r.stock=r.capacity=config.nursery_food_capacity;r.energy_per_unit=config.nursery_food_energy;r.regrowth=0;
+            if (!relocate_nursery_food(r,food_rng,false)) throw std::invalid_argument("Nursery food patches cannot fit with spacing; reduce patch count");
+            resources.push_back(r);
+        }
+    } else for (auto y=y0+2; y+2<=y1; y+=2) for (auto x=x0+2; x+2<=x1; x+=2)
         food({double(x)+0.5,double(y)+0.5},FoodKind::Graze,config.nursery_food_energy,
             config.nursery_food_capacity,config.nursery_food_regrowth);
     fruit_a_rich=config.food_assignment<0 ? map_rng.chance(0.5) : config.food_assignment==0;
@@ -111,5 +119,23 @@ void EcosystemWorld::generate_nursery_frontier()
         capacity_limited=true;
         events.push_back({time(),"capacity_limited",0,0,0,double(creatures.size())});
     }
+}
+bool EcosystemWorld::relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures)
+{
+    const auto x0=(config.width-config.nursery_size)/2,y0=(config.height-config.nursery_size)/2;
+    std::vector<Vec2> candidates;
+    for (auto y=y0+2;y<y0+config.nursery_size-2;++y) for (auto x=x0+2;x<x0+config.nursery_size-2;++x) {
+        const Vec2 p{double(x)+.5,double(y)+.5};
+        if (!traversable(p) || length(p-resource.position)<2) continue;
+        if (std::any_of(resources.begin(),resources.end(),[&](const auto& r){return r.id!=resource.id && length(r.position-p)<1.8;})) continue;
+        if (avoid_creatures && std::any_of(creatures.begin(),creatures.end(),[&](const auto& c){return length(c.position-p)<config.interaction_range+config.radius+.5;})) continue;
+        candidates.push_back(p);
+    }
+    if (candidates.empty()) return false; // Remain depleted; retry next step, never overlap bodies.
+    auto p=candidates[rng.uniform_index(candidates.size())];
+    // Continuous jitter removes alignment to a predictable cell-center grid.
+    p.x+=rng.uniform(-.15,.15);p.y+=rng.uniform(-.15,.15);
+    resource.position=p;
+    return true;
 }
 } // namespace neuroevo

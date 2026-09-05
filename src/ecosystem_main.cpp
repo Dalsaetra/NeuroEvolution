@@ -68,6 +68,7 @@ int main(int argc, char** argv)
                 cfg=neuroevo::nursery_frontier_config();
         std::map<std::string,std::size_t*> sizes{
             {"--nursery-size",&cfg.nursery_size},
+            {"--nursery-food-patches",&cfg.nursery_food_patches},
             {"--nursery-exit-width",&cfg.nursery_exit_width},
             {"--shelter-size",&cfg.shelter_size},
             {"--creatures",&cfg.initial_creatures},{"--max-population",&cfg.max_population},
@@ -214,6 +215,7 @@ int main(int argc, char** argv)
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
+                else if (arg == "--nursery-food-relocates") cfg.nursery_food_relocates=boolean(value,arg);
                 else if (arg == "--controller") cfg.controller=neuroevo::parse_controller(value);
                 else if (arg == "--founder-brain") {
                     founder_brain_explicit=true;
@@ -489,6 +491,8 @@ int main(int argc, char** argv)
             << ",\"size\":" << world.config.nursery_size << ",\"food_energy\":" << world.config.nursery_food_energy
             << ",\"exit_width\":" << world.config.nursery_exit_width
             << ",\"food_capacity\":" << world.config.nursery_food_capacity
+            << ",\"food_patches\":" << world.config.nursery_food_patches
+            << ",\"food_relocates\":" << (world.config.nursery_food_relocates?"true":"false")
             << ",\"food_regrowth\":" << world.config.nursery_food_regrowth << "}"
             << ",\n  \"storms_enabled\":" << (world.config.storms_enabled?"true":"false")
             << ",\n  \"shelter_size\":" << world.config.shelter_size

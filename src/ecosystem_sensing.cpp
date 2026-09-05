@@ -276,7 +276,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     inputs[body_offset + 2] = config.max_turn_rate > 0.0 ? unit(self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 3] = config.max_turn_rate > 0.0 ? unit(-self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 4] = sheltered(self.position) ? 1.0 : 0.0;
-    inputs[body_offset + 5] = in_nursery(self.position) ? 0.0 : unit(storm_cue());
+    inputs[body_offset + 5] = unit(storm_cue());
     inputs[body_offset + 6] = unit(self.ingestion_pulse / (config.ingestion_rate * config.dt));
     const double nutrition_scale = config.extended_senses
         ? std::max({config.graze_energy, config.poor_fruit_energy, config.rich_fruit_energy, config.pod_energy}) : 12.0;

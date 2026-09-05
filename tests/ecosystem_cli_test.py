@@ -236,9 +236,9 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_11")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_12")
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
-        del lines[8:12]
+        del lines[8:13]
         historical = first / "historical.eco"
         historical.write_text("\n".join(lines) + "\n")
         old = self.run_world("preserved_policy", "--resume", historical, "--steps", 1)

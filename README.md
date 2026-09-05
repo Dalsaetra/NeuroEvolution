@@ -52,6 +52,10 @@ an 80×80 world with a storm-protected central nursery, finite food, richer fron
 resources, and smaller outer shelters. See [nursery and frontier](docs/nursery-frontier.md)
 for the launch command and tuning controls.
 
+Nursery food now [relocates on depletion](docs/moving-nursery-food.md). Configure
+it with `-NurseryFoodPatches` and `-NurseryFoodEnergy`; existing checkpoints keep
+their saved food policy.
+
 Add `-NoStorms` to any PowerShell ecosystem run to hold the weather in calm conditions. The selected sensory interface is unchanged and the storm-cue sensor remains present at zero.
 
 To establish a population with archive-based immigration (40% archive clones, 40% slight archive mutations, 20% strong archive mutations):

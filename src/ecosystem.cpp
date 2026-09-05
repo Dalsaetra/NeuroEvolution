@@ -205,6 +205,8 @@ void EcosystemConfig::validate() const
         positive(nursery_food_energy, "Nursery food energy");
         positive(nursery_food_capacity, "Nursery food capacity");
         positive(nursery_food_regrowth, "Nursery food regrowth", true);
+        if (nursery_food_relocates && (nursery_food_patches<1 || nursery_food_patches>(nursery_size-4)*(nursery_size-4)))
+            throw std::invalid_argument("Nursery food patch count must fit the nursery interior");
     }
     if (archive_capacity < 4 || archive_capacity > 256 || immigration_batch == 0 || immigration_batch > 256)
         throw std::invalid_argument("Archive capacity must be 4..256; immigration batch must be 1..256");
@@ -733,6 +735,17 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         }
     }
 
+    // Relocate only after all feeding allocations: newly placed food cannot be
+    // eaten through another creature's stale target in this step.
+    if (config.nursery_food_relocates) for (auto& resource : resources) {
+        if (in_nursery(resource.position) && resource.stock<=epsilon
+            && relocate_nursery_food(resource,map_rng,true)) {
+            totals.regrown_biomass += resource.capacity-resource.stock;
+            resource.stock=resource.capacity;
+            events.push_back({end,"nursery_food_relocated",0,0,resource.id,resource.stock});
+        }
+    }
+
     // 4. Due digestive packets arrive at the end boundary, then this interval's
     // energetic costs are charged. Future packets cannot rescue a starving body.
     for (auto& creature : creatures) {
@@ -872,6 +885,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     // 6. Regrowth uses the weather at interval start and appears at its end.
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
     for (auto& resource : resources) {
+        if (config.nursery_food_relocates && in_nursery(resource.position)) continue;
         if (storm && !in_nursery(resource.position)) continue;
         if (resource.kind == FoodKind::Pod && resource.pod_state != PodState::Refilling) continue;
         const double amount = std::max(0.0, std::min(resource.capacity - resource.stock, resource.regrowth * config.dt));

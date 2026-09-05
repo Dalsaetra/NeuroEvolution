@@ -124,13 +124,14 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     connect(3 * eco_sector_channels + 2, turn_left, 1.55);
     connect(4 * eco_sector_channels + 2, turn_left, 1.75);
 
-    // Turn away from visible boundaries and walls. A symmetric obstacle ahead
-    // breaks left, giving the otherwise deterministic lineage a stable policy.
-    connect(0 * eco_sector_channels, turn_left, 2.2);
-    connect(1 * eco_sector_channels, turn_left, 2.0);
-    connect(2 * eco_sector_channels, turn_left, 2.2);
-    connect(3 * eco_sector_channels, turn_right, 2.0);
-    connect(4 * eco_sector_channels, turn_right, 2.2);
+    // Weak initial avoidance (half the original weights) leaves food attraction
+    // more influence near walls. These ordinary synapses remain evolvable.
+    // A symmetric obstacle ahead still biases left.
+    connect(0 * eco_sector_channels, turn_left, 1.1);
+    connect(1 * eco_sector_channels, turn_left, 1.0);
+    connect(2 * eco_sector_channels, turn_left, 1.1);
+    connect(3 * eco_sector_channels, turn_right, 1.0);
+    connect(4 * eco_sector_channels, turn_right, 1.1);
 
     // Contact is body-relative: front, left, back, right. Side contacts turn
     // away; a frontal contact picks a stable side; pressure from behind keeps

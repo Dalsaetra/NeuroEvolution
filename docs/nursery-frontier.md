@@ -1,5 +1,11 @@
 # Nursery and frontier habitat
 
+**Food distribution update:** new worlds now use [moving nursery food](moving-nursery-food.md)
+with a configurable patch count and full replacement on depletion. The original
+grid, regrowth balance, and population pilots described below are historical
+calibration results, not results for this new food policy. Current header defaults
+may also differ as the environment is tuned.
+
 Start a new ecosystem with:
 
 ```powershell
@@ -32,7 +38,7 @@ ancestor nursery remain available.
 
 The central 32×32 nursery has sheltered ground, a wall perimeter with four
 three-cell exits, and 196 separated grazing patches. All founders start inside.
-Its food continues regrowing during storms, and its local storm input is zero.
+Its food continues regrowing during storms, and creatures still receive the global warning/storm cue while protected.
 The shelter input and directional shelter cues still work. Ordinary metabolism,
 brain costs, movement, feeding, digestion, crowding, reproduction, and death all
 apply unchanged. Bodies can leave and re-enter normally; there is no forced
@@ -79,7 +85,7 @@ Older checkpoints retain their original habitat. Start a new world to adopt this
 map layout.
 
 Validation covers connected traversable geography, founder placement, resource
-nutrition, storm protection, local weather input, regrowth, passive starvation,
+nutrition, storm protection, global weather input inside and outside the nursery, regrowth, passive starvation,
 absence of archive support, and exact checkpoint continuation. Population pilots
 are evidence over finite runs, not a guarantee against eventual extinction.
 
