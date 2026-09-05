@@ -1,7 +1,7 @@
 # Stable ecological mutations
 
 New ecosystems default to stable mutations. Natural reproduction still produces
-50% exact genome copies and 50% children using the slight-mutation settings.
+25% exact genome copies and 75% children using the slight-mutation settings.
 Stable mutation gives each mutated child either one structural operation or at
 most two local parameter edits, independent of genome size. The parent is never
 modified. This limits disruption; it does not guarantee unchanged behavior in a
@@ -46,3 +46,6 @@ brains. Without an explicit override, resume retains the saved policy.
 Ecosystem checkpoint version 8 stores this choice. Versions 1–7 load with legacy
 mutation to preserve their continuation behavior. The summary records the choice
 in `mutation.stable`.
+
+The legacy mutation policy retains its historical 50% copy / 50% mutation ratio.
+The stable policy uses the 25% / 75% ratio, including when resuming stable runs.

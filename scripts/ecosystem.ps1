@@ -14,6 +14,7 @@ param(
     [ValidateRange(0, 2147483647)][int]$ArchiveEvalSeed = 17071,
     [ValidateRange(0, 10)][double]$ActuatorTau = 0.3,
     [switch]$SoloAncestorTrial,
+    [ValidateSet("generated", "nursery-frontier")][string]$Habitat = "generated",
     [switch]$NoReproduction,
     [switch]$NoStorms,
     [switch]$Establishment,
@@ -45,7 +46,7 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
         "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
         "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
         "RichFruitEnergy", "PodEnergy", "KeepImmigration",
-        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau")) {
+        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) {
             throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration."
         }
@@ -113,8 +114,11 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     $SimulationArguments += @("--resume", $ResumePath)
 } else {
     $EffectiveCreatures = if ($SoloAncestorTrial) { 1 } else { $Creatures }
+    if ($SoloAncestorTrial -and $Habitat -ne "generated") { throw "-SoloAncestorTrial cannot be combined with -Habitat nursery-frontier" }
+    $SimulationArguments += @("--habitat", $Habitat)
     $EffectiveController = if ($SoloAncestorTrial) { "spiking" } else { $Controller }
     $EffectiveFounderBrain = if ($SoloAncestorTrial) { "sparse-ancestor" } else { $FounderBrain }
+    if ($Habitat -eq "nursery-frontier" -and -not $PSBoundParameters.ContainsKey("FounderBrain")) { $EffectiveFounderBrain = "sparse-ancestor" }
     $SimulationArguments += @("--creatures", $EffectiveCreatures, "--seed", $Seed, "--controller", $EffectiveController,
         "--founder-brain", $EffectiveFounderBrain, "--sensorimotor", $Sensorimotor,
         "--archive-eval-trials", $ArchiveEvalTrials, "--archive-eval-seed", $ArchiveEvalSeed,
@@ -139,17 +143,18 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
         "--archive-min-energy", $ArchiveMinEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--archive-min-feeding-bouts", $ArchiveMinFeedingBouts,
         "--archive-min-efficiency", $ArchiveMinEfficiency.ToString([System.Globalization.CultureInfo]::InvariantCulture))
-    $SimulationArguments += @(
-        "--graze-energy", $GrazeEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
-        "--poor-fruit-energy", $PoorFruitEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
-        "--rich-fruit-energy", $RichFruitEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
-        "--pod-energy", $PodEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-    )
+    foreach ($FoodSetting in @(@("GrazeEnergy", "--graze-energy", $GrazeEnergy),
+        @("PoorFruitEnergy", "--poor-fruit-energy", $PoorFruitEnergy),
+        @("RichFruitEnergy", "--rich-fruit-energy", $RichFruitEnergy), @("PodEnergy", "--pod-energy", $PodEnergy))) {
+        if ($Habitat -ne "nursery-frontier" -or $PSBoundParameters.ContainsKey($FoodSetting[0])) {
+            $SimulationArguments += @($FoodSetting[1], $FoodSetting[2].ToString([System.Globalization.CultureInfo]::InvariantCulture))
+        }
+    }
     if ($KeepImmigration) { $SimulationArguments += @("--immigration-auto-stop", "0") }
     if ($EvolutionPreset -eq "breeding") {
         # Makes lineage continuation less brittle while retaining meaningful food and weather pressure.
         $SimulationArguments += @(
-            "--maturity-age", 60, "--reproduction-threshold", 110,
+            "--maturity-age", 60, "--reproduction-threshold", 130,
             "--reproduction-cost", 65, "--offspring-energy", 60,
             "--reproduction-cooldown", 90
         )

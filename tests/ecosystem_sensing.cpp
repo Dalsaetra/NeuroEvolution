@@ -29,6 +29,8 @@ EcosystemWorld empty_world()
 {
     EcosystemConfig config;
     config.width = config.height = 16;
+    // The geometric expectations below use a six-cell vision radius.
+    config.vision_range = 6;
     config.initial_creatures = 0;
     config.shelters = config.grazing_patches = config.fruit_patches = config.pods = 0;
     config.reproduction = false;

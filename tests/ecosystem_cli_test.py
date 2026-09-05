@@ -56,6 +56,25 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(worlds[0]["terrain"], worlds[1]["terrain"])
         self.assertEqual(worlds[0]["resources"], worlds[1]["resources"])
 
+    def test_nursery_frontier_preset_and_resume(self):
+        first = self.run_world("frontier", "--habitat", "nursery-frontier", "--steps", 3,
+                               "--establishment", 1, "--archive-eval-trials", 5)
+        summary = json.loads((first / "summary.json").read_text())
+        metadata = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual((metadata["width"], metadata["height"]), (80, 80))
+        self.assertTrue(metadata["nursery"]["enabled"])
+        self.assertFalse(metadata["establishment"])
+        self.assertEqual(metadata["archive_eval_trials"], 0)
+        self.assertEqual(summary["founder_brain"], "sparse-ancestor")
+        resumed = self.run_world("frontier_resumed", "--resume", first / "checkpoint.eco", "--steps", 2)
+        whole = self.run_world("frontier_whole", "--habitat", "nursery-frontier", "--steps", 5)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        custom = self.run_world("frontier_custom", "--width", 88, "--habitat", "nursery-frontier",
+                                "--nursery-food-energy", 11, "--steps", 1)
+        meta = json.loads((custom / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(meta["width"], 88)
+        self.assertEqual(meta["nursery"]["food_energy"], 11)
+
     def test_resume_matches_uninterrupted_world(self):
         first = self.run_world("first", "--creatures", 3, "--steps", 17, "--no-reproduction")
         resumed = self.run_world("resumed", "--resume", first / "checkpoint.eco", "--steps", 23)
@@ -217,9 +236,9 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_8")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_9")
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
-        del lines[8]
+        del lines[8:10]
         historical = first / "historical.eco"
         historical.write_text("\n".join(lines) + "\n")
         old = self.run_world("preserved_policy", "--resume", historical, "--steps", 1)

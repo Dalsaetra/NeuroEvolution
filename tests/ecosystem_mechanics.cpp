@@ -367,8 +367,8 @@ void reproduction_and_capacity()
             ++slight;
         }
     }
-    require(exact >= 20 && exact <= 44 && slight >= 20 && slight <= 44,
-        "Natural birth inheritance is not approximately balanced across deterministic seeds");
+    require(exact >= 8 && exact <= 24 && slight >= 40 && slight <= 56,
+        "Stable birth inheritance is not approximately 25% copy / 75% mutation across deterministic seeds");
 }
 
 void rejects_invalid_configuration()

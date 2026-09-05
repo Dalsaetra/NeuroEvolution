@@ -12,6 +12,7 @@ add_library(neuroevo_core
     src/brain_state.cpp
     src/ecosystem.cpp
     src/ecosystem_ancestor.cpp
+    src/ecosystem_frontier.cpp
     src/ecosystem_establishment.cpp
     src/ecosystem_evaluation.cpp
     src/ecosystem_sensing.cpp
@@ -45,6 +46,10 @@ add_executable(neuroevo_ecosystem src/ecosystem_main.cpp)
 target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
+
+add_executable(neuroevo_ecosystem_frontier tests/ecosystem_frontier.cpp)
+target_link_libraries(neuroevo_ecosystem_frontier PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_frontier COMMAND neuroevo_ecosystem_frontier)
 
 add_executable(neuroevo_ecosystem_calibration tests/ecosystem_calibration.cpp)
 target_link_libraries(neuroevo_ecosystem_calibration PRIVATE neuroevo_core)

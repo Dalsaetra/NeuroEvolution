@@ -192,6 +192,16 @@ EcosystemConfig::EcosystemConfig()
 
 void EcosystemConfig::validate() const
 {
+    if (nursery_frontier) {
+        if (nursery_size < 16 || nursery_size > std::min(width, height)
+            || std::min(width, height) - nursery_size < 24)
+            throw std::invalid_argument("Nursery frontier needs a nursery >=16 cells and at least 24 extra map cells per dimension");
+        if (establishment || archive_eval_trials != 0)
+            throw std::invalid_argument("Nursery frontier does not permit archive evaluation or immigration");
+        positive(nursery_food_energy, "Nursery food energy");
+        positive(nursery_food_capacity, "Nursery food capacity");
+        positive(nursery_food_regrowth, "Nursery food regrowth", true);
+    }
     if (archive_capacity < 4 || archive_capacity > 256 || immigration_batch == 0 || immigration_batch > 256)
         throw std::invalid_argument("Archive capacity must be 4..256; immigration batch must be 1..256");
     if (archive_tournament_size == 0 || archive_tournament_size > archive_capacity)
@@ -335,6 +345,14 @@ Terrain EcosystemWorld::terrain_at(Vec2 position) const
 
 bool EcosystemWorld::sheltered(Vec2 position) const { return terrain_at(position) == Terrain::Shelter; }
 
+bool EcosystemWorld::in_nursery(Vec2 p) const
+{
+    if (!config.nursery_frontier) return false;
+    const auto x = (config.width - config.nursery_size) / 2;
+    const auto y = (config.height - config.nursery_size) / 2;
+    return p.x >= x && p.y >= y && p.x < x + config.nursery_size && p.y < y + config.nursery_size;
+}
+
 bool EcosystemWorld::traversable(Vec2 position) const
 {
     const double radius = config.radius;
@@ -393,6 +411,7 @@ void EcosystemWorld::generate_world()
     creatures.clear();
     resources.clear();
     terrain.assign(config.width * config.height, Terrain::Ground);
+    if (config.nursery_frontier) { generate_nursery_frontier(); return; }
     std::vector<std::size_t> interior;
     for (std::size_t y = 0; y < config.height; ++y) {
         for (std::size_t x = 0; x < config.width; ++x) {
@@ -674,14 +693,23 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             continue; // A pod opened now is edible only in the next step.
         }
         if (resource.kind == FoodKind::Pod && resource.pod_state == PodState::Refilling) continue;
+        // Nursery forage is delicate: a passing creature can taste it, but
+        // harvesting efficiently requires reducing locomotor drive. This gives
+        // ingestion feedback time to engage the ancestor's feeding pause.
+        const auto demand = [&](std::size_t i) {
+            const auto& action = creatures[i].action;
+            const double settled = 1.0 - std::clamp(action.forward, 0.0, 1.0);
+            const double efficiency = in_nursery(resource.position) ? 0.35 + 0.65 * settled * settled : 1.0;
+            return action.forage * config.ingestion_rate * config.dt * efficiency;
+        };
         double requested = 0;
-        for (const auto i : consumers) requested += creatures[i].action.forage * config.ingestion_rate * config.dt;
+        for (const auto i : consumers) requested += demand(i);
         const double allocated = std::min(std::max(0.0, resource.stock), requested);
         if (allocated <= 0 || requested <= 0) continue;
         const double share = allocated / requested;
         for (const auto i : consumers) {
             auto& creature = creatures[i];
-            const double amount = creature.action.forage * config.ingestion_rate * config.dt * share;
+            const double amount = demand(i) * share;
             creature.ingestion_pulse += amount;
             if (end - creature.last_fed_time > 5.0) ++creature.feeding_bouts;
             creature.last_fed_time = end;
@@ -788,7 +816,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (!found) continue;
             EcoCreature child;
             child.id = next_creature_id++;
-            const bool exact_inheritance = mutation_rng.chance(0.5);
+            // Stable mutations permit more exploration; retain historical birth
+            // ratios when continuing a world with the legacy mutation policy.
+            const bool exact_inheritance = mutation_rng.chance(config.mutation.stable ? 0.25 : 0.5);
             child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
             child.origin = CreatureOrigin::Birth;
             child.parent_id = parent.id;
@@ -836,7 +866,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 
     // 6. Regrowth uses the weather at interval start and appears at its end.
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
-    if (!storm) for (auto& resource : resources) {
+    for (auto& resource : resources) {
+        if (storm && !in_nursery(resource.position)) continue;
         if (resource.kind == FoodKind::Pod && resource.pod_state != PodState::Refilling) continue;
         const double amount = std::max(0.0, std::min(resource.capacity - resource.stock, resource.regrowth * config.dt));
         resource.stock += amount;

@@ -47,6 +47,11 @@ This controlled nursery uses the normal energy and reproduction rules. It remove
 
 New ecosystems use [stable mutations](docs/stable-mutations.md): each ordinary mutation makes one structural change or up to two local parameter edits, with weak new pathways. Use `-MutationMode stable` to explicitly switch a resumed run; otherwise checkpoints retain their saved mutation policy.
 
+For ecological population support without immigration, use `-Habitat nursery-frontier`:
+an 80×80 world with a storm-protected central nursery, finite food, richer frontier
+resources, and smaller outer shelters. See [nursery and frontier](docs/nursery-frontier.md)
+for the launch command and tuning controls.
+
 Add `-NoStorms` to any PowerShell ecosystem run to hold the weather in calm conditions. The selected sensory interface is unchanged and the storm-cue sensor remains present at zero.
 
 To establish a population with archive-based immigration (40% archive clones, 40% slight archive mutations, 20% strong archive mutations):

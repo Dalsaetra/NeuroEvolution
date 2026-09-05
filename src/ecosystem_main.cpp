@@ -61,7 +61,13 @@ int main(int argc, char** argv)
 {
     try {
         neuroevo::EcosystemConfig cfg;
+        // Apply habitat defaults before parsing so explicit numeric flags win,
+        // regardless of their position relative to --habitat.
+        for (int i=1; i+1<argc; ++i)
+            if (std::string(argv[i])=="--habitat" && std::string(argv[i+1])=="nursery-frontier")
+                cfg=neuroevo::nursery_frontier_config();
         std::map<std::string,std::size_t*> sizes{
+            {"--nursery-size",&cfg.nursery_size},
             {"--creatures",&cfg.initial_creatures},{"--max-population",&cfg.max_population},
             {"--width",&cfg.width},{"--height",&cfg.height},{"--shelters",&cfg.shelters},
             {"--grazing-patches",&cfg.grazing_patches},{"--fruit-patches",&cfg.fruit_patches},
@@ -73,6 +79,9 @@ int main(int argc, char** argv)
             {"--archive-min-feeding-bouts",&cfg.archive_min_feeding_bouts},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
+            {"--nursery-food-energy",&cfg.nursery_food_energy},
+            {"--nursery-food-capacity",&cfg.nursery_food_capacity},
+            {"--nursery-food-regrowth",&cfg.nursery_food_regrowth},
             {"--dt",&cfg.dt},{"--brain-dt",&cfg.brain.dt},{"--radius",&cfg.radius},
             {"--immigration-interval",&cfg.immigration_interval},{"--archive-min-energy",&cfg.archive_min_energy},
             {"--archive-min-age",&cfg.archive_min_age},{"--archive-min-efficiency",&cfg.archive_min_efficiency},
@@ -83,6 +92,7 @@ int main(int argc, char** argv)
             {"--max-speed",&cfg.max_speed},{"--turn-rate",&cfg.max_turn_rate},
             {"--vision-range",&cfg.vision_range},{"--fov-degrees",&cfg.fov_degrees},
             {"--hearing-range",&cfg.hearing_range},{"--interaction-range",&cfg.interaction_range},
+            {"--interaction-degrees",&cfg.interaction_degrees},
             {"--energy-capacity",&cfg.energy_capacity},{"--founder-energy",&cfg.founder_energy},
             {"--basal-cost",&cfg.basal_cost},{"--movement-cost",&cfg.movement_cost},
             {"--turn-cost",&cfg.turn_cost},{"--forage-cost",&cfg.forage_cost},{"--call-cost",&cfg.call_cost},
@@ -121,6 +131,7 @@ int main(int argc, char** argv)
         bool record_brains=true,record_observations=true,record_brain_graphs=true,record_routine_events=true,config_changed=false;
         auto companion_controller=neuroevo::ControllerKind::Reactive;
         std::string resume,founders,founder_brain="random",habitat="generated";
+        bool founder_brain_explicit=false;
         const auto timestamp=std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
         std::filesystem::path out="runs/ecosystem_"+std::to_string(timestamp);
@@ -145,7 +156,7 @@ int main(int argc, char** argv)
                     "  --seed N                  World seed, default 7\n"
                     "  --controller X            spiking (default), reactive, or random\n"
                     "  --founder-brain X         random (default) or sparse-ancestor\n"
-                    "  --habitat X               generated (default) or ancestor-nursery\n"
+                    "  --habitat X               generated (default), ancestor-nursery, or nursery-frontier\n"
                     "  --companions N            Last N creatures use --companion-controller\n"
                     "  --companion-controller X  reactive (default), random, or spiking\n"
                     "  --food-assignment X       random (default), a-rich, or b-rich\n"
@@ -203,13 +214,14 @@ int main(int argc, char** argv)
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--controller") cfg.controller=neuroevo::parse_controller(value);
                 else if (arg == "--founder-brain") {
+                    founder_brain_explicit=true;
                     if (value!="random" && value!="sparse-ancestor")
                         throw std::invalid_argument("--founder-brain requires random or sparse-ancestor");
                     founder_brain=value;
                 }
                 else if (arg == "--habitat") {
-                    if (value!="generated" && value!="ancestor-nursery")
-                        throw std::invalid_argument("--habitat requires generated or ancestor-nursery");
+                    if (value!="generated" && value!="ancestor-nursery" && value!="nursery-frontier")
+                        throw std::invalid_argument("--habitat requires generated, ancestor-nursery, or nursery-frontier");
                     habitat=value;
                 }
                 else if (arg == "--companions") companions=integer(value,arg);
@@ -240,6 +252,12 @@ int main(int argc, char** argv)
             if (cfg.controller!=neuroevo::ControllerKind::Spiking)
                 throw std::invalid_argument("The ancestor nursery requires --controller spiking");
             founder_brain="sparse-ancestor";
+        }
+        cfg.nursery_frontier=habitat=="nursery-frontier";
+        if (cfg.nursery_frontier) {
+            cfg.establishment=false; cfg.archive_eval_trials=0;
+            if (!founder_brain_explicit && founders.empty() && cfg.controller==neuroevo::ControllerKind::Spiking)
+                founder_brain="sparse-ancestor";
         }
         if (!resume.empty() && (config_changed || !founders.empty()))
             throw std::invalid_argument("--resume restores the full configuration; use a new world with --founders to change it");
@@ -464,7 +482,11 @@ int main(int argc, char** argv)
         std::ofstream summary(out/"summary.json");
         summary << "{\n  \"status\":\"" << status << "\",\n  \"steps_run\":" << world.step_index-starting_step
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
-            << ",\n  \"habitat\":\"" << (resume.empty()?habitat:"checkpoint") << "\""
+            << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
+            << ",\n  \"nursery\":{\"enabled\":" << (world.config.nursery_frontier?"true":"false")
+            << ",\"size\":" << world.config.nursery_size << ",\"food_energy\":" << world.config.nursery_food_energy
+            << ",\"food_capacity\":" << world.config.nursery_food_capacity
+            << ",\"food_regrowth\":" << world.config.nursery_food_regrowth << "}"
             << ",\n  \"storms_enabled\":" << (world.config.storms_enabled?"true":"false")
             << ",\n  \"step\":" << world.step_index << ",\n  \"time\":" << world.time()
             << ",\n  \"population\":" << world.creatures.size() << ",\n  \"births\":" << world.totals.births

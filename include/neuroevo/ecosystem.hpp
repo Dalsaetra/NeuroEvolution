@@ -27,11 +27,14 @@ constexpr std::size_t eco_input_count = eco_shelter_offset + eco_sectors;
 constexpr std::size_t eco_output_count = 5;
 
 struct EcosystemConfig {
-    std::size_t width = 48, height = 48, initial_creatures = 24, max_population = 256;
-    std::size_t shelters = 6, grazing_patches = 80, fruit_patches = 32, pods = 8;
+    bool nursery_frontier = false;
+    std::size_t nursery_size = 24;
+    double nursery_food_energy = 12.5, nursery_food_capacity = 8, nursery_food_regrowth = 0.0144;
+    std::size_t width = 48, height = 48, initial_creatures = 24, max_population = 128;
+    std::size_t shelters = 12, grazing_patches = 80, fruit_patches = 32, pods = 8;
     std::uint64_t seed = 7;
     double dt = 0.10, radius = 0.25, max_speed = 1.5, max_turn_rate = 3.141592653589793;
-    double vision_range = 6.0, fov_degrees = 150.0, hearing_range = 6.0;
+    double vision_range = 12.0, fov_degrees = 150.0, hearing_range = 6.0;
     double interaction_range = 0.8, interaction_degrees = 120.0;
     double energy_capacity = 200, founder_energy = 90, basal_cost = 0.20;
     double movement_cost = 0.12, turn_cost = 0.02, forage_cost = 0.30, call_cost = 0.05;
@@ -42,7 +45,7 @@ struct EcosystemConfig {
     double graze_regrowth = 0.02, fruit_regrowth = 0.01, pod_regrowth = 0.08;
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
     double calm_duration = 150, warning_duration = 30, storm_duration = 60;
-    double storm_cost = 0.8, phase_offset = 0;
+    double storm_cost = 3.0, phase_offset = 0;
     double maturity_age = 120, reproduction_threshold = 150, reproduction_cost = 75;
     double offspring_energy = 50, reproduction_cooldown = 120;
     double motor_gain = 1.0, actuator_tau = 0.30;
@@ -171,6 +174,8 @@ public:
     double storm_cue() const;
     Terrain terrain_at(Vec2 position) const;
     bool sheltered(Vec2 position) const;
+    bool in_nursery(Vec2 position) const;
+    void generate_nursery_frontier();
     bool traversable(Vec2 position) const;
     bool line_of_sight(Vec2 from, Vec2 to) const;
     void generate_world();
@@ -193,6 +198,7 @@ std::vector<std::string> ecosystem_input_labels(bool extended = true);
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary
 // spiking Brain and offspring can mutate it through the normal birth path.
 Brain make_sparse_ancestral_brain(const EcosystemConfig& config);
+EcosystemConfig nursery_frontier_config();
 // Controlled one-founder habitat used to establish that feeding, birth, and
 // descendant reproduction work before testing the genome in the harsh world.
 EcosystemWorld make_ancestral_nursery(EcosystemConfig config = {});

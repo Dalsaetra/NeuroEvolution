@@ -69,7 +69,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_8");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_9");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -78,6 +78,8 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::interface_config_fields(config));
     checkpoint::write(s,config.mutation.stable);
+    checkpoint::write(s,config.nursery_frontier,config.nursery_size,config.nursery_food_energy,
+        config.nursery_food_capacity,config.nursery_food_regrowth);
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
     checkpoint::write_tuple(s,checkpoint::total_fields(totals));
     checkpoint::write_tuple(s,checkpoint::establishment_total_fields(totals));
@@ -127,7 +129,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool stable_state = version == "NEUROEVO_ECOSYSTEM_8";
+    const bool frontier_state = version == "NEUROEVO_ECOSYSTEM_9";
+    const bool stable_state = frontier_state || version == "NEUROEVO_ECOSYSTEM_8";
     const bool calibrated_state = stable_state || version == "NEUROEVO_ECOSYSTEM_7";
     const bool current_state = calibrated_state || version == "NEUROEVO_ECOSYSTEM_6";
     const bool v5_state = version == "NEUROEVO_ECOSYSTEM_5";
@@ -168,6 +171,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     cfg.validate();
     cfg.mutation.stable = false;
     if (stable_state) checkpoint::read(s,cfg.mutation.stable);
+    if (frontier_state) checkpoint::read(s,cfg.nursery_frontier,cfg.nursery_size,cfg.nursery_food_energy,
+        cfg.nursery_food_capacity,cfg.nursery_food_regrowth);
     EcosystemWorld w(cfg,false);
     checkpoint::read(s,w.step_index,w.next_creature_id,w.fruit_a_rich,w.capacity_limited);
     checkpoint::read_tuple(s,checkpoint::total_fields(w.totals));
@@ -312,6 +317,10 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
     s << std::setprecision(10);
     s << "{\"type\":\"metadata\",\"version\":1,\"width\":" << w.config.width << ",\"height\":" << w.config.height
       << ",\"dt\":" << w.config.dt << ",\"radius\":" << w.config.radius << ",\"vision_range\":" << w.config.vision_range
+      << ",\"nursery\":{\"enabled\":" << (w.config.nursery_frontier?"true":"false")
+      << ",\"x\":" << (w.config.width-std::min(w.config.width,w.config.nursery_size))/2
+      << ",\"y\":" << (w.config.height-std::min(w.config.height,w.config.nursery_size))/2
+      << ",\"size\":" << w.config.nursery_size << ",\"food_energy\":" << w.config.nursery_food_energy << "}"
       << ",\"fov_degrees\":" << w.config.fov_degrees << ",\"seed\":" << w.config.seed
       << ",\"max_speed\":" << w.config.max_speed << ",\"max_turn_rate\":" << w.config.max_turn_rate
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
@@ -454,7 +463,7 @@ void write_ecosystem_stats_header(std::ostream& s)
          "immigrants,immigrant_mutations,immigrant_slight_mutations,immigrant_strong_mutations,immigrant_clones,immigrant_random,"
          "archive_fallbacks,archive_empty_checks,immigrant_energy,founder_births,immigrant_births,descendant_births,births_first_100s,"
          "natural_spiking_breeders,mature_offspring,archive_entries,immigration_active,immigration_withdrawn,"
-         "archive_best_score,archive_median_score,newborn_evaluated_genomes\n";
+         "archive_best_score,archive_median_score,newborn_evaluated_genomes,nursery_population,frontier_population\n";
 }
 void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
 {
@@ -482,6 +491,8 @@ void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
       << t.births_first_100s << ','
       << t.natural_spiking_breeders << ',' << t.mature_offspring << ',' << w.archive.size() << ','
       << (w.immigration_enabled()?1:0) << ',' << (w.immigration_withdrawn?1:0) << ','
-      << archive_best << ',' << archive_median << ',' << w.newborn_evaluations.size() << '\n';
+      << archive_best << ',' << archive_median << ',' << w.newborn_evaluations.size();
+    const auto nursery = std::count_if(w.creatures.begin(),w.creatures.end(),[&](const auto& c){return w.in_nursery(c.position);});
+    s << ',' << nursery << ',' << w.creatures.size()-nursery << '\n';
 }
 } // namespace neuroevo
