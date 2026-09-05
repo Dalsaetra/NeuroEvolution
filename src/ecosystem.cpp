@@ -483,6 +483,7 @@ void EcosystemWorld::generate_world()
     std::vector<unsigned char> occupied(terrain.size(), 0);
     const auto position_of = [&](std::size_t cell) { return Vec2{static_cast<double>(cell % config.width) + 0.5, static_cast<double>(cell / config.width) + 0.5}; };
     const auto available = [&](std::size_t cell) { return !occupied[cell] && terrain[cell] != Terrain::Wall && terrain[cell] != Terrain::Shelter; };
+    Random food_age_rng(config.seed ^ 0x666f6f64616765ULL);
     const auto add_resource = [&](std::size_t cell, FoodKind kind) {
         EcoResource resource;
         resource.id = resources.size() + 1;
@@ -490,6 +491,8 @@ void EcosystemWorld::generate_world()
         resource.kind = kind;
         resource.capacity = kind == FoodKind::Graze ? config.graze_capacity : kind == FoodKind::Pod ? config.pod_capacity : config.fruit_capacity;
         resource.stock = resource.capacity;
+        if (config.outdoor_food_relocates && kind != FoodKind::Pod)
+            resource.stock *= food_age_rng.uniform(0.0, 1.0);
         resource.regrowth = kind == FoodKind::Graze ? config.graze_regrowth : kind == FoodKind::Pod ? config.pod_regrowth : config.fruit_regrowth;
         resource.energy_per_unit = kind == FoodKind::Graze ? config.graze_energy
             : kind == FoodKind::Pod ? config.pod_energy

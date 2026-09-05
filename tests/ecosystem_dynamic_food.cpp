@@ -19,6 +19,25 @@ int main(){try{
         }
         check(shelter_count==cfg.shelters,"One patch per shelter");
         check(counts[0]==cfg.grazing_patches&&counts[1]+counts[2]==cfg.fruit_patches&&counts[3]==cfg.pods,"Outdoor quotas");
+        EcosystemWorld repeat(cfg);
+        double lowest=1,highest=0;
+        for(std::size_t i=0;i<w.resources.size();++i) {
+            const auto& r=w.resources[i];
+            check(r.stock==repeat.resources[i].stock,"Initial food ages must be seed reproducible");
+            if(r.shelter_food||w.in_nursery(r.position)||r.kind==FoodKind::Pod) {
+                check(r.stock==r.capacity,"Only dynamic outdoor forage and fruit start decayed");
+            } else {
+                check(r.stock>=0&&r.stock<r.capacity,"Outdoor food must start partially decayed");
+                lowest=std::min(lowest,r.stock/r.capacity);highest=std::max(highest,r.stock/r.capacity);
+            }
+        }
+        check(lowest<.25&&highest>.75,"Initial decay ages should span the lifetime");
+        auto static_cfg=cfg;static_cfg.outdoor_food_relocates=false;
+        EcosystemWorld static_world(static_cfg);
+        for(std::size_t i=0;i<w.resources.size();++i) {
+            check(static_world.resources[i].stock==static_world.resources[i].capacity,"Static food starts full");
+            check(length(static_world.resources[i].position-w.resources[i].position)==0,"Food aging must not change geography");
+        }
         const auto initial=w.resources;
         w.step();
         double expected_decay=0;

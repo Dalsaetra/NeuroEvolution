@@ -4,6 +4,12 @@ New worlds in both habitats enable dynamic outdoor grazing and fruit. Each loses
 0.005 biomass per simulated second, versus a maximum ingestion rate of 1 biomass
 per second for one fully foraging creature. Decay is linear, runs during storms,
 and is applied after feeding. Outdoor patches no longer passively regrow.
+At world creation, each outdoor grazing/fruit patch starts with an independently
+uniform random fraction of its capacity (0–100%), staggering its first depletion.
+This uses a separate seeded RNG so geography is unchanged and runs remain
+reproducible. Initial available biomass averages half the full-map capacity;
+patch counts and subsequent full replacements are unchanged. Nursery food,
+shelter forage and pods still start full; checkpoint loading preserves saved stock.
 
 When eaten or decayed to empty, a patch reappears full at a random traversable
 cell outside the nursery and shelters. Its ID, kind, nutrition and capacity stay

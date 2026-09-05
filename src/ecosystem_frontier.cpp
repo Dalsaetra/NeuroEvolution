@@ -73,10 +73,14 @@ void EcosystemWorld::generate_nursery_frontier()
         ++placed;
     }
     if (placed!=config.shelters) throw std::invalid_argument("Not enough frontier space for shelters");
+    Random food_age_rng(config.seed ^ 0x666f6f64616765ULL);
     const auto food = [&](Vec2 p, FoodKind kind, double energy, double capacity, double regrowth) {
         EcoResource r;
         r.id=resources.size()+1; r.position=p; r.kind=kind; r.energy_per_unit=energy;
-        r.stock=r.capacity=capacity; r.regrowth=regrowth; resources.push_back(r);
+        r.stock=r.capacity=capacity;
+        if (config.outdoor_food_relocates && kind!=FoodKind::Pod && !in_nursery(p))
+            r.stock *= food_age_rng.uniform(0.0,1.0);
+        r.regrowth=regrowth; resources.push_back(r);
     };
     // Finite separated patches. One patch's steady supply is below basal cost
     // at the preset, so a creature must move between patches and forage.
