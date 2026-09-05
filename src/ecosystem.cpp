@@ -254,6 +254,13 @@ void EcosystemConfig::validate() const
     positive(ingestion_rate, "Ingestion rate");
     positive(graze_capacity, "Grazing capacity");
     positive(fruit_capacity, "Fruit capacity");
+    positive(graze_decay, "Graze decay", true);
+    positive(fruit_decay, "Fruit decay", true);
+    positive(shelter_food_energy, "Shelter food energy");
+    positive(shelter_food_capacity, "Shelter food capacity");
+    positive(shelter_food_regrowth, "Shelter food regrowth", true);
+    if (outdoor_food_relocates && (graze_decay >= ingestion_rate || fruit_decay >= ingestion_rate))
+        throw std::invalid_argument("Food decay must be slower than ingestion");
     positive(pod_capacity, "Pod capacity");
     positive(pod_work, "Pod opening work");
     positive(pod_open_duration, "Pod open duration");
@@ -296,7 +303,8 @@ void EcosystemConfig::validate() const
              mutation.background_sensitivity_sigma, mutation.clock_threshold_sigma, mutation.hidden_bias_jump_min_magnitude}) positive(value, "A mutation standard deviation or jump magnitude", true);
     for (const auto value : {mutation.hidden_bias_jump_probability, mutation.add_synapse_probability, mutation.add_neuron_probability,
              mutation.add_reciprocal_motif_probability,
-             mutation.remove_synapse_probability, mutation.mutate_weight_probability, mutation.mutate_neuron_probability,
+             mutation.remove_synapse_probability, mutation.remove_neuron_probability,
+             mutation.mutate_weight_probability, mutation.mutate_neuron_probability,
              mutation.mutate_clock_threshold_probability}) probability(value, "Mutation probability");
     if (mutation.max_hidden_neurons < brain.hidden_count || mutation.max_hidden_neurons > 10000)
         throw std::invalid_argument("Mutation hidden-neuron limit must include the initial brain and be at most 10000");
@@ -469,6 +477,8 @@ void EcosystemWorld::generate_world()
     }
     if (shelter_centers.size() != config.shelters) throw std::invalid_argument("Not enough separate open areas for the requested shelters; enlarge the map or reduce shelters");
 
+    for (const auto center : shelter_centers) add_shelter_food(center);
+
     fruit_a_rich = config.food_assignment < 0 ? map_rng.chance(0.5) : config.food_assignment == 0;
     std::vector<unsigned char> occupied(terrain.size(), 0);
     const auto position_of = [&](std::size_t cell) { return Vec2{static_cast<double>(cell % config.width) + 0.5, static_cast<double>(cell / config.width) + 0.5}; };
@@ -559,7 +569,6 @@ void EcosystemWorld::generate_world()
 void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 {
     if (!supplied_actions.empty() && supplied_actions.size() != creatures.size()) throw std::invalid_argument("Supplied actions must match the starting population");
-    if (capacity_limited) return;
     if (terrain.size() != config.width * config.height) throw std::runtime_error("Terrain dimensions do not match the world configuration");
     for (std::size_t i = 0; i < creatures.size(); ++i) {
         if (!traversable(creatures[i].position)) throw std::runtime_error("A creature begins the step inside a wall or outside the world");
@@ -746,6 +755,19 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         }
     }
 
+    if (config.outdoor_food_relocates) for (auto& resource : resources) {
+        if (resource.kind == FoodKind::Pod || resource.shelter_food || in_nursery(resource.position)) continue;
+        const double decay = resource.kind == FoodKind::Graze ? config.graze_decay : config.fruit_decay;
+        const double spoiled = std::min(resource.stock, decay * config.dt);
+        resource.stock -= spoiled;
+        totals.spoiled_biomass += spoiled;
+        if (resource.stock <= epsilon && relocate_outdoor_food(resource)) {
+            totals.regrown_biomass += resource.capacity - resource.stock;
+            resource.stock = resource.capacity;
+            events.push_back({end,"outdoor_food_relocated",0,0,resource.id,resource.stock});
+        }
+    }
+
     // 4. Due digestive packets arrive at the end boundary, then this interval's
     // energetic costs are charged. Future packets cannot rescue a starving body.
     for (auto& creature : creatures) {
@@ -803,7 +825,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     }
     creatures.erase(std::remove_if(creatures.begin(), creatures.end(), [](const EcoCreature& creature) { return creature.energy <= 0; }), creatures.end());
 
-    // 5. Birth placement uses a shuffled, reproducible parent order and validates
+    // 5. Birth placement prioritizes energy, breaks ties reproducibly and validates
     // full circles against terrain and every living/born body. Failed birth is free.
     if (config.reproduction) {
         std::vector<std::size_t> parents;
@@ -811,6 +833,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             && creatures[i].energy >= config.reproduction_threshold
             && end - creatures[i].last_birth + epsilon >= config.reproduction_cooldown) parents.push_back(i);
         std::sort(parents.begin(), parents.end(), [&](std::size_t a, std::size_t b) {
+            if (creatures[a].energy != creatures[b].energy) return creatures[a].energy > creatures[b].energy;
             const auto hash_a = mix(tie_seed ^ creatures[a].id), hash_b = mix(tie_seed ^ creatures[b].id);
             return hash_a == hash_b ? creatures[a].id < creatures[b].id : hash_a < hash_b;
         });
@@ -834,9 +857,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (!found) continue;
             EcoCreature child;
             child.id = next_creature_id++;
-            // Stable mutations permit more exploration; retain historical birth
-            // ratios when continuing a world with the legacy mutation policy.
-            const bool exact_inheritance = mutation_rng.chance(config.mutation.stable ? 0.25 : 0.5);
+            // One draw selects 25% copies, 50% slight and 25% strong mutations.
+            const double inheritance = mutation_rng.uniform(0.0, 1.0);
+            const bool exact_inheritance = inheritance < 0.25;
             child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
             child.origin = CreatureOrigin::Birth;
             child.parent_id = parent.id;
@@ -846,7 +869,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.energy = config.offspring_energy;
             child.controller = parent.controller;
             child.brain = parent.brain;
-            if (!exact_inheritance) child.brain.mutate(detail::slight_mutation(config.mutation), mutation_rng);
+            if (!exact_inheritance) child.brain.mutate(inheritance < 0.75
+                ? detail::slight_mutation(config.mutation)
+                : detail::strong_mutation(config.mutation), mutation_rng);
             child.brain.reset_state();
             child.neural_rng = Random(mix(config.seed ^ mix(child.id) ^ 0x6e657572616cULL));
             parent.energy -= config.reproduction_cost;
@@ -876,17 +901,20 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             events.push_back({end, "death", creature.id, creature.parent_id, 0, discarded});
         }
         creatures.erase(std::remove_if(creatures.begin(), creatures.end(), [](const EcoCreature& creature) { return creature.energy <= 0; }), creatures.end());
-        if (creatures.size() >= config.max_population) {
-            capacity_limited = true;
-            events.push_back({end, "capacity_limited", 0, 0, 0, static_cast<double>(creatures.size())});
-        }
     }
+    const bool full = config.reproduction && creatures.size() >= config.max_population;
+    if (full != capacity_limited)
+        events.push_back({end, full ? "capacity_limited" : "capacity_released", 0, 0, 0,
+            static_cast<double>(creatures.size())});
+    capacity_limited = full;
 
     // 6. Regrowth uses the weather at interval start and appears at its end.
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
     for (auto& resource : resources) {
         if (config.nursery_food_relocates && in_nursery(resource.position)) continue;
-        if (storm && !in_nursery(resource.position)) continue;
+        if (config.outdoor_food_relocates && resource.kind != FoodKind::Pod
+            && !resource.shelter_food && !in_nursery(resource.position)) continue;
+        if (storm && !in_nursery(resource.position) && !resource.shelter_food) continue;
         if (resource.kind == FoodKind::Pod && resource.pod_state != PodState::Refilling) continue;
         const double amount = std::max(0.0, std::min(resource.capacity - resource.stock, resource.regrowth * config.dt));
         resource.stock += amount;

@@ -354,6 +354,10 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
         synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(index));
     }
 
+    if (config_.hidden_count > 0 && config.remove_neuron_probability > 0
+        && rng.chance(config.remove_neuron_probability)) {
+        remove_random_neuron(rng);
+    }
     if (config_.hidden_count < config.max_hidden_neurons && rng.chance(config.add_neuron_probability)) {
         add_random_neuron(rng);
     }
@@ -393,14 +397,17 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng)
     const double grow = config_.hidden_count < config.max_hidden_neurons ? config.add_neuron_probability : 0.0;
     const double motif = config_.hidden_count >= 2 ? config.add_reciprocal_motif_probability : 0.0;
     const double remove = synapses_.empty() ? 0.0 : config.remove_synapse_probability;
-    const double structural = add + grow + motif + remove;
+    const double prune = config_.hidden_count > 0 ? config.remove_neuron_probability : 0.0;
+    const double structural = add + grow + motif + remove + prune;
     bool moved = false;
     if (structural > 0 && rng.chance(std::min(1.0, structural))) {
         const double choice = rng.uniform(0.0, structural);
         if (choice < add) add_random_synapse(rng, true);
         else if (choice < add + grow) add_random_neuron(rng, true);
         else if (choice < add + grow + motif) add_reciprocal_motif(rng, true);
-        else synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
+        else if (choice < add + grow + motif + remove)
+            synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
+        else remove_random_neuron(rng);
     } else {
         const double weights = synapses_.empty() ? 0.0 : config.mutate_weight_probability;
         const double neurons = config_.hidden_count + config_.output_count > 0 ? config.mutate_neuron_probability : 0.0;
@@ -440,6 +447,22 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng)
     if (moved) for (auto& edge : synapses_)
         edge.delay_steps = compute_delay_steps(neurons_[edge.pre].position, neurons_[edge.post].position);
     rebuild_runtime_state();
+}
+
+void Brain::remove_random_neuron(Random& rng)
+{
+    if (config_.hidden_count == 0) return;
+    const auto index = first_hidden_index() + rng.uniform_index(config_.hidden_count);
+    synapses_.erase(std::remove_if(synapses_.begin(), synapses_.end(), [index](const Synapse& edge) {
+        return edge.pre == index || edge.post == index;
+    }), synapses_.end());
+    neurons_.erase(neurons_.begin() + static_cast<std::ptrdiff_t>(index));
+    --config_.hidden_count;
+    for (auto& edge : synapses_) {
+        if (edge.pre > index) --edge.pre;
+        if (edge.post > index) --edge.post;
+    }
+    // The caller rebuilds adjacency, delayed-current buffers and motor state.
 }
 
 BrainStats Brain::stats() const noexcept

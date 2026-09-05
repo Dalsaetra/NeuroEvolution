@@ -66,6 +66,8 @@ struct MutationConfig {
     std::size_t max_hidden_neurons = 128;
     double add_reciprocal_motif_probability = 0.06;
     double remove_synapse_probability = 0.04;
+    // Remove one hidden neuron and all incident edges; sensor/motor slots survive.
+    double remove_neuron_probability = 0.01;
     double mutate_weight_probability = 0.12;
     double mutate_neuron_probability = 0.08;
     double mutate_clock_threshold_probability = 0.08;
@@ -146,6 +148,7 @@ private:
     void mutate_stable(const MutationConfig& config, Random& rng);
     void add_random_synapse(Random& rng, bool weak = false);
     void add_random_neuron(Random& rng, bool weak = false);
+    void remove_random_neuron(Random& rng);
     void add_reciprocal_motif(Random& rng, bool weak = false);
     void ensure_io_connectivity(Random& rng);
 };

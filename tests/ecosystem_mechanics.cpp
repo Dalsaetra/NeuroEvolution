@@ -1,9 +1,11 @@
 #include "neuroevo/ecosystem.hpp"
+#include "../src/ecosystem_mutation.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -27,6 +29,7 @@ void near(double actual, double expected, const char* message, double tolerance 
 EcosystemConfig fixture_config()
 {
     EcosystemConfig config;
+    config.outdoor_food_relocates = false;
     config.width = config.height = 12;
     config.initial_creatures = config.shelters = config.grazing_patches = config.fruit_patches = config.pods = 0;
     config.reproduction = false;
@@ -304,9 +307,40 @@ void reproduction_and_capacity()
     require(world.traversable(by_id(world, 2).position), "Offspring intersects terrain");
     require(length(by_id(world, 1).position - by_id(world, 2).position) > 2 * config.radius, "Offspring overlaps parent");
     require(world.capacity_limited, "Population cap did not flag the run");
-    const auto stopped_at = world.step_index;
-    world.step();
-    require(world.step_index == stopped_at, "Capacity-limited simulation kept running");
+    const auto full_at = world.step_index;
+    world.step({{}, {}});
+    require(world.step_index == full_at + 1 && world.totals.births == 1,
+        "Full population must keep advancing without births");
+
+    auto priority_config = config;
+    priority_config.max_population = 3;
+    EcosystemWorld priority(priority_config, false);
+    priority.creatures = {creature(priority_config, 1, {3, 5}),
+        creature(priority_config, 2, {7, 5}), creature(priority_config, 3, {5, 8})};
+    priority.creatures[0].energy = 160;
+    priority.creatures[1].energy = 190;
+    priority.creatures[2].energy = 10;
+    priority.next_creature_id = 4;
+    priority.capacity_limited = true;
+    priority.step({{}, {}, {}});
+    require(priority.totals.births == 0 && priority.step_index == 1,
+        "Full population allowed a birth or stopped time");
+    near(by_id(priority, 1).energy, 160, "Blocked birth charged energy");
+    near(by_id(priority, 2).energy, 190, "Blocked birth charged energy");
+    priority.creatures[2].energy = 0;
+    auto priority_reversed = priority;
+    std::reverse(priority_reversed.creatures.begin(), priority_reversed.creatures.end());
+    priority.step({{}, {}, {}});
+    priority_reversed.step({{}, {}, {}});
+    require(priority.totals.deaths == 1 && priority.totals.births == 1 && priority.creatures.size() == 3,
+        "Death at capacity must free a birth slot in the same step");
+    require(by_id(priority, 4).parent_id == 2 && by_id(priority_reversed, 4).parent_id == 2,
+        "Highest-energy eligible parent must receive the available slot regardless of vector order");
+    for (auto& creature : priority.creatures) creature.energy = 100;
+    priority.creatures.back().energy = 0;
+    priority.step({{}, {}, {}});
+    require(!priority.capacity_limited && priority.creatures.size() == 2,
+        "Capacity flag remained latched after population decreased");
 
     config.max_population = 10;
     EcosystemWorld enclosed(config, false);
@@ -347,28 +381,45 @@ void reproduction_and_capacity()
         require(c.brain.synapses().size() == same.brain.synapses().size(), "Mutation stream depends on creature vector order");
     }
 
-    std::size_t exact = 0, slight = 0;
-    for (std::uint64_t seed = 1; seed <= 64; ++seed) {
-        auto inheritance_config = fixture_config();
-        inheritance_config.seed = seed;
-        inheritance_config.reproduction = true;
-        inheritance_config.maturity_age = 0;
-        inheritance_config.max_population = 2;
-        EcosystemWorld inheritance(inheritance_config, false);
-        inheritance.creatures = {creature(inheritance_config, 1, {5, 5})};
-        inheritance.creatures[0].genome_id = 1;
-        inheritance.creatures[0].energy = inheritance_config.reproduction_threshold;
-        inheritance.next_creature_id = 2;
-        inheritance.step({{}});
-        const auto& child = by_id(inheritance, 2);
-        if (child.genome_id == 1) ++exact;
-        else {
-            require(child.genome_id == child.id, "Mutated offspring did not receive a new genome ID");
-            ++slight;
+    for (bool stable : {false, true}) {
+        std::size_t exact = 0, slight = 0, strong = 0;
+        for (std::uint64_t seed = 1; seed <= 256; ++seed) {
+            auto inheritance_config = fixture_config();
+            inheritance_config.seed = seed;
+            inheritance_config.reproduction = true;
+            inheritance_config.maturity_age = 0;
+            inheritance_config.max_population = 2;
+            inheritance_config.mutation.stable = stable;
+            EcosystemWorld inheritance(inheritance_config, false);
+            inheritance.creatures = {creature(inheritance_config, 1, {5, 5})};
+            inheritance.creatures[0].genome_id = 1;
+            inheritance.creatures[0].energy = inheritance_config.reproduction_threshold;
+            inheritance.next_creature_id = 2;
+            auto expected_rng = inheritance.mutation_rng;
+            const double choice = expected_rng.uniform(0, 1);
+            auto expected_brain = inheritance.creatures[0].brain;
+            if (choice >= 0.25) expected_brain.mutate(choice < 0.75
+                ? detail::slight_mutation(inheritance_config.mutation)
+                : detail::strong_mutation(inheritance_config.mutation), expected_rng);
+            expected_brain.reset_state();
+            inheritance.step({{}});
+            const auto& child = by_id(inheritance, 2);
+            if (choice < 0.25) {
+                require(child.genome_id == 1, "Exact offspring lost the parent genome ID");
+                ++exact;
+            }
+            else {
+                require(child.genome_id == child.id, "Mutated offspring did not receive a new genome ID");
+                if (choice < 0.75) ++slight;
+                else ++strong;
+            }
+            std::ostringstream actual_state, expected_state;
+            child.brain.save_state(actual_state); expected_brain.save_state(expected_state);
+            require(actual_state.str() == expected_state.str(), "Birth used the wrong mutation preset or failed to reset activity");
         }
+        require(exact >= 40 && exact <= 88 && slight >= 96 && slight <= 160 && strong >= 40 && strong <= 88,
+            "Birth inheritance is not approximately 25% copy / 50% slight / 25% strong across deterministic seeds");
     }
-    require(exact >= 8 && exact <= 24 && slight >= 40 && slight <= 56,
-        "Stable birth inheritance is not approximately 25% copy / 75% mutation across deterministic seeds");
 }
 
 void rejects_invalid_configuration()
@@ -417,11 +468,11 @@ void seeded_maps_and_brains()
         require(a.resources[i].position.x == b.resources[i].position.x && a.resources[i].position.y == b.resources[i].position.y
             && a.resources[i].kind == b.resources[i].kind && a.resources[i].energy_per_unit == b.resources[i].energy_per_unit,
             "Population size altered a resource");
-        const auto expected_energy = a.resources[i].kind == FoodKind::Graze ? config.graze_energy
+        const auto expected_energy = a.resources[i].shelter_food ? config.shelter_food_energy : a.resources[i].kind == FoodKind::Graze ? config.graze_energy
             : a.resources[i].kind == FoodKind::Pod ? config.pod_energy
             : ((a.resources[i].kind == FoodKind::FruitA) == a.fruit_a_rich ? config.rich_fruit_energy : config.poor_fruit_energy);
         near(a.resources[i].energy_per_unit, expected_energy, "Generated food ignored configured energy density");
-        require(a.traversable(a.resources[i].position) && !a.sheltered(a.resources[i].position), "Food was placed in a wall or shelter");
+        require(a.traversable(a.resources[i].position) && (a.sheltered(a.resources[i].position) == a.resources[i].shelter_food), "Food was placed in a wall or shelter");
     }
     require(a.map_rng.next_u64() == b.map_rng.next_u64(), "Founder creation consumed map randomness");
     for (std::size_t i = 0; i < a.creatures.size(); ++i) {

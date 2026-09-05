@@ -110,11 +110,11 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
 
     // Weak environmental access for evolution: these weights can change sign
     // or disappear like any other synapse. No direct shelter-steering reflex.
-    connect(body_offset + 5, locomotion_a, 0.15); // storm warning/intensity
-    connect(body_offset + 4, locomotion_b, 0.15); // currently sheltered
+    connect(body_offset + 5, locomotion_a, -0.15); // storm warning/intensity
+    connect(body_offset + 4, locomotion_b, -0.15); // currently sheltered
     if (config.extended_senses) {
         for (std::size_t sector = 0; sector < eco_sectors; ++sector)
-            connect(eco_shelter_offset + sector, hidden + 2 + sector, 0.15);
+            connect(eco_shelter_offset + sector, hidden + 2 + sector, -0.15);
     }
 
     // Proximity carries enough information to bias simultaneous signals toward

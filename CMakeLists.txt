@@ -47,6 +47,10 @@ target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
 
+add_executable(neuroevo_pruning_tests tests/pruning.cpp)
+target_link_libraries(neuroevo_pruning_tests PRIVATE neuroevo_core)
+add_test(NAME neuroevo_pruning_tests COMMAND neuroevo_pruning_tests)
+
 add_executable(neuroevo_ecosystem_frontier tests/ecosystem_frontier.cpp)
 target_link_libraries(neuroevo_ecosystem_frontier PRIVATE neuroevo_core)
 add_test(NAME neuroevo_ecosystem_frontier COMMAND neuroevo_ecosystem_frontier)
@@ -106,3 +110,7 @@ if(Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/dashboard_test.py
     )
 endif()
+
+add_executable(neuroevo_ecosystem_dynamic_food tests/ecosystem_dynamic_food.cpp)
+target_link_libraries(neuroevo_ecosystem_dynamic_food PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_dynamic_food COMMAND neuroevo_ecosystem_dynamic_food)

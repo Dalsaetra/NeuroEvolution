@@ -64,7 +64,7 @@ To establish a population with archive-based immigration (40% archive clones, 40
 .\scripts\ecosystem.ps1 -Build -Establishment -FounderBrain sparse-ancestor -Creatures 24 -Steps 12000 -Open
 ```
 
-Repeated, efficient feeding or reproduction seeds the archive. Limited immigration keeps exploration running through population crashes, with separate birth/immigration accounting and automatic withdrawal after sustained descendant breeding. Every immigrant now descends from archived evidence; support waits when the archive is empty. Archive parents are chosen by a three-entry tournament within a uniformly selected food niche. Natural births are split evenly between exact inheritance and slight mutation. Baseline children start with 50 energy; the breeding preset gives them 60. Checkpoints preserve both the world and archive.
+Repeated, efficient feeding or reproduction seeds the archive. Limited immigration keeps exploration running through population crashes, with separate birth/immigration accounting and automatic withdrawal after sustained descendant breeding. Every immigrant now descends from archived evidence; support waits when the archive is empty. Archive parents are chosen by a three-entry tournament within a uniformly selected food niche. Natural births use 25% exact inheritance, 50% slight mutation, and 25% strong mutation. Baseline children start with 50 energy; the breeding preset gives them 60. Checkpoints preserve both the world and archive.
 
 For longer evolution runs, the runner now defaults to a compact history and saves full neural/sensory detail only for a bounded final window. A multi-seed sweep and a less brittle experimental reproduction preset are available:
 
@@ -267,3 +267,13 @@ For each parameter, use `grid` to control explicit grid-search values/order, `va
 - Keep 2D as the main environment, or make 3D support an early architecture requirement.
 - Continue with fixed neuron counts for a few iterations, or start evolving neuron count and neuron types.
 - Decide whether brain topology visualization should be generated from C++ output or directly from Python.
+
+To open the detailed tail replay automatically after a successful simulation and HTML generation, add `-OpenTail`:
+
+```powershell
+.\scripts\ecosystem.ps1 -Steps 120000 -OpenTail
+```
+
+The tail defaults to the final 300 simulated seconds; use `-DetailedTailSeconds 60` for a shorter tail. `-OpenTail` also enables the default tail with `-Recording detailed` and requires a positive tail duration. `-Open` opens the main replay; passing both switches opens both.
+
+Outdoor food now decays and relocates on depletion; shelters have static, low-quality forage. See [dynamic food settings](docs/dynamic-food.md) for rates and checkpoint compatibility.

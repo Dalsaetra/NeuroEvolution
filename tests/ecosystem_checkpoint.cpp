@@ -59,11 +59,13 @@ int main()
         config.archive_tournament_size=4;
         config.graze_energy=3.25;
         config.reproduction=false;
+        config.mutation.remove_neuron_probability=0.017;
         neuroevo::EcosystemWorld original(config);
         for (int i=0;i<35;++i) original.step();
         std::istringstream input(state(original));
         auto resumed=neuroevo::EcosystemWorld::load_checkpoint(input);
         require(resumed.config.mutation.stable,"Checkpoint lost stable mutation policy");
+        require(resumed.config.mutation.remove_neuron_probability==0.017,"Checkpoint lost pruning rate");
         require(resumed.config.archive_tournament_size==4,"Checkpoint lost archive tournament size");
         require(resumed.config.graze_energy==3.25,"Checkpoint lost food energy settings");
         require(state(original)==state(resumed),"Checkpoint roundtrip lost world, brain, or RNG state");
@@ -90,6 +92,9 @@ int main()
         // Storm toggling did not exist in v1, whose implicit behavior was on.
         // Construct a genuinely historical 87-input world for the v1 fixture.
         auto legacy_config = config;
+        legacy_config.outdoor_food_relocates = false;
+        legacy_config.shelters = 0;
+        legacy_config.mutation.remove_neuron_probability = 0;
         legacy_config.extended_senses = legacy_config.brain.calibrated_io = false;
         legacy_config.brain.input_count = legacy_config.brain.sensory_input_count = neuroevo::eco_legacy_input_count;
         legacy_config.actuator_tau = 0;
@@ -102,6 +107,7 @@ int main()
         std::istringstream legacy(legacy_state(original));
         auto upgraded=neuroevo::EcosystemWorld::load_checkpoint(legacy);
         require(!upgraded.config.mutation.stable,"Historical checkpoint must retain its mutation policy");
+        require(upgraded.config.mutation.remove_neuron_probability==0,"Historical checkpoint enabled neuron pruning");
         require(!upgraded.config.establishment && upgraded.archive.empty(),"Legacy checkpoints unexpectedly enabled immigration");
         require(upgraded.config.graze_energy==2 && upgraded.config.poor_fruit_energy==4
             && upgraded.config.rich_fruit_energy==10 && upgraded.config.pod_energy==12,

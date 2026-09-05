@@ -105,6 +105,9 @@ int main(int argc, char** argv)
             {"--fruit-capacity",&cfg.fruit_capacity},{"--pod-capacity",&cfg.pod_capacity},
             {"--graze-energy",&cfg.graze_energy},{"--poor-fruit-energy",&cfg.poor_fruit_energy},
             {"--rich-fruit-energy",&cfg.rich_fruit_energy},{"--pod-energy",&cfg.pod_energy},
+            {"--graze-decay",&cfg.graze_decay},{"--fruit-decay",&cfg.fruit_decay},
+            {"--shelter-food-energy",&cfg.shelter_food_energy},{"--shelter-food-capacity",&cfg.shelter_food_capacity},
+            {"--shelter-food-regrowth",&cfg.shelter_food_regrowth},
             {"--graze-regrowth",&cfg.graze_regrowth},{"--fruit-regrowth",&cfg.fruit_regrowth},
             {"--pod-regrowth",&cfg.pod_regrowth},{"--pod-work",&cfg.pod_work},{"--pod-decay",&cfg.pod_decay},
             {"--pod-open-duration",&cfg.pod_open_duration},{"--calm-duration",&cfg.calm_duration},
@@ -130,6 +133,8 @@ int main(int argc, char** argv)
         std::size_t steps=4800,record_every=10,tail_record_every=10,companions=0;
         double detailed_tail_seconds=0;
         int stable_mutations_override=-1;
+        double remove_neuron_override=0;
+        bool remove_neuron_explicit=false;
         std::size_t evaluation_workers=std::max(1u,std::min(4u,std::thread::hardware_concurrency()));
         bool record_brains=true,record_observations=true,record_brain_graphs=true,record_routine_events=true,config_changed=false;
         auto companion_controller=neuroevo::ControllerKind::Reactive;
@@ -150,6 +155,8 @@ int main(int argc, char** argv)
                     "  --sensorimotor X          calibrated (97 inputs, default) or legacy (87 inputs)\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
                     "  --stable-mutations 0|1    Local edits and weak growth; new-world default 1, explicit resume override\n"
+                    "  --mutate-remove-neuron-prob N  Hidden-neuron pruning (default 0.01; also overrides resume)\n"
+                    "  --mutate-remove-synapse-prob N Synapse pruning (default 0.04)\n"
                     "  --archive-eval-trials N   Matched newborn family trials per genome; 0 = observed score\n"
                     "  --archive-eval-workers N  Parallel trial workers, 1..32; default up to 4 (also on resume)\n"
                     "  --record-brain-graphs 0|1 Save each introduced genome graph, default 1\n"
@@ -190,6 +197,12 @@ int main(int argc, char** argv)
             else if (arg == "--steps") steps=integer(value,arg);
             else if (arg == "--archive-eval-workers") evaluation_workers=integer(value,arg);
             else if (arg == "--stable-mutations") stable_mutations_override=boolean(value,arg);
+            else if (arg == "--mutate-remove-neuron-prob") {
+                remove_neuron_override=number(value,arg);
+                if (remove_neuron_override<0 || remove_neuron_override>1)
+                    throw std::invalid_argument("Neuron removal probability must be 0..1");
+                remove_neuron_explicit=true;
+            }
             else if (arg == "--record-every") record_every=integer(value,arg);
             else if (arg == "--record-brains") record_brains=boolean(value,arg);
             else if (arg == "--record-observations") record_observations=boolean(value,arg);
@@ -215,6 +228,7 @@ int main(int argc, char** argv)
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
+                else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
                 else if (arg == "--nursery-food-relocates") cfg.nursery_food_relocates=boolean(value,arg);
                 else if (arg == "--controller") cfg.controller=neuroevo::parse_controller(value);
                 else if (arg == "--founder-brain") {
@@ -277,6 +291,7 @@ int main(int argc, char** argv)
             ?neuroevo::make_ancestral_nursery(cfg):neuroevo::EcosystemWorld(cfg)):load(resume);
         world.evaluation_workers=evaluation_workers;
         if (stable_mutations_override>=0) world.config.mutation.stable=stable_mutations_override!=0;
+        if (remove_neuron_explicit) world.config.mutation.remove_neuron_probability=remove_neuron_override;
         if (resume.empty() && founder_brain=="sparse-ancestor") {
             const auto ancestor=neuroevo::make_sparse_ancestral_brain(world.config);
             const auto ancestral_genome_id=world.creatures.empty()?0:world.creatures.front().id;
@@ -400,7 +415,7 @@ int main(int argc, char** argv)
             << ", archive=" << world.archive.size() << ", 40/40/20 clone/slight/strong immigration\n";
         std::cout << "Archive evaluation workers: " << evaluation_workers << '\n';
         std::cout << "Mutation policy: " << (world.config.mutation.stable ? "stable (local edits, weak growth)" : "legacy") << '\n';
-        for (std::size_t i=0;i<steps && (!world.creatures.empty() || world.immigration_enabled()) && !world.capacity_limited && !stop_requested;++i) {
+        for (std::size_t i=0;i<steps && (!world.creatures.empty() || world.immigration_enabled()) && !stop_requested;++i) {
             const auto step_started=std::chrono::steady_clock::now();
             const auto previous_evaluations=world.evaluation_calls;
             world.step();
@@ -481,7 +496,7 @@ int main(int argc, char** argv)
             mean_hidden_neurons+=static_cast<double>(hidden);
         }
         if (!world.creatures.empty()) mean_hidden_neurons/=static_cast<double>(world.creatures.size());
-        const char* status=world.capacity_limited?"capacity_limited":stop_requested?"interrupted":
+        const char* status=stop_requested?"interrupted":
             world.creatures.empty()?(world.immigration_enabled()?"awaiting_immigration":"extinct"):"completed";
         std::ofstream summary(out/"summary.json");
         summary << "{\n  \"status\":\"" << status << "\",\n  \"steps_run\":" << world.step_index-starting_step
@@ -569,7 +584,8 @@ int main(int argc, char** argv)
             << ",\"add_synapse_probability\":" << world.config.mutation.add_synapse_probability
             << ",\"add_neuron_probability\":" << world.config.mutation.add_neuron_probability
             << ",\"max_hidden_neurons\":" << world.config.mutation.max_hidden_neurons
-            << ",\"remove_synapse_probability\":" << world.config.mutation.remove_synapse_probability << "}"
+            << ",\"remove_synapse_probability\":" << world.config.mutation.remove_synapse_probability
+            << ",\"remove_neuron_probability\":" << world.config.mutation.remove_neuron_probability << "}"
             << ",\n  \"wall_seconds\":" << wall_seconds << "\n}\n";
         summary.close(); events.close(); replay.close(); stats.close();
         if (!summary || !events || !replay || !stats) throw std::runtime_error("Failed to close output files");

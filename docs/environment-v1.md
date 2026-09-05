@@ -52,7 +52,7 @@ For a solitary trial or a larger starting population:
 .\scripts\ecosystem.ps1 -Creatures 64 -Steps 4800 -Open
 ```
 
-`-Creatures` specifies the starting population. Births and deaths can change it. `-NoReproduction` disables births but creatures can still die. The default safety cap is 256 living creatures; use the executable's `--max-population` option for another cap. Without establishment support, the run stops if the population goes extinct or reaches capacity, and records the reason in `summary.json`.
+`-Creatures` specifies the starting population. Births and deaths can change it. `-NoReproduction` disables births but creatures can still die. The default safety cap is 256 living creatures; use the executable's `--max-population` option for another cap. Without establishment support, the run stops if the population goes extinct. At capacity, births pause while the simulation continues; deaths can free slots for subsequent births.
 
 The executable exposes additional settings:
 
@@ -103,11 +103,11 @@ The slight branch uses 45% of the configured mutation magnitudes and 65% of its 
 
 Each immigrant first selects one represented food niche uniformly, then samples three distinct archive entries from that niche and uses the highest-scoring one. If the niche has fewer than three entries, every entry competes. This preserves ecological diversity while giving genomes with stronger accumulated evidence more descendants. Set the tournament size with `--archive-tournament-size` or `-ArchiveTournamentSize`.
 
-At each natural birth, the child has a 50% chance of exact inheritance and a 50% chance of the same slight mutation used by immigration. Exact children retain the parent's genome ID, allowing repeated outcomes to accumulate evidence for that genotype in the archive. Slightly mutated children receive a new genome ID. Child energy is 50 in the baseline ecology and 60 in the breeding preset.
+At each natural birth, the child has a 25% chance of exact inheritance, a 50% chance of slight mutation, and a 25% chance of strong mutation, using the same mutation presets as immigration. Exact children retain the parent's genome ID, allowing repeated outcomes to accumulate evidence for that genotype in the archive. Both slightly and strongly mutated children receive a new genome ID. Child energy is 50 in the baseline ecology and 60 in the breeding preset.
 
 Before any genome qualifies, immigration waits and increments `archive_empty_checks`. It does not inject an unrelated random brain. A complete shuffled group of five arrivals has the exact 40/40/20 proportions; a partial group can differ.
 
-Defaults introduce at most two creatures every five simulated seconds, only up to half the starting population (rounded down, minimum one). A population can temporarily be empty between checks. The world continues advancing until the requested step limit, interruption, population cap, or extinction after support has ended. If the step limit lands in an empty interval with support active, `summary.json` reports `awaiting_immigration`; resuming continues from there.
+Defaults introduce at most two creatures every five simulated seconds, only up to half the starting population (rounded down, minimum one). A population can temporarily be empty between checks. The world continues advancing until the requested step limit, interruption, or extinction after support has ended. If the step limit lands in an empty interval with support active, `summary.json` reports `awaiting_immigration`; resuming continues from there.
 
 Configure the floor and rate from PowerShell:
 
@@ -165,9 +165,9 @@ Use `-NoStorms` with `scripts/ecosystem.ps1`, or `--no-storms` / `--storms 0` wi
 
 Founders start with 90 energy and have capacity 200. Basal metabolism costs 0.20 per second; movement, turning, foraging, calling, neurons, synapses, and spikes have additional explicit costs. Rough terrain multiplies movement cost by two. At zero energy a creature dies, and its remaining body energy and undigested food leave the system.
 
-Reproduction is automatic and asexual. The default requirements are age 120 seconds, at least 150 energy, a 120-second cooldown, and free nearby space. A birth deducts 75 energy from the parent, gives 50 energy to the offspring, and spends the remaining 25 as reproductive overhead. The offspring has an equal chance of exact inheritance or slight mutation, with neural activity reset. It gets its own independent neural random-number stream.
+Reproduction is automatic and asexual. The default requirements are age 120 seconds, at least 150 energy, a 120-second cooldown, and free nearby space. A birth deducts 75 energy from the parent, gives 50 energy to the offspring, and spends the remaining 25 as reproductive overhead. The offspring has a 25% chance of exact inheritance, 50% slight mutation, and 25% strong mutation, with neural activity reset. It gets its own independent neural random-number stream.
 
-The safety population cap stops the simulation rather than silently killing or replacing creatures. Treat a capacity-limited run as truncated. `maturations` counts all creatures reaching maturity, including founders; use maturation events' parent IDs to measure offspring survival separately.
+The population cap blocks births without stopping movement, feeding, aging, weather, or deaths. After deaths are processed, eligible parents receive available birth slots in descending energy order; equal-energy ties use the reproducible per-step ordering. A parent unable to place a child is skipped without spending energy. The `capacity_limited` flag reports the current full state and clears when capacity becomes available; it is not a terminal status. This also applies when resuming a checkpoint saved at capacity. `maturations` counts all creatures reaching maturity, including founders; use maturation events' parent IDs to measure offspring survival separately.
 
 ## Senses and actions
 

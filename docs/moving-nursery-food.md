@@ -23,8 +23,7 @@ defaults to be changed and rebuilt. The executable accepts
 `--nursery-food-patches`, `--nursery-food-energy`, and `--nursery-food-capacity`.
 Use `--nursery-food-relocates 0` for the historical grid and passive regrowth;
 in that mode the grid size determines the count and `nursery_food_patches` is
-unused. Outside food and its nutrition are unchanged; with current settings,
-some outer food is less nutritious than nursery food.
+unused. For outdoor decay, relocation and shelter forage, see [dynamic food](dynamic-food.md).
 
 The resource ID and total patch count remain stable. If crowding blocks every
 new position, the depleted patch remains empty and retries next step. It is not

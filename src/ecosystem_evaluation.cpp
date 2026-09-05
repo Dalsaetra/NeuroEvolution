@@ -39,6 +39,7 @@ NewbornEvaluation EcosystemWorld::evaluate_newborn(const Brain& genome) const
         settings.mutation.add_neuron_probability = 0;
         settings.mutation.add_reciprocal_motif_probability = 0;
         settings.mutation.remove_synapse_probability = 0;
+        settings.mutation.remove_neuron_probability = 0;
         settings.mutation.mutate_clock_threshold_probability = 0;
         EcosystemWorld world(settings);
         std::vector<Vec2> locations;
@@ -63,7 +64,7 @@ NewbornEvaluation EcosystemWorld::evaluate_newborn(const Brain& genome) const
         NewbornTrial result;
         result.seed = settings.seed;
         const auto steps = static_cast<std::size_t>(std::ceil(config.archive_eval_seconds / settings.dt));
-        for (std::size_t step = 0; step < steps && !world.creatures.empty() && !world.capacity_limited; ++step) {
+        for (std::size_t step = 0; step < steps && !world.creatures.empty(); ++step) {
             world.step();
             for (const auto& event : world.events) {
                 if (event.type == "birth" && event.other == 1) {

@@ -25,6 +25,7 @@ MutationConfig exact_inheritance()
     mutation.add_neuron_probability = 0;
     mutation.add_reciprocal_motif_probability = 0;
     mutation.remove_synapse_probability = 0;
+    mutation.remove_neuron_probability = 0;
     mutation.mutate_clock_threshold_probability = 0;
     mutation.hidden_bias_jump_probability = 0;
     return mutation;

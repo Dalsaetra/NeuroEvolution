@@ -47,6 +47,9 @@ struct EcosystemConfig {
     double graze_capacity = 8, fruit_capacity = 12, pod_capacity = 12;
     double graze_energy = 2.5, poor_fruit_energy = 5, rich_fruit_energy = 12.5, pod_energy = 15;
     double graze_regrowth = 0.02, fruit_regrowth = 0.01, pod_regrowth = 0.08;
+    bool outdoor_food_relocates = true;
+    double graze_decay = 0.005, fruit_decay = 0.005; // biomass per second
+    double shelter_food_energy = 1, shelter_food_capacity = 2, shelter_food_regrowth = 0.6;
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
     double calm_duration = 150, warning_duration = 30, storm_duration = 60;
     double storm_cost = 3.0, phase_offset = 0;
@@ -83,6 +86,7 @@ struct EcoResource {
     FoodKind kind = FoodKind::Graze;
     Vec2 position;
     double stock = 0, capacity = 0, regrowth = 0, energy_per_unit = 0;
+    bool shelter_food = false; // Low-quality graze; shares the existing graze sensory channel.
     PodState pod_state = PodState::Closed;
     double progress = 0, opened_at = 0;
 };
@@ -159,6 +163,7 @@ public:
     EcoTotals totals;
     Random map_rng, mutation_rng, conflict_rng;
     std::uint64_t step_index = 0, next_creature_id = 1;
+    // capacity_limited reports currently blocked births, not a simulation stop.
     bool fruit_a_rich = true, capacity_limited = false;
     std::vector<GenomeArchiveEntry> archive;
     // Includes rejected candidates; a genome is evaluated once on a fixed suite.
@@ -181,6 +186,8 @@ public:
     bool in_nursery(Vec2 position) const;
     void generate_nursery_frontier();
     bool relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures);
+    bool relocate_outdoor_food(EcoResource& resource);
+    void add_shelter_food(Vec2 position);
     bool traversable(Vec2 position) const;
     bool line_of_sight(Vec2 from, Vec2 to) const;
     void generate_world();

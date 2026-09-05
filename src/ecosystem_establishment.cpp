@@ -46,7 +46,7 @@ std::size_t EcosystemWorld::population_floor() const
 
 bool EcosystemWorld::immigration_enabled() const
 {
-    return config.establishment && !immigration_withdrawn && !capacity_limited;
+    return config.establishment && !immigration_withdrawn;
 }
 
 void EcosystemWorld::consider_archive(const EcoCreature& c, bool finished, double observed_at)
@@ -122,7 +122,7 @@ void EcosystemWorld::consider_archive(const EcoCreature& c, bool finished, doubl
 
 void EcosystemWorld::update_establishment()
 {
-    if (!config.establishment || capacity_limited) return;
+    if (!config.establishment) return;
     const auto floor = population_floor();
     if (creatures.size() < floor) support_stable_since = -1;
     else if (support_stable_since < 0) support_stable_since = time();

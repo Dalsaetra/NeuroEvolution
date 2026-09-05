@@ -69,7 +69,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_12");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_14");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -83,6 +83,9 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.nursery_exit_width);
     checkpoint::write(s,config.shelter_size);
     checkpoint::write(s,config.nursery_food_patches,config.nursery_food_relocates);
+    checkpoint::write(s,config.mutation.remove_neuron_probability);
+    checkpoint::write(s,config.outdoor_food_relocates,config.graze_decay,config.fruit_decay,
+        config.shelter_food_energy,config.shelter_food_capacity,config.shelter_food_regrowth);
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
     checkpoint::write_tuple(s,checkpoint::total_fields(totals));
     checkpoint::write_tuple(s,checkpoint::establishment_total_fields(totals));
@@ -97,7 +100,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,resources.size());
     for (const auto& r : resources)
         checkpoint::write(s,r.id,r.kind,r.position.x,r.position.y,r.stock,r.capacity,r.regrowth,
-            r.energy_per_unit,r.pod_state,r.progress,r.opened_at);
+            r.energy_per_unit,r.pod_state,r.progress,r.opened_at,r.shelter_food);
     checkpoint::write(s,creatures.size());
     for (const auto& c : creatures) {
         checkpoint::write(s,c.id,c.parent_id,c.generation,c.position.x,c.position.y,c.heading,c.energy,
@@ -132,7 +135,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool moving_food_state = version == "NEUROEVO_ECOSYSTEM_12";
+    const bool dynamic_food_state = version == "NEUROEVO_ECOSYSTEM_14";
+    const bool pruning_state = dynamic_food_state || version == "NEUROEVO_ECOSYSTEM_13";
+    const bool moving_food_state = pruning_state || version == "NEUROEVO_ECOSYSTEM_12";
     const bool shelter_state = moving_food_state || version == "NEUROEVO_ECOSYSTEM_11";
     const bool exit_state = shelter_state || version == "NEUROEVO_ECOSYSTEM_10";
     const bool frontier_state = exit_state || version == "NEUROEVO_ECOSYSTEM_9";
@@ -148,6 +153,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!establishment_state && version != "NEUROEVO_ECOSYSTEM_1")
         throw std::runtime_error("Unknown ecosystem checkpoint version");
     EcosystemConfig cfg;
+    cfg.outdoor_food_relocates = false; // Validate the policy only after its versioned fields are read.
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
     if (modern_state) checkpoint::read_tuple(s,checkpoint::mutation_fields(cfg.mutation));
@@ -185,6 +191,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     else cfg.shelter_size=3;
     cfg.nursery_food_relocates=false;
     if (moving_food_state) checkpoint::read(s,cfg.nursery_food_patches,cfg.nursery_food_relocates);
+    cfg.mutation.remove_neuron_probability = 0;
+    if (pruning_state) checkpoint::read(s,cfg.mutation.remove_neuron_probability);
+    cfg.outdoor_food_relocates = false;
+    if (dynamic_food_state) checkpoint::read(s,cfg.outdoor_food_relocates,cfg.graze_decay,cfg.fruit_decay,
+        cfg.shelter_food_energy,cfg.shelter_food_capacity,cfg.shelter_food_regrowth);
     EcosystemWorld w(cfg,false);
     checkpoint::read(s,w.step_index,w.next_creature_id,w.fruit_a_rich,w.capacity_limited);
     checkpoint::read_tuple(s,checkpoint::total_fields(w.totals));
@@ -235,6 +246,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     for (auto& r : w.resources) {
         checkpoint::read(s,r.id,r.kind,r.position.x,r.position.y,r.stock,r.capacity,r.regrowth,
             r.energy_per_unit,r.pod_state,r.progress,r.opened_at);
+        if (dynamic_food_state) checkpoint::read(s,r.shelter_food);
         if (!ids.insert(r.id).second || r.kind < FoodKind::Graze || r.kind > FoodKind::Pod
             || r.pod_state < PodState::Closed || r.pod_state > PodState::Refilling
             || r.stock < 0 || r.stock > r.capacity+1e-8 || r.capacity <= 0 || r.regrowth < 0
@@ -339,6 +351,11 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"fov_degrees\":" << w.config.fov_degrees << ",\"seed\":" << w.config.seed
       << ",\"max_speed\":" << w.config.max_speed << ",\"max_turn_rate\":" << w.config.max_turn_rate
       << ",\"shelter_size\":" << w.config.shelter_size
+      << ",\"outdoor_food_relocates\":" << (w.config.outdoor_food_relocates?"true":"false")
+      << ",\"graze_decay\":" << w.config.graze_decay << ",\"fruit_decay\":" << w.config.fruit_decay
+      << ",\"shelter_food_energy\":" << w.config.shelter_food_energy
+      << ",\"shelter_food_capacity\":" << w.config.shelter_food_capacity
+      << ",\"shelter_food_regrowth\":" << w.config.shelter_food_regrowth
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
       << ",\"food_energy\":{\"graze\":" << w.config.graze_energy
       << ",\"poor_fruit\":" << w.config.poor_fruit_energy << ",\"rich_fruit\":" << w.config.rich_fruit_energy
@@ -371,6 +388,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
     s << ",\"resources\":";
     array(s,w.resources,[&](const EcoResource& r){
         s << "{\"id\":" << r.id << ",\"kind\":"; quoted(s,to_string(r.kind));
+        s << ",\"shelter_food\":" << (r.shelter_food ? "true" : "false");
         s << ",\"x\":" << r.position.x << ",\"y\":" << r.position.y << ",\"capacity\":" << r.capacity
           << ",\"value\":" << r.energy_per_unit << '}';
     });

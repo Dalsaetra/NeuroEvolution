@@ -9,12 +9,15 @@ EcosystemConfig nursery_frontier_config()
     EcosystemConfig c;
     c.nursery_frontier = true;
     c.width = c.height = 80;
-    c.max_population = 256;
+    c.max_population = 128;
     c.shelters = 32;
-    c.grazing_patches = 240; c.fruit_patches = 64; c.pods = 48;
-    c.graze_energy = 30; c.poor_fruit_energy = 44; c.rich_fruit_energy = 60; c.pod_energy = 100;
+    c.nursery_food_energy = 40; c.nursery_food_capacity = 3; c.nursery_food_regrowth = 0.02;
+    c.nursery_food_patches = 10;
+    c.grazing_patches = 300; c.fruit_patches = 60; c.pods = 80;
+    c.graze_energy = 20; c.poor_fruit_energy = 35; c.rich_fruit_energy = 60; c.pod_energy = 100;
+    c.graze_capacity = 4; c.fruit_capacity = 12; c.pod_capacity = 12;
     c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 7.5;
+    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 5.0;
     c.maturity_age = 60; c.reproduction_threshold = 110;
     c.reproduction_cost = 65; c.offspring_energy = 60; c.reproduction_cooldown = 90;
     c.establishment = false; c.archive_eval_trials = 0;
@@ -53,6 +56,7 @@ void EcosystemWorld::generate_nursery_frontier()
         for (std::size_t i=v.size(); i>1; --i) std::swap(v[i-1],v[rng.uniform_index(i)]);
     };
     shuffle(outside,map_rng);
+    std::vector<Vec2> shelter_centers;
     std::size_t placed=0;
     const auto low=config.shelter_size/2, high=config.shelter_size-1-low;
     for (const auto cell:outside) {
@@ -65,6 +69,7 @@ void EcosystemWorld::generate_nursery_frontier()
         if (!clear) continue;
         for (std::size_t yy=y-low; yy<=y+high; ++yy) for (std::size_t xx=x-low; xx<=x+high; ++xx)
             terrain[yy*config.width+xx]=Terrain::Shelter;
+        shelter_centers.push_back(pos(cell));
         ++placed;
     }
     if (placed!=config.shelters) throw std::invalid_argument("Not enough frontier space for shelters");
@@ -102,6 +107,7 @@ void EcosystemWorld::generate_nursery_frontier()
     }
     for (std::size_t i=0; i<config.pods; ++i)
         food(next(),FoodKind::Pod,config.pod_energy,config.pod_capacity,config.pod_regrowth);
+    for (const auto center : shelter_centers) add_shelter_food(center);
     Random spawn_rng(config.seed ^ 0x66726f6e74696572ULL);
     shuffle(spawning,spawn_rng);
     if (config.initial_creatures>spawning.size()) throw std::invalid_argument("Too many founders for nursery");
@@ -136,6 +142,40 @@ bool EcosystemWorld::relocate_nursery_food(EcoResource& resource, Random& rng, b
     // Continuous jitter removes alignment to a predictable cell-center grid.
     p.x+=rng.uniform(-.15,.15);p.y+=rng.uniform(-.15,.15);
     resource.position=p;
+    return true;
+}
+void EcosystemWorld::add_shelter_food(Vec2 position)
+{
+    EcoResource r;
+    r.id=resources.size()+1; r.position=position; r.shelter_food=true;
+    r.stock=r.capacity=config.shelter_food_capacity;
+    r.energy_per_unit=config.shelter_food_energy; r.regrowth=config.shelter_food_regrowth;
+    resources.push_back(r);
+}
+
+bool EcosystemWorld::relocate_outdoor_food(EcoResource& resource)
+{
+    const auto valid = [&](Vec2 p) {
+        if (!traversable(p) || sheltered(p) || in_nursery(p) || length(p-resource.position)<1.0) return false;
+        if (std::any_of(resources.begin(),resources.end(),[&](const auto& r) {
+            return r.id!=resource.id && length(r.position-p)<0.8;
+        })) return false;
+        return true;
+    };
+    // Fast rejection sampling; exhaustive fallback handles crowded maps without
+    // losing a patch quota. No creature exclusion: all valid outdoor cells qualify.
+    for (int attempt=0;attempt<256;++attempt) {
+        Vec2 p{double(map_rng.uniform_index(config.width))+.5,
+               double(map_rng.uniform_index(config.height))+.5};
+        if (valid(p)) { resource.position=p; return true; }
+    }
+    std::vector<Vec2> candidates;
+    for (std::size_t y=0;y<config.height;++y) for (std::size_t x=0;x<config.width;++x) {
+        Vec2 p{double(x)+.5,double(y)+.5};
+        if (valid(p)) candidates.push_back(p);
+    }
+    if (candidates.empty()) return false; // Keep the empty slot and retry next step.
+    resource.position=candidates[map_rng.uniform_index(candidates.size())];
     return true;
 }
 } // namespace neuroevo

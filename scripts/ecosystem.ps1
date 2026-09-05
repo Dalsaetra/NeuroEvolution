@@ -19,6 +19,11 @@ param(
     [ValidateRange(1, 100000)][int]$ShelterSize = 3,
     [ValidateRange(1, 100000)][int]$NurseryFoodPatches = 18,
     [ValidateRange(0.000001, 1000000)][double]$NurseryFoodEnergy = 50,
+    [ValidateRange(0, 1000000)][double]$GrazeDecay = 0.005,
+    [ValidateRange(0, 1000000)][double]$FruitDecay = 0.005,
+    [ValidateRange(0.000001, 1000000)][double]$ShelterFoodEnergy = 1,
+    [ValidateRange(0.000001, 1000000)][double]$ShelterFoodCapacity = 2,
+    [ValidateRange(0, 1000000)][double]$ShelterFoodRegrowth = 0.6,
     [switch]$NoReproduction,
     [switch]$NoStorms,
     [switch]$Establishment,
@@ -41,16 +46,20 @@ param(
     [ValidateRange(0, 1000000)][double]$DetailedTailSeconds = 300,
     [switch]$KeepJsonl,
     [switch]$Build,
-    [switch]$Open
+    [switch]$Open,
+    [switch]$OpenTail
 )
 
 $ErrorActionPreference = "Stop"
+if ($OpenTail -and $DetailedTailSeconds -le 0) {
+    throw "-OpenTail requires -DetailedTailSeconds greater than zero."
+}
 if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     foreach ($Parameter in @("Creatures", "Seed", "Controller", "FounderBrain", "SoloAncestorTrial", "NoReproduction", "NoStorms", "Establishment",
         "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
         "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
         "RichFruitEnergy", "PodEnergy", "KeepImmigration",
-        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize", "NurseryFoodPatches", "NurseryFoodEnergy")) {
+        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize", "NurseryFoodPatches", "NurseryFoodEnergy", "GrazeDecay", "FruitDecay", "ShelterFoodEnergy", "ShelterFoodCapacity", "ShelterFoodRegrowth")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) {
             throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration."
         }
@@ -100,7 +109,7 @@ switch ($Recording) {
     "detailed" { $SimulationArguments += @("--record-every", 10, "--record-brains", 1, "--record-observations", 1, "--record-brain-graphs", 1, "--record-routine-events", 1) }
 }
 $EffectiveTailSeconds = $DetailedTailSeconds
-if ($Recording -eq "detailed" -and -not $PSBoundParameters.ContainsKey("DetailedTailSeconds")) {
+if ($Recording -eq "detailed" -and -not $OpenTail -and -not $PSBoundParameters.ContainsKey("DetailedTailSeconds")) {
     $EffectiveTailSeconds = 0
 }
 if ($EffectiveTailSeconds -gt 0) {
@@ -162,6 +171,14 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
             $SimulationArguments += @($FoodSetting[1], $FoodSetting[2].ToString([System.Globalization.CultureInfo]::InvariantCulture))
         }
     }
+    foreach ($FoodSetting in @(@("GrazeDecay", "--graze-decay", $GrazeDecay),
+        @("FruitDecay", "--fruit-decay", $FruitDecay), @("ShelterFoodEnergy", "--shelter-food-energy", $ShelterFoodEnergy),
+        @("ShelterFoodCapacity", "--shelter-food-capacity", $ShelterFoodCapacity),
+        @("ShelterFoodRegrowth", "--shelter-food-regrowth", $ShelterFoodRegrowth))) {
+        if ($PSBoundParameters.ContainsKey($FoodSetting[0])) {
+            $SimulationArguments += @($FoodSetting[1], $FoodSetting[2].ToString([System.Globalization.CultureInfo]::InvariantCulture))
+        }
+    }
     if ($KeepImmigration) { $SimulationArguments += @("--immigration-auto-stop", "0") }
     if ($EvolutionPreset -eq "breeding") {
         # Makes lineage continuation less brittle while retaining meaningful food and weather pressure.
@@ -210,4 +227,9 @@ Get-ChildItem -LiteralPath $RunPath -File | Sort-Object Length -Descending | For
 if ($Open) {
     # The user explicitly requested the visible, interactive replay window.
     Start-Process -FilePath $ViewerPath
+}
+
+if ($OpenTail) {
+    # The user explicitly requested the visible, interactive detailed-tail replay.
+    Start-Process -FilePath $TailViewer
 }

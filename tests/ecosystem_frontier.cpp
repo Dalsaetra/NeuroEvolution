@@ -53,7 +53,7 @@ void geography_and_inheritance()
         } else {
             // Relative nutrition and carrying capacity are experimental tuning
             // choices, not invariants of the habitat implementation.
-            const double expected = r.kind==FoodKind::Graze ? cfg.graze_energy
+            const double expected = r.shelter_food ? cfg.shelter_food_energy : r.kind==FoodKind::Graze ? cfg.graze_energy
                 : r.kind==FoodKind::Pod ? cfg.pod_energy
                 : ((r.kind==FoodKind::FruitA)==w.fruit_a_rich ? cfg.rich_fruit_energy : cfg.poor_fruit_energy);
             require(r.energy_per_unit==expected,"Frontier patches must use their configured nutrition");
@@ -100,7 +100,7 @@ void weather_and_costs()
     w.step({{}, {}});
     require(std::abs(w.creatures[0].energy-w.creatures[1].energy-cfg.storm_cost*cfg.dt)<1e-8,"Nursery protection is incorrect");
     require(w.creatures[0].energy<90,"Shelter must still charge ordinary metabolism");
-    require(w.resources[inner_index].stock>0 && w.resources[outer_index].stock==0,"Only nursery food regrows through storms");
+    require(w.resources[inner_index].stock>0 && w.resources[outer_index].stock==cfg.graze_capacity,"Depleted outdoor food must relocate even through storms");
     // Even directly on food, passive creatures cannot obtain free energy.
     w.creatures.resize(1);
     for(int i=0;i<6000&&!w.creatures.empty();++i) w.step({{}});
@@ -146,7 +146,7 @@ void relocation()
         "Relocation event missing");
     const auto new_position=w.resources.front().position;w.step();
     require(length(w.resources.front().position-new_position)==0,"Nondepleted food moved");
-    require(w.resources.size()==cfg.nursery_food_patches+cfg.grazing_patches+cfg.fruit_patches+cfg.pods,
+    require(w.resources.size()==cfg.nursery_food_patches+cfg.grazing_patches+cfg.fruit_patches+cfg.pods+cfg.shelters,
         "Relocation changed fixed resource count");
 }
 }

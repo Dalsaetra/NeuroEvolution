@@ -29,6 +29,18 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         return path
 
+    def test_full_population_continues_and_resumes(self):
+        first = self.run_world("full", "--creatures", 1, "--max-population", 1, "--steps", 10)
+        summary = json.loads((first / "summary.json").read_text())
+        self.assertEqual(summary["steps_run"], 10)
+        self.assertEqual(summary["status"], "completed")
+        resumed = self.run_world("full_resumed", "--resume", first / "checkpoint.eco", "--steps", 5)
+        summary = json.loads((resumed / "summary.json").read_text())
+        self.assertEqual(summary["steps_run"], 5)
+        self.assertEqual(summary["status"], "completed")
+        whole = self.run_world("full_whole", "--creatures", 1, "--max-population", 1, "--steps", 15)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+
     def test_population_and_brain_recording(self):
         worlds = []
         for population in (1, 7):
@@ -198,7 +210,10 @@ class EcosystemCliTests(unittest.TestCase):
                           ("--establishment", "1", "--immigration-floor", "256"),
                           ("--detailed-tail-seconds", "-1"), ("--tail-record-every", "0"),
                           ("--detailed-tail-seconds", "10001", "--tail-record-every", "1"),
-                          ("--record-observations", "2"), ("--mutation-weight-sigma", "-1")):
+                          ("--record-observations", "2"), ("--mutation-weight-sigma", "-1"),
+                          ("--mutate-remove-neuron-prob", "-0.01"),
+                          ("--mutate-remove-neuron-prob", "1.01"),
+                          ("--mutate-remove-neuron-prob", "nan")):
             result = subprocess.run([str(EXECUTABLE), *arguments], capture_output=True, text=True, timeout=10)
             self.assertNotEqual(result.returncode, 0, arguments)
         for arguments in (("--founder-brain", "magic"), ("--habitat", "magic"),
@@ -232,13 +247,43 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertFalse(metadata["calibrated_io"])
         self.assertEqual(len(metadata["input_labels"]), 87)
 
+    @staticmethod
+    def strip_dynamic_food(lines):
+        # v14 appends a shelter subtype flag to each resource and a config line.
+        count = int(lines[26])
+        for i in range(27, 27 + count):
+            lines[i] = " ".join(lines[i].split()[:-1])
+        del lines[14]
+
+    def test_pruning_configuration_and_migration(self):
+        first = self.run_world("pruning_defaults", "--creatures", 1, "--steps", 1)
+        mutation = json.loads((first / "summary.json").read_text())["mutation"]
+        self.assertEqual(mutation["remove_neuron_probability"], 0.01)
+        self.assertEqual(mutation["remove_synapse_probability"], 0.04)
+        lines = (first / "checkpoint.eco").read_text().splitlines()
+        self.strip_dynamic_food(lines)
+        lines[0] = "NEUROEVO_ECOSYSTEM_12"
+        del lines[13]
+        historical = first / "v12.eco"
+        historical.write_text("\n".join(lines) + "\n")
+        old = self.run_world("pruning_old", "--resume", historical, "--steps", 1)
+        self.assertEqual(json.loads((old / "summary.json").read_text())["mutation"]["remove_neuron_probability"], 0)
+        enabled = self.run_world("pruning_enabled", "--resume", historical, "--steps", 1,
+                                 "--mutate-remove-neuron-prob", 0.023)
+        again = self.run_world("pruning_persisted", "--resume", enabled / "checkpoint.eco", "--steps", 1)
+        self.assertEqual(json.loads((again / "summary.json").read_text())["mutation"]["remove_neuron_probability"], 0.023)
+        disabled = self.run_world("pruning_disabled", "--creatures", 1, "--steps", 1,
+                                  "--mutate-remove-neuron-prob", 0)
+        self.assertEqual(json.loads((disabled / "summary.json").read_text())["mutation"]["remove_neuron_probability"], 0)
+
     def test_mutation_policy_migration(self):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_12")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_14")
+        self.strip_dynamic_food(lines)
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
-        del lines[8:13]
+        del lines[8:14]
         historical = first / "historical.eco"
         historical.write_text("\n".join(lines) + "\n")
         old = self.run_world("preserved_policy", "--resume", historical, "--steps", 1)
