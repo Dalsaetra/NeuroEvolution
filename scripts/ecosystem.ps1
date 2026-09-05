@@ -15,6 +15,8 @@ param(
     [ValidateRange(0, 10)][double]$ActuatorTau = 0.3,
     [switch]$SoloAncestorTrial,
     [ValidateSet("generated", "nursery-frontier")][string]$Habitat = "generated",
+    [ValidateRange(0, 100000)][int]$NurseryExitWidth = 3,
+    [ValidateRange(1, 100000)][int]$ShelterSize = 3,
     [switch]$NoReproduction,
     [switch]$NoStorms,
     [switch]$Establishment,
@@ -46,7 +48,7 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
         "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
         "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
         "RichFruitEnergy", "PodEnergy", "KeepImmigration",
-        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat")) {
+        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) {
             throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration."
         }
@@ -116,6 +118,12 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     $EffectiveCreatures = if ($SoloAncestorTrial) { 1 } else { $Creatures }
     if ($SoloAncestorTrial -and $Habitat -ne "generated") { throw "-SoloAncestorTrial cannot be combined with -Habitat nursery-frontier" }
     $SimulationArguments += @("--habitat", $Habitat)
+    if ($PSBoundParameters.ContainsKey("ShelterSize")) {
+        $SimulationArguments += @("--shelter-size", $ShelterSize)
+    }
+    if ($PSBoundParameters.ContainsKey("NurseryExitWidth")) {
+        $SimulationArguments += @("--nursery-exit-width", $NurseryExitWidth)
+    }
     $EffectiveController = if ($SoloAncestorTrial) { "spiking" } else { $Controller }
     $EffectiveFounderBrain = if ($SoloAncestorTrial) { "sparse-ancestor" } else { $FounderBrain }
     if ($Habitat -eq "nursery-frontier" -and -not $PSBoundParameters.ContainsKey("FounderBrain")) { $EffectiveFounderBrain = "sparse-ancestor" }

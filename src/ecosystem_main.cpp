@@ -68,6 +68,8 @@ int main(int argc, char** argv)
                 cfg=neuroevo::nursery_frontier_config();
         std::map<std::string,std::size_t*> sizes{
             {"--nursery-size",&cfg.nursery_size},
+            {"--nursery-exit-width",&cfg.nursery_exit_width},
+            {"--shelter-size",&cfg.shelter_size},
             {"--creatures",&cfg.initial_creatures},{"--max-population",&cfg.max_population},
             {"--width",&cfg.width},{"--height",&cfg.height},{"--shelters",&cfg.shelters},
             {"--grazing-patches",&cfg.grazing_patches},{"--fruit-patches",&cfg.fruit_patches},
@@ -485,9 +487,11 @@ int main(int argc, char** argv)
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"nursery\":{\"enabled\":" << (world.config.nursery_frontier?"true":"false")
             << ",\"size\":" << world.config.nursery_size << ",\"food_energy\":" << world.config.nursery_food_energy
+            << ",\"exit_width\":" << world.config.nursery_exit_width
             << ",\"food_capacity\":" << world.config.nursery_food_capacity
             << ",\"food_regrowth\":" << world.config.nursery_food_regrowth << "}"
             << ",\n  \"storms_enabled\":" << (world.config.storms_enabled?"true":"false")
+            << ",\n  \"shelter_size\":" << world.config.shelter_size
             << ",\n  \"step\":" << world.step_index << ",\n  \"time\":" << world.time()
             << ",\n  \"population\":" << world.creatures.size() << ",\n  \"births\":" << world.totals.births
             << ",\n  \"founder_births\":" << world.totals.founder_births

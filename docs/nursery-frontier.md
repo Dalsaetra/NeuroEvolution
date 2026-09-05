@@ -6,6 +6,24 @@ Start a new ecosystem with:
 .\scripts\ecosystem.ps1 -Habitat nursery-frontier -Steps 60000 -Build
 ```
 
+Use `-NurseryExitWidth 6` to make each of the four openings six cells wide
+(executable: `--nursery-exit-width 6`). When omitted, the runner uses the compiled
+`EcosystemConfig::nursery_exit_width` default; rebuild after editing the header. Allowed values are
+0 through `nursery_size - 2`; zero closes all exits. Openings remain centered on
+each side, with even widths offset by half a cell. This changes new maps only;
+resumed checkpoints retain their saved openings. The C++ default is
+`EcosystemConfig::nursery_exit_width` in `include/neuroevo/ecosystem.hpp`.
+Checkpoint version 10 saves the width; older checkpoints default to 3.
+
+Use `-ShelterSize 5` (executable: `--shelter-size 5`) for 5×5 outer shelters.
+This also works in the generated habitat and does not change the central nursery.
+Both odd and even side lengths are supported, from 1 to the smaller map dimension
+minus 4; placement can still fail if the requested shelters do not fit available
+open space. The runner only passes this option when explicitly supplied, so
+editing `EcosystemConfig::shelter_size` and rebuilding changes the default.
+New maps use the chosen size. Version 11 checkpoints save it, and older maps
+retain their historical 3×3 shelters on resume.
+
 This selects sparse ancestral founders, stable mutations, and an 80×80 world.
 Archive maintenance, newborn archive evaluations, and immigration are disabled
 for this habitat, even if establishment options are passed. No replacement

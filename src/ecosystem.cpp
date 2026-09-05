@@ -192,10 +192,14 @@ EcosystemConfig::EcosystemConfig()
 
 void EcosystemConfig::validate() const
 {
+    if (shelter_size < 1 || std::min(width,height) < 5 || shelter_size > std::min(width,height)-4)
+        throw std::invalid_argument("Shelter size must be 1..min(width,height)-4");
     if (nursery_frontier) {
         if (nursery_size < 16 || nursery_size > std::min(width, height)
             || std::min(width, height) - nursery_size < 24)
             throw std::invalid_argument("Nursery frontier needs a nursery >=16 cells and at least 24 extra map cells per dimension");
+        if (nursery_exit_width > nursery_size - 2)
+            throw std::invalid_argument("Nursery exit width must be 0..nursery_size-2");
         if (establishment || archive_eval_trials != 0)
             throw std::invalid_argument("Nursery frontier does not permit archive evaluation or immigration");
         positive(nursery_food_energy, "Nursery food energy");
@@ -425,7 +429,7 @@ void EcosystemWorld::generate_world()
     }
     // Each obstacle is accepted only if all remaining open cells are connected.
     // This recipe never reads population size: changing it preserves the map.
-    const std::size_t required_space = config.grazing_patches + config.fruit_patches + config.pods + config.shelters * 9;
+    const std::size_t required_space = config.grazing_patches + config.fruit_patches + config.pods + config.shelters * config.shelter_size * config.shelter_size;
     if (required_space > interior.size()) throw std::invalid_argument("Resource and shelter counts do not fit in this world");
     for (std::size_t obstacle = 0; obstacle < interior.size() / 45; ++obstacle) {
         const std::size_t anchor = interior[map_rng.uniform_index(interior.size())];
@@ -443,21 +447,22 @@ void EcosystemWorld::generate_world()
     }
     shuffle(interior, map_rng);
     std::vector<Vec2> shelter_centers;
-    // Place connected 3x3 shelter floors in existing open regions, preserving
+    const auto low=config.shelter_size/2, high=config.shelter_size-1-low;
+    // Place connected square shelter floors in existing open regions, preserving
     // at least two open approaches. There is deliberately no food indoors.
     for (const auto cell : interior) {
         if (shelter_centers.size() == config.shelters) break;
         const std::size_t x = cell % config.width, y = cell / config.width;
-        if (x < 2 || y < 2 || x + 2 >= config.width || y + 2 >= config.height) continue;
+        if (x < low+1 || y < low+1 || x + high+1 >= config.width || y + high+1 >= config.height) continue;
         const Vec2 center{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
-        if (std::any_of(shelter_centers.begin(), shelter_centers.end(), [center](Vec2 previous) { return length(center - previous) < 5; })) continue;
+        if (std::any_of(shelter_centers.begin(), shelter_centers.end(), [&](Vec2 previous) { return length(center - previous) < config.shelter_size+2; })) continue;
         bool clear = true;
-        for (std::size_t yy = y - 1; yy <= y + 1; ++yy) for (std::size_t xx = x - 1; xx <= x + 1; ++xx) if (terrain[yy * config.width + xx] == Terrain::Wall || terrain[yy * config.width + xx] == Terrain::Shelter) clear = false;
+        for (std::size_t yy = y - low; yy <= y + high; ++yy) for (std::size_t xx = x - low; xx <= x + high; ++xx) if (terrain[yy * config.width + xx] == Terrain::Wall || terrain[yy * config.width + xx] == Terrain::Shelter) clear = false;
         if (!clear) continue;
         int approaches = 0;
-        for (const auto neighbour : {cell - 2, cell + 2, cell - 2 * config.width, cell + 2 * config.width}) if (terrain[neighbour] != Terrain::Wall) ++approaches;
+        for (const auto neighbour : {cell - (low+1), cell + (high+1), cell - (low+1) * config.width, cell + (high+1) * config.width}) if (terrain[neighbour] != Terrain::Wall) ++approaches;
         if (approaches < 2) continue;
-        for (std::size_t yy = y - 1; yy <= y + 1; ++yy) for (std::size_t xx = x - 1; xx <= x + 1; ++xx) terrain[yy * config.width + xx] = Terrain::Shelter;
+        for (std::size_t yy = y - low; yy <= y + high; ++yy) for (std::size_t xx = x - low; xx <= x + high; ++xx) terrain[yy * config.width + xx] = Terrain::Shelter;
         shelter_centers.push_back(center);
     }
     if (shelter_centers.size() != config.shelters) throw std::invalid_argument("Not enough separate open areas for the requested shelters; enlarge the map or reduce shelters");

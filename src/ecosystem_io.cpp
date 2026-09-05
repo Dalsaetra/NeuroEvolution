@@ -69,7 +69,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_9");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_11");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -80,6 +80,8 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.mutation.stable);
     checkpoint::write(s,config.nursery_frontier,config.nursery_size,config.nursery_food_energy,
         config.nursery_food_capacity,config.nursery_food_regrowth);
+    checkpoint::write(s,config.nursery_exit_width);
+    checkpoint::write(s,config.shelter_size);
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
     checkpoint::write_tuple(s,checkpoint::total_fields(totals));
     checkpoint::write_tuple(s,checkpoint::establishment_total_fields(totals));
@@ -129,7 +131,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool frontier_state = version == "NEUROEVO_ECOSYSTEM_9";
+    const bool shelter_state = version == "NEUROEVO_ECOSYSTEM_11";
+    const bool exit_state = shelter_state || version == "NEUROEVO_ECOSYSTEM_10";
+    const bool frontier_state = exit_state || version == "NEUROEVO_ECOSYSTEM_9";
     const bool stable_state = frontier_state || version == "NEUROEVO_ECOSYSTEM_8";
     const bool calibrated_state = stable_state || version == "NEUROEVO_ECOSYSTEM_7";
     const bool current_state = calibrated_state || version == "NEUROEVO_ECOSYSTEM_6";
@@ -173,6 +177,10 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (stable_state) checkpoint::read(s,cfg.mutation.stable);
     if (frontier_state) checkpoint::read(s,cfg.nursery_frontier,cfg.nursery_size,cfg.nursery_food_energy,
         cfg.nursery_food_capacity,cfg.nursery_food_regrowth);
+    if (exit_state) checkpoint::read(s,cfg.nursery_exit_width);
+    else cfg.nursery_exit_width=3; // Historical maps used fixed three-cell gates.
+    if (shelter_state) checkpoint::read(s,cfg.shelter_size);
+    else cfg.shelter_size=3;
     EcosystemWorld w(cfg,false);
     checkpoint::read(s,w.step_index,w.next_creature_id,w.fruit_a_rich,w.capacity_limited);
     checkpoint::read_tuple(s,checkpoint::total_fields(w.totals));
@@ -320,9 +328,11 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"nursery\":{\"enabled\":" << (w.config.nursery_frontier?"true":"false")
       << ",\"x\":" << (w.config.width-std::min(w.config.width,w.config.nursery_size))/2
       << ",\"y\":" << (w.config.height-std::min(w.config.height,w.config.nursery_size))/2
-      << ",\"size\":" << w.config.nursery_size << ",\"food_energy\":" << w.config.nursery_food_energy << "}"
+      << ",\"size\":" << w.config.nursery_size << ",\"exit_width\":" << w.config.nursery_exit_width
+      << ",\"food_energy\":" << w.config.nursery_food_energy << "}"
       << ",\"fov_degrees\":" << w.config.fov_degrees << ",\"seed\":" << w.config.seed
       << ",\"max_speed\":" << w.config.max_speed << ",\"max_turn_rate\":" << w.config.max_turn_rate
+      << ",\"shelter_size\":" << w.config.shelter_size
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
       << ",\"food_energy\":{\"graze\":" << w.config.graze_energy
       << ",\"poor_fruit\":" << w.config.poor_fruit_energy << ",\"rich_fruit\":" << w.config.rich_fruit_energy

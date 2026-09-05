@@ -10,11 +10,11 @@ EcosystemConfig nursery_frontier_config()
     c.nursery_frontier = true;
     c.width = c.height = 80;
     c.max_population = 256;
-    c.shelters = 24;
-    c.grazing_patches = 120; c.fruit_patches = 64; c.pods = 24;
-    c.graze_energy = 14; c.poor_fruit_energy = 16; c.rich_fruit_energy = 36; c.pod_energy = 60;
+    c.shelters = 32;
+    c.grazing_patches = 240; c.fruit_patches = 64; c.pods = 48;
+    c.graze_energy = 14; c.poor_fruit_energy = 24; c.rich_fruit_energy = 40; c.pod_energy = 80;
     c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 1.2;
+    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 3.0;
     c.maturity_age = 60; c.reproduction_threshold = 110;
     c.reproduction_cost = 65; c.offspring_energy = 60; c.reproduction_cooldown = 90;
     c.establishment = false; c.archive_eval_trials = 0;
@@ -27,16 +27,18 @@ void EcosystemWorld::generate_nursery_frontier()
     const auto y0 = (config.height - config.nursery_size) / 2;
     const auto x1 = x0 + config.nursery_size - 1, y1 = y0 + config.nursery_size - 1;
     const auto cx = x0 + config.nursery_size / 2, cy = y0 + config.nursery_size / 2;
+    const auto gate_x = cx - config.nursery_exit_width / 2;
+    const auto gate_y = cy - config.nursery_exit_width / 2;
     const auto pos = [&](std::size_t cell) { return Vec2{double(cell % config.width)+0.5,double(cell/config.width)+0.5}; };
     std::vector<std::size_t> outside, spawning;
     for (std::size_t y=0; y<config.height; ++y) for (std::size_t x=0; x<config.width; ++x) {
         const auto cell=y*config.width+x;
         if (x==0 || y==0 || x+1==config.width || y+1==config.height) { terrain[cell]=Terrain::Wall; continue; }
         if (in_nursery(pos(cell))) {
-            // Porous perimeter: four three-cell gates, no teleporting or confinement.
+            // Four centered gates; width zero deliberately closes the nursery.
             const bool boundary=x==x0 || x==x1 || y==y0 || y==y1;
-            const bool gate=((x==x0 || x==x1) && y+1>=cy && y<=cy+1)
-                || ((y==y0 || y==y1) && x+1>=cx && x<=cx+1);
+            const bool gate=((x==x0 || x==x1) && y>=gate_y && y-gate_y<config.nursery_exit_width)
+                || ((y==y0 || y==y1) && x>=gate_x && x-gate_x<config.nursery_exit_width);
             terrain[cell]=boundary && !gate ? Terrain::Wall : Terrain::Shelter;
             if (x>x0+1 && x+2<x1 && y>y0+1 && y+2<y1) spawning.push_back(cell);
         } else {
@@ -52,15 +54,16 @@ void EcosystemWorld::generate_nursery_frontier()
     };
     shuffle(outside,map_rng);
     std::size_t placed=0;
+    const auto low=config.shelter_size/2, high=config.shelter_size-1-low;
     for (const auto cell:outside) {
         if (placed==config.shelters) break;
         const auto x=cell%config.width,y=cell/config.width;
-        if (x<2 || y<2 || x+2>=config.width || y+2>=config.height) continue;
+        if (x<low+1 || y<low+1 || x+high+1>=config.width || y+high+1>=config.height) continue;
         bool clear=true;
-        for (std::size_t yy=y-1; yy<=y+1; ++yy) for (std::size_t xx=x-1; xx<=x+1; ++xx)
-            if (terrain[yy*config.width+xx]==Terrain::Wall || terrain[yy*config.width+xx]==Terrain::Shelter) clear=false;
+        for (std::size_t yy=y-low; yy<=y+high; ++yy) for (std::size_t xx=x-low; xx<=x+high; ++xx)
+            if (in_nursery(pos(yy*config.width+xx)) || terrain[yy*config.width+xx]==Terrain::Wall || terrain[yy*config.width+xx]==Terrain::Shelter) clear=false;
         if (!clear) continue;
-        for (std::size_t yy=y-1; yy<=y+1; ++yy) for (std::size_t xx=x-1; xx<=x+1; ++xx)
+        for (std::size_t yy=y-low; yy<=y+high; ++yy) for (std::size_t xx=x-low; xx<=x+high; ++xx)
             terrain[yy*config.width+xx]=Terrain::Shelter;
         ++placed;
     }

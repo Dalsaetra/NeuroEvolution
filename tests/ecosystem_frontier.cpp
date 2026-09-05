@@ -13,6 +13,32 @@ std::string saved(const EcosystemWorld& w) { std::ostringstream s; w.save_checkp
 void geography_and_inheritance()
 {
     auto cfg=nursery_frontier_config();
+    for (bool frontier : {false,true}) for (std::size_t size : {1u,4u,5u}) {
+        auto custom=cfg;custom.nursery_frontier=frontier;custom.shelters=2;custom.shelter_size=size;
+        EcosystemWorld shelters(custom);
+        std::size_t count=0;
+        for (std::size_t i=0;i<shelters.terrain.size();++i)
+            if (shelters.terrain[i]==Terrain::Shelter
+                && !shelters.in_nursery({double(i%custom.width)+.5,double(i/custom.width)+.5})) ++count;
+        require(count==custom.shelters*size*size,"Configured shelter size was not used by map generation");
+        std::istringstream checkpoint(saved(shelters));
+        require(saved(EcosystemWorld::load_checkpoint(checkpoint))==saved(shelters),"Checkpoint lost shelter size");
+    }
+    for (std::size_t width : {0u, 1u, 3u, 6u}) {
+        auto custom=cfg;custom.nursery_exit_width=width;
+        EcosystemWorld gates(custom);
+        const auto x0=(custom.width-custom.nursery_size)/2,y0=(custom.height-custom.nursery_size)/2;
+        std::size_t openings[4]={};
+        for(std::size_t i=0;i<custom.nursery_size;++i) {
+            openings[0]+=gates.terrain[y0*custom.width+x0+i]==Terrain::Shelter;
+            openings[1]+=gates.terrain[(y0+custom.nursery_size-1)*custom.width+x0+i]==Terrain::Shelter;
+            openings[2]+=gates.terrain[(y0+i)*custom.width+x0]==Terrain::Shelter;
+            openings[3]+=gates.terrain[(y0+i)*custom.width+x0+custom.nursery_size-1]==Terrain::Shelter;
+        }
+        for(auto count:openings)require(count==width,"Nursery gate width differs from configuration");
+        std::istringstream checkpoint(saved(gates));
+        require(saved(EcosystemWorld::load_checkpoint(checkpoint))==saved(gates),"Checkpoint lost custom gate width");
+    }
     EcosystemWorld w(cfg);
     require(!w.config.establishment && !w.config.archive_eval_trials, "Frontier must disable all archive support");
     require(w.config.width>48 && w.config.height>48,"Frontier must be larger than the original habitat");
@@ -21,13 +47,23 @@ void geography_and_inheritance()
     for (const auto& r:w.resources) {
         if (w.in_nursery(r.position)) {
             ++nursery_food;
-            require(r.energy_per_unit==cfg.nursery_food_energy && r.regrowth*r.energy_per_unit<cfg.basal_cost,
-                "A single nursery patch must not pay indefinite basal metabolism");
-        } else require(r.energy_per_unit>cfg.nursery_food_energy,"Frontier food must have greater nutrition");
+            require(r.energy_per_unit==cfg.nursery_food_energy
+                && r.capacity==cfg.nursery_food_capacity && r.regrowth==cfg.nursery_food_regrowth,
+                "Nursery patches must use the configured nutrition, capacity, and regrowth");
+        } else {
+            // Relative nutrition and carrying capacity are experimental tuning
+            // choices, not invariants of the habitat implementation.
+            const double expected = r.kind==FoodKind::Graze ? cfg.graze_energy
+                : r.kind==FoodKind::Pod ? cfg.pod_energy
+                : ((r.kind==FoodKind::FruitA)==w.fruit_a_rich ? cfg.rich_fruit_energy : cfg.poor_fruit_energy);
+            require(r.energy_per_unit==expected,"Frontier patches must use their configured nutrition");
+        }
     }
     for (std::size_t y=0;y<cfg.height;++y) for (std::size_t x=0;x<cfg.width;++x)
         if (!w.in_nursery({double(x)+.5,double(y)+.5}) && w.terrain[y*cfg.width+x]==Terrain::Shelter) ++frontier_shelter;
-    require(frontier_shelter==cfg.shelters*9 && nursery_food>50,"Habitat lost food or outer shelters");
+    const auto patches_per_axis=(cfg.nursery_size-3)/2;
+    require(frontier_shelter==cfg.shelters*cfg.shelter_size*cfg.shelter_size && nursery_food==patches_per_axis*patches_per_axis,
+        "Habitat food or shelter count does not match its configured dimensions");
     // Every open cell, including each gate and outer refuge, must be reachable.
     std::vector<bool> seen(w.terrain.size()); std::queue<std::size_t> queue;
     auto first=std::find_if(w.terrain.begin(),w.terrain.end(),[](auto t){return t!=Terrain::Wall;})-w.terrain.begin();

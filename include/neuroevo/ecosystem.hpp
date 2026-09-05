@@ -28,8 +28,10 @@ constexpr std::size_t eco_output_count = 5;
 
 struct EcosystemConfig {
     bool nursery_frontier = false;
-    std::size_t nursery_size = 24;
-    double nursery_food_energy = 12.5, nursery_food_capacity = 8, nursery_food_regrowth = 0.0144;
+    std::size_t nursery_size = 16;
+    std::size_t nursery_exit_width = 4;
+    std::size_t shelter_size = 5;
+    double nursery_food_energy = 25.0, nursery_food_capacity = 24, nursery_food_regrowth = 0.02;
     std::size_t width = 48, height = 48, initial_creatures = 24, max_population = 128;
     std::size_t shelters = 12, grazing_patches = 80, fruit_patches = 32, pods = 8;
     std::uint64_t seed = 7;
