@@ -69,7 +69,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_14");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_15");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -86,6 +86,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.mutation.remove_neuron_probability);
     checkpoint::write(s,config.outdoor_food_relocates,config.graze_decay,config.fruit_decay,
         config.shelter_food_energy,config.shelter_food_capacity,config.shelter_food_regrowth);
+    checkpoint::write(s,config.nursery_food_decay);
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
     checkpoint::write_tuple(s,checkpoint::total_fields(totals));
     checkpoint::write_tuple(s,checkpoint::establishment_total_fields(totals));
@@ -135,7 +136,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool dynamic_food_state = version == "NEUROEVO_ECOSYSTEM_14";
+    const bool nursery_decay_state = version == "NEUROEVO_ECOSYSTEM_15";
+    const bool dynamic_food_state = nursery_decay_state || version == "NEUROEVO_ECOSYSTEM_14";
     const bool pruning_state = dynamic_food_state || version == "NEUROEVO_ECOSYSTEM_13";
     const bool moving_food_state = pruning_state || version == "NEUROEVO_ECOSYSTEM_12";
     const bool shelter_state = moving_food_state || version == "NEUROEVO_ECOSYSTEM_11";
@@ -153,6 +155,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!establishment_state && version != "NEUROEVO_ECOSYSTEM_1")
         throw std::runtime_error("Unknown ecosystem checkpoint version");
     EcosystemConfig cfg;
+    cfg.nursery_food_decay = 0;
     cfg.outdoor_food_relocates = false; // Validate the policy only after its versioned fields are read.
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
@@ -196,6 +199,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     cfg.outdoor_food_relocates = false;
     if (dynamic_food_state) checkpoint::read(s,cfg.outdoor_food_relocates,cfg.graze_decay,cfg.fruit_decay,
         cfg.shelter_food_energy,cfg.shelter_food_capacity,cfg.shelter_food_regrowth);
+    if (nursery_decay_state) checkpoint::read(s,cfg.nursery_food_decay);
     EcosystemWorld w(cfg,false);
     checkpoint::read(s,w.step_index,w.next_creature_id,w.fruit_a_rich,w.capacity_limited);
     checkpoint::read_tuple(s,checkpoint::total_fields(w.totals));
@@ -345,6 +349,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"x\":" << (w.config.width-std::min(w.config.width,w.config.nursery_size))/2
       << ",\"y\":" << (w.config.height-std::min(w.config.height,w.config.nursery_size))/2
       << ",\"size\":" << w.config.nursery_size << ",\"exit_width\":" << w.config.nursery_exit_width
+      << ",\"food_decay\":" << w.config.nursery_food_decay
       << ",\"food_energy\":" << w.config.nursery_food_energy
       << ",\"food_patches\":" << w.config.nursery_food_patches
       << ",\"food_relocates\":" << (w.config.nursery_food_relocates?"true":"false") << "}"

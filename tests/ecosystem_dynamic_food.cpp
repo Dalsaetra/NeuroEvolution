@@ -24,7 +24,7 @@ int main(){try{
         for(std::size_t i=0;i<w.resources.size();++i) {
             const auto& r=w.resources[i];
             check(r.stock==repeat.resources[i].stock,"Initial food ages must be seed reproducible");
-            if(r.shelter_food||w.in_nursery(r.position)||r.kind==FoodKind::Pod) {
+            if(r.shelter_food||r.kind==FoodKind::Pod) {
                 check(r.stock==r.capacity,"Only dynamic outdoor forage and fruit start decayed");
             } else {
                 check(r.stock>=0&&r.stock<r.capacity,"Outdoor food must start partially decayed");
@@ -32,7 +32,7 @@ int main(){try{
             }
         }
         check(lowest<.25&&highest>.75,"Initial decay ages should span the lifetime");
-        auto static_cfg=cfg;static_cfg.outdoor_food_relocates=false;
+        auto static_cfg=cfg;static_cfg.outdoor_food_relocates=false;static_cfg.nursery_food_decay=0;
         EcosystemWorld static_world(static_cfg);
         for(std::size_t i=0;i<w.resources.size();++i) {
             check(static_world.resources[i].stock==static_world.resources[i].capacity,"Static food starts full");
@@ -43,8 +43,8 @@ int main(){try{
         double expected_decay=0;
         for(std::size_t i=0;i<w.resources.size();++i) {
             const auto& r=w.resources[i];const auto& old=initial[i];
-            if(r.shelter_food||w.in_nursery(r.position)||r.kind==FoodKind::Pod) continue;
-            const double decay=(r.kind==FoodKind::Graze?cfg.graze_decay:cfg.fruit_decay)*cfg.dt;
+            if(r.shelter_food||r.kind==FoodKind::Pod) continue;
+            const double decay=(w.in_nursery(r.position)?cfg.nursery_food_decay:r.kind==FoodKind::Graze?cfg.graze_decay:cfg.fruit_decay)*cfg.dt;
             check(std::abs(old.stock-r.stock-decay)<1e-9,"Slow decay without passive regrowth");
             expected_decay+=decay;
         }

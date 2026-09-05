@@ -1,5 +1,6 @@
 # Folders
 build-debug/
+build-layout/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

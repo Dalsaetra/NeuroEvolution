@@ -400,7 +400,8 @@ void reproduction_and_capacity()
             auto expected_brain = inheritance.creatures[0].brain;
             if (choice >= 0.25) expected_brain.mutate(choice < 0.75
                 ? detail::slight_mutation(inheritance_config.mutation)
-                : detail::strong_mutation(inheritance_config.mutation), expected_rng);
+                : detail::strong_mutation(inheritance_config.mutation), expected_rng,
+                ecosystem_input_groups(inheritance_config.extended_senses));
             expected_brain.reset_state();
             inheritance.step({{}});
             const auto& child = by_id(inheritance, 2);

@@ -247,8 +247,25 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertFalse(metadata["calibrated_io"])
         self.assertEqual(len(metadata["input_labels"]), 87)
 
+    def test_nursery_decay_checkpoint_compatibility(self):
+        first = self.run_world("nursery_decay", "--habitat", "nursery-frontier", "--creatures", 1,
+                               "--steps", 1, "--nursery-food-decay", 0.007)
+        resumed = self.run_world("nursery_decay_resumed", "--resume", first / "checkpoint.eco", "--steps", 1)
+        metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["nursery"]["food_decay"], 0.007)
+        lines = (first / "checkpoint.eco").read_text().splitlines()
+        lines[0] = "NEUROEVO_ECOSYSTEM_14"
+        del lines[15]
+        historical = first / "v14.eco"
+        historical.write_text("\n".join(lines) + "\n")
+        old = self.run_world("nursery_no_decay", "--resume", historical, "--steps", 1)
+        metadata = json.loads((old / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["nursery"]["food_decay"], 0)
+
     @staticmethod
     def strip_dynamic_food(lines):
+        # v15 adds nursery decay after the v14 food config.
+        del lines[15]
         # v14 appends a shelter subtype flag to each resource and a config line.
         count = int(lines[26])
         for i in range(27, 27 + count):
@@ -280,7 +297,7 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_14")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_15")
         self.strip_dynamic_food(lines)
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
         del lines[8:14]

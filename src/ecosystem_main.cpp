@@ -82,6 +82,7 @@ int main(int argc, char** argv)
             {"--archive-min-feeding-bouts",&cfg.archive_min_feeding_bouts},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
+            {"--nursery-food-decay",&cfg.nursery_food_decay},
             {"--nursery-food-energy",&cfg.nursery_food_energy},
             {"--nursery-food-capacity",&cfg.nursery_food_capacity},
             {"--nursery-food-regrowth",&cfg.nursery_food_regrowth},

@@ -32,6 +32,19 @@ Zero probabilities disable the corresponding operators.
 - Position changes recalculate delays; other parameter edits preserve delays.
 - New edges and reciprocal motifs start at magnitude 0.15 at synaptic gain 32,
   scaled inversely with gain and capped at 6.
+- New sensory-source edges sample uniformly across available sensor categories,
+  then uniformly across available neurons in that category, then across legal
+  destinations. Each vision channel is one category spanning its five sectors;
+  hearing and contact each span four directions. Body cues such as `storm_cue`
+  are singleton categories. Extended depleted-food and shelter proximity each
+  form a five-sector category. Thus storm cue and all shelter-proximity sectors
+  combined have equal probability, conditional on choosing a sensory source
+  and both categories having a legal new edge. Fully connected neurons and
+  categories are excluded without biasing selection toward larger categories.
+  Hidden-source edges retain their existing sampling rules. This applies to
+  slight and strong ecosystem offspring and archive mutations, including future
+  mutations after resume. Existing edges, random initialization, neuron side
+  branches and the separate generic/NEAT workflows are unchanged.
 - New neurons retain the original edge. The new branch output is capped at that
   weak magnitude, while its input retains the inherited drive. New branch
   neurons start with zero background sensitivity.

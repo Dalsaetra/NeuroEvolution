@@ -208,11 +208,11 @@ void EcosystemWorld::update_establishment()
                 c.genome_id = selected.genome_id;
                 ++totals.immigrant_clones;
             } else if (c.origin == CreatureOrigin::ArchiveMutation) {
-                c.brain.mutate(detail::slight_mutation(config.mutation), immigration_rng);
+                c.brain.mutate(detail::slight_mutation(config.mutation), immigration_rng, ecosystem_input_groups(config.extended_senses));
                 ++totals.immigrant_mutations;
                 ++totals.immigrant_slight_mutations;
             } else {
-                c.brain.mutate(detail::strong_mutation(config.mutation), immigration_rng);
+                c.brain.mutate(detail::strong_mutation(config.mutation), immigration_rng, ecosystem_input_groups(config.extended_senses));
                 ++totals.immigrant_mutations;
                 ++totals.immigrant_strong_mutations;
             }

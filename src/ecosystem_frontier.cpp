@@ -1,4 +1,5 @@
 #include "neuroevo/ecosystem.hpp"
+#include "ecosystem_terrain.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -9,11 +10,11 @@ EcosystemConfig nursery_frontier_config()
     EcosystemConfig c;
     c.nursery_frontier = true;
     c.width = c.height = 80;
-    c.max_population = 128;
+    c.max_population = 100;
     c.shelters = 32;
-    c.nursery_food_energy = 40; c.nursery_food_capacity = 3; c.nursery_food_regrowth = 0.02;
-    c.nursery_food_patches = 10;
-    c.grazing_patches = 300; c.fruit_patches = 60; c.pods = 80;
+    c.nursery_food_energy = 40; c.nursery_food_capacity = 2; c.nursery_food_regrowth = 0.02;
+    c.nursery_food_patches = 16;
+    c.grazing_patches = 400; c.fruit_patches = 60; c.pods = 80;
     c.graze_energy = 20; c.poor_fruit_energy = 35; c.rich_fruit_energy = 60; c.pod_energy = 100;
     c.graze_capacity = 4; c.fruit_capacity = 12; c.pod_capacity = 12;
     c.interaction_degrees = 80;
@@ -46,9 +47,8 @@ void EcosystemWorld::generate_nursery_frontier()
             if (x>x0+1 && x+2<x1 && y>y0+1 && y+2<y1) spawning.push_back(cell);
         } else {
             terrain[cell]=map_rng.chance(0.18) ? Terrain::Rough : Terrain::Ground;
-            // Isolated rock pillars require navigation without partitioning the map.
+            // Leave the nursery approaches open; obstacles are added after shelters.
             const bool near = x+3>=x0 && x<=x1+3 && y+3>=y0 && y<=y1+3;
-            if (!near && x%7==2 && y%7==2) terrain[cell]=Terrain::Wall;
             if (!near && terrain[cell]!=Terrain::Wall) outside.push_back(cell);
         }
     }
@@ -73,6 +73,63 @@ void EcosystemWorld::generate_nursery_frontier()
         ++placed;
     }
     if (placed!=config.shelters) throw std::invalid_argument("Not enough frontier space for shelters");
+    // Sparse one-cell-wide polylines: 3-7 cells with at most one right-angle
+    // bend. Separate components cannot touch, even diagonally, so they cannot
+    // accumulate into blobs or closed caves. Shelters are eligible floor too.
+    Random wall_rng(config.seed ^ 0x77616c6c6c696e65ULL);
+    const std::size_t wall_budget=outside.size()/50;
+    std::size_t wall_count=0;
+    const auto outdoor_connected = [&]() {
+        std::vector<unsigned char> seen(terrain.size());
+        std::vector<std::size_t> queue;
+        std::size_t open=0;
+        for(std::size_t i=0;i<terrain.size();++i)
+            if(terrain[i]!=Terrain::Wall && !in_nursery(pos(i))) {
+                ++open;
+                if(queue.empty()){queue.push_back(i);seen[i]=1;}
+            }
+        for(std::size_t head=0;head<queue.size();++head) {
+            const auto i=queue[head];
+            for(const auto n:{i-1,i+1,i-config.width,i+config.width})
+                if(n<terrain.size() && !seen[n] && terrain[n]!=Terrain::Wall && !in_nursery(pos(n))) {
+                    seen[n]=1;queue.push_back(n);
+                }
+        }
+        return queue.size()==open;
+    };
+    for(std::size_t attempt=0;attempt<wall_budget*40 && wall_count+3<=wall_budget;++attempt) {
+        const auto anchor=outside[wall_rng.uniform_index(outside.size())];
+        int x=int(anchor%config.width),y=int(anchor/config.width);
+        const int count=3+int(wall_rng.uniform_index(std::min<std::size_t>(5,wall_budget-wall_count-2)));
+        const int bend=wall_rng.chance(.6)?1+int(wall_rng.uniform_index(count-2)):count;
+        int direction=int(wall_rng.uniform_index(4));
+        const int turn=wall_rng.chance(.5)?1:3;
+        constexpr int dx[]={1,0,-1,0},dy[]={0,1,0,-1};
+        std::vector<std::pair<std::size_t,Terrain>> previous;
+        bool clear=true;
+        for(int step=0;step<count;++step) {
+            const Vec2 p{double(x)+.5,double(y)+.5};
+            if(x<2 || y<2 || x+2>=int(config.width) || y+2>=int(config.height)
+                || (x+3>=int(x0) && x<=int(x1)+3 && y+3>=int(y0) && y<=int(y1)+3)) {clear=false;break;}
+            // Keep food centers and their immediate approaches free.
+            if(std::any_of(shelter_centers.begin(),shelter_centers.end(),[&](Vec2 c){return length(c-p)<1.5;})) {clear=false;break;}
+            for(int yy=y-1;yy<=y+1;++yy) for(int xx=x-1;xx<=x+1;++xx)
+                if(terrain[std::size_t(yy)*config.width+std::size_t(xx)]==Terrain::Wall) clear=false;
+            if(!clear)break;
+            const auto cell=std::size_t(y)*config.width+std::size_t(x);
+            previous.emplace_back(cell,terrain[cell]);
+            if(step==bend)direction=(direction+turn)%4;
+            x+=dx[direction];y+=dy[direction];
+        }
+        if(!clear)continue;
+        // Apply atomically, then reject any placement that disconnects outdoors.
+        for(const auto& cell:previous)terrain[cell.first]=Terrain::Wall;
+        if(!outdoor_connected()) {
+            for(const auto& cell:previous)terrain[cell.first]=cell.second;
+        } else wall_count+=previous.size();
+    }
+    cluster_rough_ground(*this,0.18);
+    Random nursery_age_rng(config.seed ^ 0x6e757273616765ULL);
     Random food_age_rng(config.seed ^ 0x666f6f64616765ULL);
     const auto food = [&](Vec2 p, FoodKind kind, double energy, double capacity, double regrowth) {
         EcoResource r;
@@ -80,6 +137,7 @@ void EcosystemWorld::generate_nursery_frontier()
         r.stock=r.capacity=capacity;
         if (config.outdoor_food_relocates && kind!=FoodKind::Pod && !in_nursery(p))
             r.stock *= food_age_rng.uniform(0.0,1.0);
+        if (in_nursery(p) && config.nursery_food_decay>0) r.stock *= nursery_age_rng.uniform(0.0,1.0);
         r.regrowth=regrowth; resources.push_back(r);
     };
     // Finite separated patches. One patch's steady supply is below basal cost
@@ -89,6 +147,7 @@ void EcosystemWorld::generate_nursery_frontier()
         for (std::size_t i=0;i<config.nursery_food_patches;++i) {
             EcoResource r;r.id=resources.size()+1;r.kind=FoodKind::Graze;r.position={-100,-100};
             r.stock=r.capacity=config.nursery_food_capacity;r.energy_per_unit=config.nursery_food_energy;r.regrowth=0;
+            if (config.nursery_food_decay>0) r.stock *= nursery_age_rng.uniform(0.0,1.0);
             if (!relocate_nursery_food(r,food_rng,false)) throw std::invalid_argument("Nursery food patches cannot fit with spacing; reduce patch count");
             resources.push_back(r);
         }
@@ -98,7 +157,7 @@ void EcosystemWorld::generate_nursery_frontier()
     fruit_a_rich=config.food_assignment<0 ? map_rng.chance(0.5) : config.food_assignment==0;
     std::size_t cursor=0;
     const auto next = [&]() {
-        while (cursor<outside.size() && terrain[outside[cursor]]==Terrain::Shelter) ++cursor;
+        while (cursor<outside.size() && (terrain[outside[cursor]]==Terrain::Shelter || terrain[outside[cursor]]==Terrain::Wall)) ++cursor;
         if (cursor==outside.size()) throw std::invalid_argument("Too many frontier resources");
         return pos(outside[cursor++]);
     };

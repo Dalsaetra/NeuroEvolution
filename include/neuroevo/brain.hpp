@@ -88,6 +88,7 @@ struct BrainStats {
 
 class Brain {
 public:
+    using InputGroups = std::vector<std::vector<std::size_t>>;
     struct Neuron {
         Vec2 position;
         double potential = 0.0;
@@ -116,7 +117,8 @@ public:
 
     void reset_state();
     BrainStepResult step(const std::vector<double>& inputs, Random* rng = nullptr);
-    void mutate(const MutationConfig& config, Random& rng);
+    // Optional partition of all inputs for category-balanced connection growth.
+    void mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups = {});
 
     const BrainConfig& config() const noexcept { return config_; }
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
@@ -145,8 +147,8 @@ private:
     bool synapse_exists(std::size_t pre, std::size_t post) const noexcept;
     std::size_t compute_delay_steps(Vec2 pre, Vec2 post) const noexcept;
     void rebuild_runtime_state();
-    void mutate_stable(const MutationConfig& config, Random& rng);
-    void add_random_synapse(Random& rng, bool weak = false);
+    void mutate_stable(const MutationConfig& config, Random& rng, const InputGroups& input_groups);
+    void add_random_synapse(Random& rng, bool weak = false, const InputGroups& input_groups = {});
     void add_random_neuron(Random& rng, bool weak = false);
     void remove_random_neuron(Random& rng);
     void add_reciprocal_motif(Random& rng, bool weak = false);

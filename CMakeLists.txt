@@ -47,6 +47,10 @@ target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
 
+add_executable(neuroevo_sensory_mutation_tests tests/sensory_mutation.cpp)
+target_link_libraries(neuroevo_sensory_mutation_tests PRIVATE neuroevo_core)
+add_test(NAME neuroevo_sensory_mutation_tests COMMAND neuroevo_sensory_mutation_tests)
+
 add_executable(neuroevo_pruning_tests tests/pruning.cpp)
 target_link_libraries(neuroevo_pruning_tests PRIVATE neuroevo_core)
 add_test(NAME neuroevo_pruning_tests COMMAND neuroevo_pruning_tests)

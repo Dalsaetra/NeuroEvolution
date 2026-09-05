@@ -19,6 +19,7 @@ param(
     [ValidateRange(1, 100000)][int]$ShelterSize = 3,
     [ValidateRange(1, 100000)][int]$NurseryFoodPatches = 18,
     [ValidateRange(0.000001, 1000000)][double]$NurseryFoodEnergy = 50,
+    [ValidateRange(0, 1000000)][double]$NurseryFoodDecay = 0.005,
     [ValidateRange(0, 1000000)][double]$GrazeDecay = 0.005,
     [ValidateRange(0, 1000000)][double]$FruitDecay = 0.005,
     [ValidateRange(0.000001, 1000000)][double]$ShelterFoodEnergy = 1,
@@ -59,7 +60,7 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
         "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
         "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
         "RichFruitEnergy", "PodEnergy", "KeepImmigration",
-        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize", "NurseryFoodPatches", "NurseryFoodEnergy", "GrazeDecay", "FruitDecay", "ShelterFoodEnergy", "ShelterFoodCapacity", "ShelterFoodRegrowth")) {
+        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau", "Habitat", "NurseryExitWidth", "ShelterSize", "NurseryFoodPatches", "NurseryFoodEnergy", "NurseryFoodDecay", "GrazeDecay", "FruitDecay", "ShelterFoodEnergy", "ShelterFoodCapacity", "ShelterFoodRegrowth")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) {
             throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration."
         }
@@ -171,7 +172,8 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
             $SimulationArguments += @($FoodSetting[1], $FoodSetting[2].ToString([System.Globalization.CultureInfo]::InvariantCulture))
         }
     }
-    foreach ($FoodSetting in @(@("GrazeDecay", "--graze-decay", $GrazeDecay),
+    foreach ($FoodSetting in @(@("NurseryFoodDecay", "--nursery-food-decay", $NurseryFoodDecay),
+        @("GrazeDecay", "--graze-decay", $GrazeDecay),
         @("FruitDecay", "--fruit-decay", $FruitDecay), @("ShelterFoodEnergy", "--shelter-food-energy", $ShelterFoodEnergy),
         @("ShelterFoodCapacity", "--shelter-food-capacity", $ShelterFoodCapacity),
         @("ShelterFoodRegrowth", "--shelter-food-regrowth", $ShelterFoodRegrowth))) {

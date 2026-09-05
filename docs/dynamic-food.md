@@ -8,8 +8,13 @@ At world creation, each outdoor grazing/fruit patch starts with an independently
 uniform random fraction of its capacity (0–100%), staggering its first depletion.
 This uses a separate seeded RNG so geography is unchanged and runs remain
 reproducible. Initial available biomass averages half the full-map capacity;
-patch counts and subsequent full replacements are unchanged. Nursery food,
-shelter forage and pods still start full; checkpoint loading preserves saved stock.
+patch counts and subsequent full replacements are unchanged. Shelter forage and pods still start full; checkpoint loading preserves saved stock.
+Nursery food also starts randomly decayed and loses 0.005 biomass per second,
+including during storms. With the default moving-patch policy, depletion replaces
+it full at another spot inside the nursery. Configure this separately with
+`--nursery-food-decay` or the runner’s `-NurseryFoodDecay`; zero disables nursery
+decay and starts nursery patches full. Historical static nursery patches retain
+their passive regrowth in addition to any explicitly configured decay.
 
 When eaten or decayed to empty, a patch reappears full at a random traversable
 cell outside the nursery and shelters. Its ID, kind, nutrition and capacity stay
@@ -41,6 +46,7 @@ static outdoor regrowth. The PowerShell runner exposes the five numeric settings
 as `-GrazeDecay`, `-FruitDecay`, `-ShelterFoodEnergy`, `-ShelterFoodCapacity`, and
 `-ShelterFoodRegrowth`, and forwards them only when explicitly supplied.
 
-Version 14 checkpoints preserve the policy, settings, shelter-food flags,
+Version 15 adds the nursery decay rate; earlier saves load with nursery decay
+disabled to preserve continuation. Version 14 checkpoints preserve the policy, settings, shelter-food flags,
 positions and RNG state. Older checkpoints continue with their original outdoor
 regrowth and do not gain shelter patches. Start a new world for these changes.

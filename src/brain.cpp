@@ -298,10 +298,23 @@ BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
     return result;
 }
 
-void Brain::mutate(const MutationConfig& config, Random& rng)
+void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups)
 {
+    if (!input_groups.empty()) {
+        std::vector<bool> seen(config_.input_count, false);
+        for (const auto& group : input_groups) {
+            if (group.empty()) throw std::invalid_argument("Input groups must not be empty");
+            for (const auto input : group) {
+                if (input >= seen.size() || seen[input])
+                    throw std::invalid_argument("Input groups must partition the brain inputs");
+                seen[input] = true;
+            }
+        }
+        if (std::find(seen.begin(), seen.end(), false) != seen.end())
+            throw std::invalid_argument("Input groups must cover every brain input");
+    }
     if (config.stable) {
-        mutate_stable(config, rng);
+        mutate_stable(config, rng, input_groups);
         return;
     }
     for (auto& synapse : synapses_) {
@@ -362,7 +375,7 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
         add_random_neuron(rng);
     }
     if (rng.chance(config.add_synapse_probability)) {
-        add_random_synapse(rng);
+        add_random_synapse(rng, false, input_groups);
     }
     if (rng.chance(config.add_reciprocal_motif_probability)) {
         add_reciprocal_motif(rng);
@@ -389,7 +402,7 @@ void Brain::mutate(const MutationConfig& config, Random& rng)
     rebuild_runtime_state();
 }
 
-void Brain::mutate_stable(const MutationConfig& config, Random& rng)
+void Brain::mutate_stable(const MutationConfig& config, Random& rng, const InputGroups& input_groups)
 {
     // One structural operation OR at most two local parameter edits. Probabilities
     // select operators, rather than multiplying the edit count by genome size.
@@ -402,7 +415,7 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng)
     bool moved = false;
     if (structural > 0 && rng.chance(std::min(1.0, structural))) {
         const double choice = rng.uniform(0.0, structural);
-        if (choice < add) add_random_synapse(rng, true);
+        if (choice < add) add_random_synapse(rng, true, input_groups);
         else if (choice < add + grow) add_random_neuron(rng, true);
         else if (choice < add + grow + motif) add_reciprocal_motif(rng, true);
         else if (choice < add + grow + motif + remove)
@@ -509,12 +522,35 @@ void Brain::rebuild_runtime_state()
     buffer_cursor_ = 0;
 }
 
-void Brain::add_random_synapse(Random& rng, bool weak)
+void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_groups)
 {
+    if (config_.hidden_count + config_.output_count == 0) return;
+    // Precompute legal sensory targets so rejection does not overweight groups
+    // with more sector/direction variants or more unoccupied edges.
+    InputGroups targets(config_.input_count), available_groups;
+    if (!input_groups.empty()) {
+        std::vector<std::vector<bool>> connected(config_.input_count, std::vector<bool>(total_neurons(), false));
+        for (const auto& edge : synapses_) if (is_input(edge.pre)) connected[edge.pre][edge.post] = true;
+        for (std::size_t pre = 0; pre < config_.input_count; ++pre)
+            for (std::size_t post = config_.input_count; post < total_neurons(); ++post)
+                if (!(is_auxiliary_input(config_, pre) && is_output(post)) && !connected[pre][post])
+                    targets[pre].push_back(post);
+        for (const auto& group : input_groups) {
+            std::vector<std::size_t> available;
+            for (const auto pre : group) if (!targets[pre].empty()) available.push_back(pre);
+            if (!available.empty()) available_groups.push_back(std::move(available));
+        }
+    }
     constexpr std::size_t max_attempts = 64;
     for (std::size_t attempt = 0; attempt < max_attempts; ++attempt) {
-        const std::size_t pre = rng.uniform_index(total_neurons());
-        const std::size_t post = config_.input_count + rng.uniform_index(total_neurons() - config_.input_count);
+        std::size_t pre = rng.uniform_index(total_neurons());
+        std::size_t post;
+        if (is_input(pre) && !input_groups.empty()) {
+            if (available_groups.empty()) continue;
+            const auto& group = available_groups[rng.uniform_index(available_groups.size())];
+            pre = group[rng.uniform_index(group.size())];
+            post = targets[pre][rng.uniform_index(targets[pre].size())];
+        } else post = config_.input_count + rng.uniform_index(total_neurons() - config_.input_count);
         if (pre == post
             || is_output(pre)
             || (is_auxiliary_input(config_, pre) && is_output(post))

@@ -1,4 +1,5 @@
 #include "neuroevo/ecosystem.hpp"
+#include "ecosystem_terrain.hpp"
 #include "ecosystem_mutation.hpp"
 
 #include <algorithm>
@@ -254,6 +255,9 @@ void EcosystemConfig::validate() const
     positive(ingestion_rate, "Ingestion rate");
     positive(graze_capacity, "Grazing capacity");
     positive(fruit_capacity, "Fruit capacity");
+    positive(nursery_food_decay, "Nursery food decay", true);
+    if (nursery_frontier && nursery_food_decay >= ingestion_rate)
+        throw std::invalid_argument("Nursery food decay must be slower than ingestion");
     positive(graze_decay, "Graze decay", true);
     positive(fruit_decay, "Fruit decay", true);
     positive(shelter_food_energy, "Shelter food energy");
@@ -477,6 +481,7 @@ void EcosystemWorld::generate_world()
     }
     if (shelter_centers.size() != config.shelters) throw std::invalid_argument("Not enough separate open areas for the requested shelters; enlarge the map or reduce shelters");
 
+    cluster_rough_ground(*this,0.12);
     for (const auto center : shelter_centers) add_shelter_food(center);
 
     fruit_a_rich = config.food_assignment < 0 ? map_rng.chance(0.5) : config.food_assignment == 0;
@@ -749,8 +754,12 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 
     // Relocate only after all feeding allocations: newly placed food cannot be
     // eaten through another creature's stale target in this step.
-    if (config.nursery_food_relocates) for (auto& resource : resources) {
-        if (in_nursery(resource.position) && resource.stock<=epsilon
+    for (auto& resource : resources) {
+        if (!in_nursery(resource.position)) continue;
+        const double spoiled=std::min(resource.stock,config.nursery_food_decay*config.dt);
+        resource.stock-=spoiled;
+        totals.spoiled_biomass+=spoiled;
+        if (config.nursery_food_relocates && resource.stock<=epsilon
             && relocate_nursery_food(resource,map_rng,true)) {
             totals.regrown_biomass += resource.capacity-resource.stock;
             resource.stock=resource.capacity;
@@ -874,7 +883,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.brain = parent.brain;
             if (!exact_inheritance) child.brain.mutate(inheritance < 0.75
                 ? detail::slight_mutation(config.mutation)
-                : detail::strong_mutation(config.mutation), mutation_rng);
+                : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses));
             child.brain.reset_state();
             child.neural_rng = Random(mix(config.seed ^ mix(child.id) ^ 0x6e657572616cULL));
             parent.energy -= config.reproduction_cost;

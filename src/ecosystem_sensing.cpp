@@ -332,6 +332,32 @@ EcoAction EcosystemWorld::control(std::size_t creature_index)
     return action;
 }
 
+const Brain::InputGroups& ecosystem_input_groups(bool extended)
+{
+    const auto build = [](bool include_extended) {
+        Brain::InputGroups groups;
+        for (std::size_t channel = 0; channel < eco_sector_channels; ++channel) {
+            std::vector<std::size_t> group;
+            for (std::size_t sector = 0; sector < eco_sectors; ++sector)
+                group.push_back(sector * eco_sector_channels + channel);
+            groups.push_back(std::move(group));
+        }
+        const auto hearing = eco_sectors * eco_sector_channels;
+        groups.push_back({hearing, hearing + 1, hearing + 2, hearing + 3});
+        groups.push_back({hearing + 4, hearing + 5, hearing + 6, hearing + 7});
+        for (std::size_t input = hearing + 8; input < eco_legacy_input_count; ++input)
+            groups.push_back({input});
+        if (include_extended) for (const auto offset : {eco_depleted_offset, eco_shelter_offset}) {
+            std::vector<std::size_t> group;
+            for (std::size_t sector = 0; sector < eco_sectors; ++sector) group.push_back(offset + sector);
+            groups.push_back(std::move(group));
+        }
+        return groups;
+    };
+    static const auto legacy = build(false), current = build(true);
+    return extended ? current : legacy;
+}
+
 std::vector<std::string> ecosystem_input_labels(bool extended)
 {
     constexpr const char* channels[] = {"obstacle_proximity", "food_present", "food_proximity",

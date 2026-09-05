@@ -33,6 +33,7 @@ struct EcosystemConfig {
     std::size_t shelter_size = 6;
     std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
+    double nursery_food_decay = 0.005; // Biomass per second, including during storms.
     double nursery_food_energy = 30.0, nursery_food_capacity = 16, nursery_food_regrowth = 0.02;
     std::size_t width = 48, height = 48, initial_creatures = 24, max_population = 128;
     std::size_t shelters = 12, grazing_patches = 80, fruit_patches = 32, pods = 8;
@@ -206,6 +207,7 @@ public:
 };
 
 std::vector<std::string> ecosystem_input_labels(bool extended = true);
+const Brain::InputGroups& ecosystem_input_groups(bool extended = true);
 // A deliberately small, deterministic founder genome. It uses seven hidden
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary
 // spiking Brain and offspring can mutate it through the normal birth path.

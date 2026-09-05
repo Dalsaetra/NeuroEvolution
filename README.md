@@ -277,3 +277,5 @@ To open the detailed tail replay automatically after a successful simulation and
 The tail defaults to the final 300 simulated seconds; use `-DetailedTailSeconds 60` for a shorter tail. `-OpenTail` also enables the default tail with `-Recording detailed` and requires a positive tail duration. `-Open` opens the main replay; passing both switches opens both.
 
 Outdoor food now decays and relocates on depletion; shelters have static, low-quality forage. See [dynamic food settings](docs/dynamic-food.md) for rates and checkpoint compatibility.
+
+New nursery-frontier maps use sparse wall lines and bends, including across shelters. See [frontier layout](docs/frontier-layout.md).
