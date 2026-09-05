@@ -1,4 +1,5 @@
 #include "neuroevo/ecosystem.hpp"
+#include "ecosystem_mutation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -168,13 +169,47 @@ EcosystemConfig::EcosystemConfig()
     brain.hidden_count = 16;
     brain.seed_input_output_synapses = false;
     brain.initial_connection_probability = 0.08;
+    brain.calibrated_io = true;
+    brain.conduction_speed = 6.0;
+    brain.max_delay_steps = 8;
     // Sparse local sensory activity needs stronger delivered currents than the
     // earlier dense target-vector scaffold to initiate varied motor activity.
     brain.synaptic_gain = 32.0;
+    // Ecosystem reproduction needs enough variation to explore new behavior
+    // while retaining the sparse ancestor's useful feeding circuit.
+    mutation.weight_sigma = 0.30;
+    mutation.stable = true;
+    mutation.bias_sigma = 0.50;
+    mutation.threshold_sigma = 0.06;
+    mutation.position_sigma = 0.05;
+    mutation.background_sensitivity_sigma = 0.12;
+    mutation.mutate_weight_probability = 0.22;
+    mutation.mutate_neuron_probability = 0.16;
+    mutation.add_synapse_probability = 0.40;
+    mutation.add_neuron_probability = 0.12;
+    mutation.add_reciprocal_motif_probability = 0.12;
 }
 
 void EcosystemConfig::validate() const
 {
+    if (archive_capacity < 4 || archive_capacity > 256 || immigration_batch == 0 || immigration_batch > 256)
+        throw std::invalid_argument("Archive capacity must be 4..256; immigration batch must be 1..256");
+    if (archive_tournament_size == 0 || archive_tournament_size > archive_capacity)
+        throw std::invalid_argument("Archive tournament size must be 1..archive capacity");
+    positive(immigration_interval, "Immigration interval");
+    positive(archive_min_energy, "Archive minimum food energy");
+    positive(archive_min_age, "Archive minimum age", true);
+    positive(archive_min_efficiency, "Archive minimum food-to-cost ratio", true);
+    if (archive_eval_trials > 32) throw std::invalid_argument("Archive evaluation trials must be 0..32");
+    positive(archive_eval_seconds, "Archive evaluation duration");
+    if (archive_eval_seconds > 100000 || archive_eval_seconds / dt > 1000000)
+        throw std::invalid_argument("Archive evaluation exceeds one million steps or 100000 seconds");
+    if (archive_min_feeding_bouts == 0 || archive_min_feeding_bouts > 1000000)
+        throw std::invalid_argument("Archive minimum feeding bouts must be 1..1000000");
+    if (withdrawal_cycles == 0 || withdrawal_cycles > 10000)
+        throw std::invalid_argument("Withdrawal cycles must be 1..10000");
+    if (establishment && (max_population < 2 || immigration_floor >= max_population))
+        throw std::invalid_argument("Immigration floor must be below a population cap of at least two");
     if (width < 5 || height < 5 || width > 256 || height > 256) throw std::invalid_argument("World dimensions must each be between 5 and 256 (v1 connectivity and collision limits)");
     if (max_population == 0 || initial_creatures > max_population) throw std::invalid_argument("Initial population must not exceed a positive population cap");
     if (grazing_patches > width * height || fruit_patches > width * height || pods > width * height || shelters > width * height) throw std::invalid_argument("Too many resources or shelters for this map");
@@ -194,6 +229,10 @@ void EcosystemConfig::validate() const
     if (founder_energy > energy_capacity) throw std::invalid_argument("Founder energy exceeds capacity");
     for (const auto value : {basal_cost, movement_cost, turn_cost, forage_cost, call_cost, neuron_cost, synapse_cost, spike_cost,
              graze_regrowth, fruit_regrowth, pod_regrowth, pod_decay, storm_cost, maturity_age, reproduction_cooldown, digestion_delay}) positive(value, "An energy cost, duration or regrowth rate", true);
+    for (const auto value : {graze_energy, poor_fruit_energy, rich_fruit_energy, pod_energy})
+        positive(value, "Food energy density");
+    if (rich_fruit_energy <= poor_fruit_energy)
+        throw std::invalid_argument("Rich fruit energy must exceed poor fruit energy");
     positive(rough_multiplier, "Rough ground multiplier");
     if (rough_multiplier < 1) throw std::invalid_argument("Rough ground must not reduce movement cost");
     positive(ingestion_rate, "Ingestion rate");
@@ -212,8 +251,15 @@ void EcosystemConfig::validate() const
     positive(offspring_energy, "Offspring energy");
     if (reproduction_threshold > energy_capacity || reproduction_cost > reproduction_threshold || offspring_energy > reproduction_cost) throw std::invalid_argument("Reproduction requires offspring energy <= birth cost <= threshold <= capacity");
     positive(motor_gain, "Motor gain");
+    positive(actuator_tau, "Actuator time constant", true);
     if (food_assignment < -1 || food_assignment > 1) throw std::invalid_argument("Food assignment must be -1 (seeded), 0 (A rich), or 1 (B rich)");
-    if (brain.input_count != eco_input_count || brain.output_count != eco_output_count || brain.sensory_input_count != eco_input_count || brain.has_clock_input || brain.has_episode_start_input) throw std::invalid_argument("Ecological brains require the fixed local sensor and motor layout without clock inputs");
+    const auto inputs = extended_senses ? eco_input_count : eco_legacy_input_count;
+    if (brain.input_count != inputs || brain.output_count != eco_output_count || brain.sensory_input_count != inputs || brain.has_clock_input || brain.has_episode_start_input) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout without clock inputs");
+    positive(brain.sensory_rate_hz, "Sensory spike rate");
+    positive(brain.motor_rate_tau, "Motor rate time constant");
+    positive(brain.motor_reference_hz, "Motor reference spike rate");
+    if (brain.calibrated_io && brain.sensory_rate_hz * brain.dt > 1)
+        throw std::invalid_argument("Sensory spike rate exceeds brain sampling rate");
     positive(brain.dt, "Brain timestep");
     const double neural_steps = dt / brain.dt;
     if (neural_steps < 1 - epsilon || neural_steps > 10000 || std::abs(neural_steps - std::round(neural_steps)) > 1e-8) throw std::invalid_argument("World timestep must be an integer multiple of brain timestep (at most 10000 neural updates)");
@@ -232,9 +278,12 @@ void EcosystemConfig::validate() const
     if (brain.max_bias_fraction_of_threshold >= 1 || brain.motor_trace_decay >= 1 || brain.initial_background_sensitivity > 2) throw std::invalid_argument("Bias fraction and trace decay must be below 1; background sensitivity cannot exceed 2");
     for (const auto value : {mutation.weight_sigma, mutation.bias_sigma, mutation.threshold_sigma, mutation.position_sigma,
              mutation.background_sensitivity_sigma, mutation.clock_threshold_sigma, mutation.hidden_bias_jump_min_magnitude}) positive(value, "A mutation standard deviation or jump magnitude", true);
-    for (const auto value : {mutation.hidden_bias_jump_probability, mutation.add_synapse_probability, mutation.add_reciprocal_motif_probability,
+    for (const auto value : {mutation.hidden_bias_jump_probability, mutation.add_synapse_probability, mutation.add_neuron_probability,
+             mutation.add_reciprocal_motif_probability,
              mutation.remove_synapse_probability, mutation.mutate_weight_probability, mutation.mutate_neuron_probability,
              mutation.mutate_clock_threshold_probability}) probability(value, "Mutation probability");
+    if (mutation.max_hidden_neurons < brain.hidden_count || mutation.max_hidden_neurons > 10000)
+        throw std::invalid_argument("Mutation hidden-neuron limit must include the initial brain and be at most 10000");
     if (!std::isfinite(mutation.hidden_bias_min) || !std::isfinite(mutation.hidden_bias_max)
         || mutation.hidden_bias_min > 0 || mutation.hidden_bias_max < 0) throw std::invalid_argument("Hidden bias bounds must be finite and contain zero");
     positive(mutation.background_sensitivity_min, "Minimum background sensitivity", true);
@@ -252,6 +301,8 @@ EcosystemWorld::EcosystemWorld(EcosystemConfig settings, bool generate)
 {
     config.validate();
     terrain.assign(config.width * config.height, Terrain::Ground);
+    immigration_rng = Random(mix(config.seed ^ 0x696d6d696772ULL));
+    next_immigration_check = config.immigration_interval;
     if (generate) generate_world();
 }
 
@@ -259,6 +310,7 @@ double EcosystemWorld::time() const { return static_cast<double>(step_index) * c
 
 WeatherPhase EcosystemWorld::weather() const
 {
+    if (!config.storms_enabled) return WeatherPhase::Calm;
     const double phase = phase_time(*this);
     if (phase < config.calm_duration - epsilon) return WeatherPhase::Calm;
     if (phase < config.calm_duration + config.warning_duration - epsilon) return WeatherPhase::Warning;
@@ -267,6 +319,7 @@ WeatherPhase EcosystemWorld::weather() const
 
 double EcosystemWorld::storm_cue() const
 {
+    if (!config.storms_enabled) return 0;
     const auto phase = weather();
     if (phase == WeatherPhase::Calm) return 0;
     if (phase == WeatherPhase::Storm) return 1;
@@ -329,6 +382,14 @@ void EcosystemWorld::generate_world()
     capacity_limited = false;
     totals = {};
     events.clear();
+    archive.clear();
+    immigration_rng = Random(mix(config.seed ^ 0x696d6d696772ULL));
+    immigration_deck = {};
+    immigration_deck_cursor = 5;
+    next_immigration_check = config.immigration_interval;
+    last_immigration_time = 0;
+    support_stable_since = -1;
+    immigration_withdrawn = false;
     creatures.clear();
     resources.clear();
     terrain.assign(config.width * config.height, Terrain::Ground);
@@ -394,7 +455,9 @@ void EcosystemWorld::generate_world()
         resource.capacity = kind == FoodKind::Graze ? config.graze_capacity : kind == FoodKind::Pod ? config.pod_capacity : config.fruit_capacity;
         resource.stock = resource.capacity;
         resource.regrowth = kind == FoodKind::Graze ? config.graze_regrowth : kind == FoodKind::Pod ? config.pod_regrowth : config.fruit_regrowth;
-        resource.energy_per_unit = kind == FoodKind::Graze ? 2 : kind == FoodKind::Pod ? 12 : ((kind == FoodKind::FruitA) == fruit_a_rich ? 10 : 4);
+        resource.energy_per_unit = kind == FoodKind::Graze ? config.graze_energy
+            : kind == FoodKind::Pod ? config.pod_energy
+            : ((kind == FoodKind::FruitA) == fruit_a_rich ? config.rich_fruit_energy : config.poor_fruit_energy);
         resources.push_back(resource);
         occupied[cell] = 1;
     };
@@ -450,6 +513,7 @@ void EcosystemWorld::generate_world()
     for (std::size_t i = 0; i < config.initial_creatures; ++i) {
         EcoCreature creature;
         creature.id = next_creature_id++;
+        creature.genome_id = creature.id;
         creature.position = position_of(spawning[i]);
         creature.heading = spawn_rng.uniform(-pi, pi);
         creature.energy = config.founder_energy;
@@ -562,6 +626,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         double nearest = config.interaction_range + epsilon;
         std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
         for (std::size_t r = 0; r < resources.size(); ++r) {
+            if (config.extended_senses && (resources[r].stock <= epsilon
+                || (resources[r].kind == FoodKind::Pod && resources[r].pod_state == PodState::Refilling))) continue;
             const Vec2 difference = resources[r].position - creature.position;
             const double distance = length(difference);
             if (distance > config.interaction_range + epsilon || distance > nearest + epsilon) continue;
@@ -617,6 +683,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             auto& creature = creatures[i];
             const double amount = creature.action.forage * config.ingestion_rate * config.dt * share;
             creature.ingestion_pulse += amount;
+            if (end - creature.last_fed_time > 5.0) ++creature.feeding_bouts;
+            creature.last_fed_time = end;
             creature.eaten[static_cast<std::size_t>(resource.kind)] += amount;
             creature.digestion.push_back({end + config.digestion_delay, amount * resource.energy_per_unit, resource.kind});
             events.push_back({end, "ingestion", creature.id, 0, resource.id, amount});
@@ -675,9 +743,11 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         if (creature.energy > 0 && !creature.matured && creature.age + epsilon >= config.maturity_age) {
             creature.matured = true;
             ++totals.maturations;
+            if (creature.parent_id != 0) ++totals.mature_offspring;
             events.push_back({end, "maturation", creature.id, creature.parent_id, 0, creature.age});
         }
         if (creature.energy <= 0) {
+            consider_archive(creature, true, end);
             double discarded = 0;
             for (const auto& packet : creature.digestion) discarded += packet.energy;
             totals.discarded_energy += discarded;
@@ -718,6 +788,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (!found) continue;
             EcoCreature child;
             child.id = next_creature_id++;
+            const bool exact_inheritance = mutation_rng.chance(0.5);
+            child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
+            child.origin = CreatureOrigin::Birth;
             child.parent_id = parent.id;
             child.generation = parent.generation + 1;
             child.position = spawn;
@@ -725,14 +798,20 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.energy = config.offspring_energy;
             child.controller = parent.controller;
             child.brain = parent.brain;
-            child.brain.mutate(config.mutation, mutation_rng);
+            if (!exact_inheritance) child.brain.mutate(detail::slight_mutation(config.mutation), mutation_rng);
             child.brain.reset_state();
             child.neural_rng = Random(mix(config.seed ^ mix(child.id) ^ 0x6e657572616cULL));
             parent.energy -= config.reproduction_cost;
             parent.energy_spent += config.reproduction_cost;
             parent.last_birth = end;
+            if (parent.parent_id != 0 && parent.offspring == 0 && parent.controller == ControllerKind::Spiking)
+                ++totals.natural_spiking_breeders;
             ++parent.offspring;
             ++totals.births;
+            if (parent.parent_id != 0) ++totals.descendant_births;
+            else if (parent.origin == CreatureOrigin::Founder) ++totals.founder_births;
+            else ++totals.immigrant_births;
+            if (end <= 100.0 + epsilon) ++totals.births_first_100s;
             totals.reproduction_overhead += config.reproduction_cost - config.offspring_energy;
             events.push_back({end, "birth", child.id, parent.id, 0, config.offspring_energy});
             creatures.push_back(std::move(child));
@@ -741,6 +820,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         // exhaust a parent completely. Its offspring survives, but the parent
         // must be removed at this same boundary and loses its pending digestion.
         for (const auto& creature : creatures) if (creature.energy <= 0) {
+            consider_archive(creature, true, end);
             double discarded = 0;
             for (const auto& packet : creature.digestion) discarded += packet.energy;
             totals.discarded_energy += discarded;
@@ -767,7 +847,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         }
     }
     ++step_index;
-    if (population > 0 && creatures.empty()) events.push_back({end, "extinction", 0, 0, 0, 0});
+    if (population > 0 && creatures.empty())
+        events.push_back({end, immigration_enabled() ? "population_empty" : "extinction", 0, 0, 0, 0});
+    update_establishment();
     if (weather() != initial_weather) events.push_back({end, std::string("weather_") + to_string(weather()), 0, 0, 0, storm_cue()});
 }
 

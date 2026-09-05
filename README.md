@@ -29,15 +29,48 @@ Or:
 
 ## Shared Ecosystem
 
+New runs use calibrated sensory spike rates, smoothed motor output, 97 local inputs including depleted-food and shelter cues, and repeated newborn trials for archive selection. See [interface calibration and newborn evaluation](docs/sensorimotor-calibration.md) for controls, scoring, and checkpoint compatibility.
+
 Run the first ecosystem with independent spiking brains:
 
 ```powershell
 .\scripts\ecosystem.ps1 -Build -Creatures 24 -Steps 4800 -Open
 ```
 
-This runs 480 simulated seconds at the default timestep and saves a fresh timestamped directory under `runs/`. Change `-Creatures` for solitary or group experiments; use `-NoReproduction` to keep births disabled, or `-Controller reactive` for a scripted comparison. The replay includes terrain, depleted food, cooperative pod opening, weather, individual diets, sensory inputs, neural activity, and population histories.
+Validate the sparse ancestral spiking brain with one founder and exact inheritance:
+
+```powershell
+.\scripts\ecosystem.ps1 -Build -SoloAncestorTrial -Steps 4800 -Recording detailed -Open
+```
+
+This controlled nursery uses the normal energy and reproduction rules. It removes storms and supplies dense rich fruit so the test isolates neural feeding and lineage continuity. The founder has 7 hidden neurons, 41 synapses, and connections from 25 of the 97 inputs. The automated test verifies that a child matures and produces a grandchild.
+
+New ecosystems use [stable mutations](docs/stable-mutations.md): each ordinary mutation makes one structural change or up to two local parameter edits, with weak new pathways. Use `-MutationMode stable` to explicitly switch a resumed run; otherwise checkpoints retain their saved mutation policy.
+
+Add `-NoStorms` to any PowerShell ecosystem run to hold the weather in calm conditions. The selected sensory interface is unchanged and the storm-cue sensor remains present at zero.
+
+To establish a population with archive-based immigration (40% archive clones, 40% slight archive mutations, 20% strong archive mutations):
+
+```powershell
+.\scripts\ecosystem.ps1 -Build -Establishment -FounderBrain sparse-ancestor -Creatures 24 -Steps 12000 -Open
+```
+
+Repeated, efficient feeding or reproduction seeds the archive. Limited immigration keeps exploration running through population crashes, with separate birth/immigration accounting and automatic withdrawal after sustained descendant breeding. Every immigrant now descends from archived evidence; support waits when the archive is empty. Archive parents are chosen by a three-entry tournament within a uniformly selected food niche. Natural births are split evenly between exact inheritance and slight mutation. Baseline children start with 50 energy; the breeding preset gives them 60. Checkpoints preserve both the world and archive.
+
+For longer evolution runs, the runner now defaults to a compact history and saves full neural/sensory detail only for a bounded final window. A multi-seed sweep and a less brittle experimental reproduction preset are available:
+
+```powershell
+python tools/sweep_ecosystem.py --steps 20000 --seeds 7,11,19
+.\scripts\ecosystem.ps1 -Establishment -FounderBrain sparse-ancestor -EvolutionPreset breeding -Steps 120000 -Recording compact
+```
+
+See [evolution tuning and recording](docs/evolution-tuning.md) for the measured bottleneck in the 50,000-second run, parameter rationale, success criteria, recording profiles, and an existing-replay compactor.
+
+The first command runs 480 simulated seconds; the establishment example runs 1,200 seconds. Both save a fresh timestamped directory under `runs/`. Change `-Creatures` for solitary or group experiments; use `-NoReproduction` to keep births disabled, or `-Controller reactive` for a scripted comparison. The replay includes terrain, depleted food, cooperative pod opening, weather, individual diets, sensory inputs, neural activity, and population histories.
 
 The ecosystem has its own `neuroevo_ecosystem` executable and offline replay. It runs independently of the existing generation-based experiment dashboard. See [the environment guide](docs/environment-v1.md) for mixed populations, food-learning comparisons, continuation from checkpoints, parameters, and current limitations.
+
+Default food energy densities are 2.5 for grazing, 5 for poor fruit, 12.5 for rich fruit, and 15 for cooperative pods. The PowerShell runner exposes these as `-GrazeEnergy`, `-PoorFruitEnergy`, `-RichFruitEnergy`, and `-PodEnergy` for controlled nutrition sweeps.
 
 ## Local Dashboard
 
@@ -136,7 +169,7 @@ Motor/output neurons have no bias, and motor commands are decoded from output sp
 
 The default autonomous-activity mechanisms are an episode-start pulse (`--episode-start-input`, `--episode-start-pulse-steps`) and low-rate Poisson background-current events (`--background-activity`, `--background-rate`, `--background-current`). Every neuron has its own inherited and mutable non-negative background sensitivity. The tonic clock remains available as a legacy experimental control through `--clock-input 1`, but is disabled by default.
 
-Scalar and NEAT evolution can add a two-hidden-neuron reciprocal connection motif in one mutation. Control its probability with `--mutate-reciprocal-motif-prob`. Delivered synaptic spike current is scaled by `--synaptic-gain`. Initial genomes retain their evolvable direct sensory-to-motor scaffold; auxiliary start/clock inputs are excluded from forced I/O repair and direct motor seeding.
+Scalar and NEAT evolution can add a two-hidden-neuron reciprocal connection motif in one mutation. Scalar ecosystem brains can also grow one hidden neuron as a side branch of an inherited connection. Control these with `--mutate-reciprocal-motif-prob` and `--mutate-add-neuron-prob`. Delivered synaptic spike current is scaled by `--synaptic-gain`. Initial genomes retain their evolvable direct sensory-to-motor scaffold; auxiliary start/clock inputs are excluded from forced I/O repair and direct motor seeding.
 
 NEAT genomes are repaired after creation and mutation so every ordinary sensory input neuron has at least one enabled outgoing synapse and every output neuron has at least one enabled incoming synapse. Auxiliary inputs are excluded from this repair, so they become useful through evolved wiring rather than hard-coded motor drive.
 

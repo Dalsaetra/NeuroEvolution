@@ -5,11 +5,15 @@ project(NeuroEvolution VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+find_package(Threads REQUIRED)
 
 add_library(neuroevo_core
     src/brain.cpp
     src/brain_state.cpp
     src/ecosystem.cpp
+    src/ecosystem_ancestor.cpp
+    src/ecosystem_establishment.cpp
+    src/ecosystem_evaluation.cpp
     src/ecosystem_sensing.cpp
     src/ecosystem_io.cpp
     src/environment.cpp
@@ -26,6 +30,7 @@ target_include_directories(neuroevo_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_link_libraries(neuroevo_core PUBLIC Threads::Threads)
 
 if(MSVC)
     target_compile_options(neuroevo_core PRIVATE /W4 /permissive-)
@@ -41,6 +46,10 @@ target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
 
+add_executable(neuroevo_ecosystem_calibration tests/ecosystem_calibration.cpp)
+target_link_libraries(neuroevo_ecosystem_calibration PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_calibration COMMAND neuroevo_ecosystem_calibration)
+
 add_executable(neuroevo_ecosystem_mechanics tests/ecosystem_mechanics.cpp)
 target_link_libraries(neuroevo_ecosystem_mechanics PRIVATE neuroevo_core)
 add_test(NAME neuroevo_ecosystem_mechanics COMMAND neuroevo_ecosystem_mechanics)
@@ -52,6 +61,14 @@ add_test(NAME neuroevo_ecosystem_sensing COMMAND neuroevo_ecosystem_sensing)
 add_executable(neuroevo_ecosystem_checkpoint tests/ecosystem_checkpoint.cpp)
 target_link_libraries(neuroevo_ecosystem_checkpoint PRIVATE neuroevo_core)
 add_test(NAME neuroevo_ecosystem_checkpoint COMMAND neuroevo_ecosystem_checkpoint)
+
+add_executable(neuroevo_ecosystem_establishment tests/ecosystem_establishment.cpp)
+target_link_libraries(neuroevo_ecosystem_establishment PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_establishment COMMAND neuroevo_ecosystem_establishment)
+
+add_executable(neuroevo_ecosystem_ancestor tests/ecosystem_ancestor.cpp)
+target_link_libraries(neuroevo_ecosystem_ancestor PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_ancestor COMMAND neuroevo_ecosystem_ancestor)
 
 add_executable(neuroevo_smoke tests/smoke.cpp)
 target_link_libraries(neuroevo_smoke PRIVATE neuroevo_core)

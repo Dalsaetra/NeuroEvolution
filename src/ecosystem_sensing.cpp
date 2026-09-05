@@ -149,7 +149,7 @@ EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConf
 std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
 {
     const EcoCreature& self = creatures.at(creature_index);
-    std::vector<double> inputs(eco_input_count, 0.0);
+    std::vector<double> inputs(config.brain.input_count, 0.0);
     const double half_fov = config.fov_degrees * pi / 360.0;
     const double sector_width = 2.0 * half_fov / static_cast<double>(eco_sectors);
     std::array<double, eco_sectors> food_distances, creature_distances;
@@ -162,7 +162,8 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     const auto sense_obstacle = [&](const Box& box) {
         const Vec2 closest_delta = closest_point(self.position, box) - self.position;
         const double distance = length(closest_delta);
-        if (distance <= config.radius + 1e-5) {
+        const double contact_margin = std::max(1e-5, 0.2 * config.radius);
+        if (distance <= config.radius + contact_margin) {
             inputs[contact_offset + quadrant_at(bearing(closest_delta, self.heading))] = 1.0;
         }
         if (distance > config.vision_range) return;
@@ -190,6 +191,17 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
                 sense_obstacle({static_cast<double>(x), static_cast<double>(y),
                     static_cast<double>(x + 1), static_cast<double>(y + 1)});
             }
+            if (config.extended_senses
+                && terrain[static_cast<std::size_t>(y) * config.width + static_cast<std::size_t>(x)] == Terrain::Shelter) {
+                const Vec2 target{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
+                const Vec2 delta = target - self.position;
+                const double distance = length(delta), angle = bearing(delta, self.heading);
+                if (distance <= config.vision_range && std::abs(angle) <= half_fov + epsilon
+                    && line_of_sight(self.position, target)) {
+                    auto& cue = inputs[eco_shelter_offset + sector_at(angle, half_fov)];
+                    cue = std::max(cue, unit(1.0 - distance / config.vision_range));
+                }
+            }
         }
     }
     const double width = static_cast<double>(config.width);
@@ -206,6 +218,12 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
         if (distance > config.vision_range || std::abs(angle) > half_fov + epsilon
             || !line_of_sight(self.position, resource.position)) continue;
         const std::size_t sector = sector_at(angle, half_fov);
+        if (config.extended_senses && (resource.stock <= epsilon
+            || (resource.kind == FoodKind::Pod && resource.pod_state == PodState::Refilling))) {
+            auto& depleted = inputs[eco_depleted_offset + sector];
+            depleted = std::max(depleted, unit(1.0 - distance / config.vision_range));
+            continue;
+        }
         if (distance > food_distances[sector] + epsilon
             || (std::abs(distance - food_distances[sector]) <= epsilon && angle >= food_angles[sector])) continue;
         food_distances[sector] = distance;
@@ -229,7 +247,8 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
         const Vec2 delta = other.position - self.position;
         const double distance = length(delta);
         const double angle = bearing(delta, self.heading);
-        if (distance <= 2.0 * config.radius + 1e-5) {
+        const double contact_margin = std::max(1e-5, 0.2 * config.radius);
+        if (distance <= 2.0 * config.radius + contact_margin) {
             inputs[contact_offset + quadrant_at(angle)] = 1.0;
         }
         if (distance > std::max(config.vision_range, config.hearing_range)
@@ -259,7 +278,9 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     inputs[body_offset + 4] = sheltered(self.position) ? 1.0 : 0.0;
     inputs[body_offset + 5] = unit(storm_cue());
     inputs[body_offset + 6] = unit(self.ingestion_pulse / (config.ingestion_rate * config.dt));
-    inputs[body_offset + 7] = unit(self.digestion_pulse / (12.0 * config.ingestion_rate * config.dt));
+    const double nutrition_scale = config.extended_senses
+        ? std::max({config.graze_energy, config.poor_fruit_energy, config.rich_fruit_energy, config.pod_energy}) : 12.0;
+    inputs[body_offset + 7] = unit(self.digestion_pulse / (nutrition_scale * config.ingestion_rate * config.dt));
     inputs[body_offset + 8] = self.age < 0.2 - epsilon ? 1.0 : 0.0;
     return inputs;
 }
@@ -273,8 +294,8 @@ EcoAction EcosystemWorld::control(std::size_t creature_index)
         return baseline_action(inputs, config, creature.controller, creature.neural_rng);
     }
     const BrainConfig& brain_config = creature.brain.config();
-    if (brain_config.input_count != eco_input_count || brain_config.output_count != eco_output_count) {
-        throw std::invalid_argument("Ecosystem brains require 87 sensory inputs and 5 motor outputs");
+    if (brain_config.input_count != config.brain.input_count || brain_config.output_count != eco_output_count) {
+        throw std::invalid_argument("Ecosystem brain does not match the world's sensory interface");
     }
     const double ratio = config.dt / brain_config.dt;
     if (!std::isfinite(ratio) || ratio < 1.0 || ratio > 10000.0 || std::abs(ratio - std::round(ratio)) > 1e-8) {
@@ -284,23 +305,34 @@ EcoAction EcosystemWorld::control(std::size_t creature_index)
     BrainStepResult result;
     std::vector<double> neural_inputs = inputs;
     for (std::size_t step = 0; step < substeps; ++step) {
-        neural_inputs.back() = creature.age + static_cast<double>(step) * brain_config.dt < 0.2 - epsilon ? 1.0 : 0.0;
+        neural_inputs[body_offset + 8] = creature.age + static_cast<double>(step) * brain_config.dt < 0.2 - epsilon ? 1.0 : 0.0;
         result = creature.brain.step(neural_inputs, &creature.neural_rng);
         creature.step_spikes += result.spikes;
     }
     creature.spikes += creature.step_spikes;
-    const auto output = [&](std::size_t index) { return unit(std::tanh(config.motor_gain * result.motor_outputs[index])); };
-    const double turn = std::tanh(config.motor_gain * (result.motor_outputs[1] - result.motor_outputs[2]));
+    const double normalizer = brain_config.calibrated_io ? std::tanh(config.motor_gain) : 1.0;
+    const auto output = [&](std::size_t index) { return unit(std::tanh(config.motor_gain * result.motor_outputs[index]) / normalizer); };
+    const double turn = std::clamp(std::tanh(config.motor_gain * (result.motor_outputs[1] - result.motor_outputs[2])) / normalizer, -1.0, 1.0);
     EcoAction action;
     action.forward = output(0);
     action.left = unit(turn);
     action.right = unit(-turn);
     action.forage = output(3);
     action.call = config.communication ? output(4) : 0.0;
+    if (config.actuator_tau > 0) {
+        const double alpha = -std::expm1(-config.dt / config.actuator_tau);
+        const auto smooth = [alpha](double previous, double desired) { return previous + alpha * (desired - previous); };
+        action.forward = smooth(creature.action.forward, action.forward);
+        action.forage = smooth(creature.action.forage, action.forage);
+        action.call = config.communication ? smooth(creature.action.call, action.call) : 0;
+        const double smoothed_turn = smooth(creature.action.left - creature.action.right, turn);
+        action.left = unit(smoothed_turn);
+        action.right = unit(-smoothed_turn);
+    }
     return action;
 }
 
-std::vector<std::string> ecosystem_input_labels()
+std::vector<std::string> ecosystem_input_labels(bool extended)
 {
     constexpr const char* channels[] = {"obstacle_proximity", "food_present", "food_proximity",
         "food_graze", "food_fruit_a", "food_fruit_b", "food_pod", "food_stock",
@@ -317,6 +349,12 @@ std::vector<std::string> ecosystem_input_labels()
     for (const char* direction : {"front", "left", "back", "right"}) labels.push_back(std::string("contact_") + direction);
     for (const char* channel : {"energy", "speed", "turn_left", "turn_right", "sheltered",
         "storm_cue", "ingestion", "digestion_gain", "episode_start"}) labels.emplace_back(channel);
+    if (extended) {
+        for (std::size_t sector = 0; sector < eco_sectors; ++sector)
+            labels.push_back("vision_" + std::to_string(sector) + "_depleted_food_proximity");
+        for (std::size_t sector = 0; sector < eco_sectors; ++sector)
+            labels.push_back("vision_" + std::to_string(sector) + "_shelter_proximity");
+    }
     return labels;
 }
 

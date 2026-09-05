@@ -5,14 +5,47 @@ param(
     [string]$RunDir = "",
     [string]$Resume = "",
     [ValidateSet("spiking", "reactive", "random")][string]$Controller = "spiking",
+    [ValidateSet("random", "sparse-ancestor")][string]$FounderBrain = "random",
+    [ValidateSet("calibrated", "legacy")][string]$Sensorimotor = "calibrated",
+    [ValidateSet("stable", "legacy")][string]$MutationMode = "stable",
+    [ValidateRange(0, 32)][int]$ArchiveEvalTrials = 5,
+    [ValidateRange(1, 32)][int]$ArchiveEvalWorkers = [Math]::Max(1, [Math]::Min(4, [Environment]::ProcessorCount)),
+    [ValidateRange(0.1, 100000)][double]$ArchiveEvalSeconds = 600,
+    [ValidateRange(0, 2147483647)][int]$ArchiveEvalSeed = 17071,
+    [ValidateRange(0, 10)][double]$ActuatorTau = 0.3,
+    [switch]$SoloAncestorTrial,
     [switch]$NoReproduction,
+    [switch]$NoStorms,
+    [switch]$Establishment,
+    [ValidateRange(0, 255)][int]$ImmigrationFloor = 0,
+    [ValidateRange(1, 256)][int]$ImmigrationBatch = 2,
+    [ValidateRange(0.01, 1000000)][double]$ImmigrationInterval = 5,
+    [ValidateRange(4, 256)][int]$ArchiveCapacity = 16,
+    [ValidateRange(1, 256)][int]$ArchiveTournamentSize = 3,
+    [ValidateRange(0, 1000000)][double]$ArchiveMinAge = 60,
+    [ValidateRange(0.000001, 1000000)][double]$ArchiveMinEnergy = 37.5,
+    [ValidateRange(1, 1000000)][int]$ArchiveMinFeedingBouts = 3,
+    [ValidateRange(0, 1000000)][double]$ArchiveMinEfficiency = 0.6,
+    [ValidateRange(0.000001, 1000000)][double]$GrazeEnergy = 2.5,
+    [ValidateRange(0.000001, 1000000)][double]$PoorFruitEnergy = 5,
+    [ValidateRange(0.000001, 1000000)][double]$RichFruitEnergy = 12.5,
+    [ValidateRange(0.000001, 1000000)][double]$PodEnergy = 15,
+    [switch]$KeepImmigration,
+    [ValidateSet("baseline", "breeding")][string]$EvolutionPreset = "baseline",
+    [ValidateSet("compact", "standard", "detailed")][string]$Recording = "compact",
+    [ValidateRange(0, 1000000)][double]$DetailedTailSeconds = 300,
+    [switch]$KeepJsonl,
     [switch]$Build,
     [switch]$Open
 )
 
 $ErrorActionPreference = "Stop"
 if (-not [string]::IsNullOrWhiteSpace($Resume)) {
-    foreach ($Parameter in @("Creatures", "Seed", "Controller", "NoReproduction")) {
+    foreach ($Parameter in @("Creatures", "Seed", "Controller", "FounderBrain", "SoloAncestorTrial", "NoReproduction", "NoStorms", "Establishment",
+        "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
+        "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
+        "RichFruitEnergy", "PodEnergy", "KeepImmigration",
+        "EvolutionPreset", "Sensorimotor", "ArchiveEvalTrials", "ArchiveEvalSeconds", "ArchiveEvalSeed", "ActuatorTau")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) {
             throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration."
         }
@@ -30,7 +63,7 @@ $RunPath = if ([System.IO.Path]::IsPathRooted($RunDir)) {
 }
 
 if ($Build) {
-    & cmake -S $RepoRoot -B $BuildPath
+    & cmake -S $RepoRoot -B $BuildPath -DCMAKE_BUILD_TYPE=Release
     if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed with exit code $LASTEXITCODE" }
     & cmake --build $BuildPath --config Release --target neuroevo_ecosystem
     if ($LASTEXITCODE -ne 0) { throw "Ecosystem build failed with exit code $LASTEXITCODE" }
@@ -52,7 +85,22 @@ if (-not $Executable) {
     throw "Ecosystem executable not found under $BuildPath. Run this script with -Build first."
 }
 
-$SimulationArguments = @("--steps", $Steps, "--out", $RunPath)
+$SimulationArguments = @("--steps", $Steps, "--out", $RunPath, "--archive-eval-workers", $ArchiveEvalWorkers)
+if ([string]::IsNullOrWhiteSpace($Resume) -or $PSBoundParameters.ContainsKey("MutationMode")) {
+    $SimulationArguments += @("--stable-mutations", [int]($MutationMode -eq "stable"))
+}
+switch ($Recording) {
+    "compact"  { $SimulationArguments += @("--record-every", 500, "--record-brains", 0, "--record-observations", 0, "--record-brain-graphs", 0, "--record-routine-events", 0) }
+    "standard" { $SimulationArguments += @("--record-every", 10, "--record-brains", 0, "--record-observations", 1, "--record-brain-graphs", 1, "--record-routine-events", 0) }
+    "detailed" { $SimulationArguments += @("--record-every", 10, "--record-brains", 1, "--record-observations", 1, "--record-brain-graphs", 1, "--record-routine-events", 1) }
+}
+$EffectiveTailSeconds = $DetailedTailSeconds
+if ($Recording -eq "detailed" -and -not $PSBoundParameters.ContainsKey("DetailedTailSeconds")) {
+    $EffectiveTailSeconds = 0
+}
+if ($EffectiveTailSeconds -gt 0) {
+    $SimulationArguments += @("--detailed-tail-seconds", $EffectiveTailSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture), "--tail-record-every", 10)
+}
 if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     $ResumePath = if ([System.IO.Path]::IsPathRooted($Resume)) {
         [System.IO.Path]::GetFullPath($Resume)
@@ -64,26 +112,84 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     }
     $SimulationArguments += @("--resume", $ResumePath)
 } else {
-    $SimulationArguments += @("--creatures", $Creatures, "--seed", $Seed, "--controller", $Controller)
+    $EffectiveCreatures = if ($SoloAncestorTrial) { 1 } else { $Creatures }
+    $EffectiveController = if ($SoloAncestorTrial) { "spiking" } else { $Controller }
+    $EffectiveFounderBrain = if ($SoloAncestorTrial) { "sparse-ancestor" } else { $FounderBrain }
+    $SimulationArguments += @("--creatures", $EffectiveCreatures, "--seed", $Seed, "--controller", $EffectiveController,
+        "--founder-brain", $EffectiveFounderBrain, "--sensorimotor", $Sensorimotor,
+        "--archive-eval-trials", $ArchiveEvalTrials, "--archive-eval-seed", $ArchiveEvalSeed,
+        "--archive-eval-seconds", $ArchiveEvalSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture))
+    if ($PSBoundParameters.ContainsKey("ActuatorTau")) {
+        $SimulationArguments += @("--actuator-tau", $ActuatorTau.ToString([System.Globalization.CultureInfo]::InvariantCulture))
+    }
+    if ($SoloAncestorTrial) {
+        $SimulationArguments += @("--habitat", "ancestor-nursery",
+            "--mutate-weight-prob", 0, "--mutate-neuron-prob", 0,
+            "--mutate-add-synapse-prob", 0, "--mutate-add-neuron-prob", 0, "--mutate-reciprocal-motif-prob", 0,
+            "--mutate-remove-synapse-prob", 0)
+    }
     if ($NoReproduction) { $SimulationArguments += "--no-reproduction" }
+    if ($NoStorms) { $SimulationArguments += "--no-storms" }
+    if ($Establishment) { $SimulationArguments += @("--establishment", "1") }
+    $SimulationArguments += @("--immigration-floor", $ImmigrationFloor, "--immigration-batch", $ImmigrationBatch,
+        "--immigration-interval", $ImmigrationInterval.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--archive-capacity", $ArchiveCapacity,
+        "--archive-tournament-size", $ArchiveTournamentSize,
+        "--archive-min-age", $ArchiveMinAge.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--archive-min-energy", $ArchiveMinEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--archive-min-feeding-bouts", $ArchiveMinFeedingBouts,
+        "--archive-min-efficiency", $ArchiveMinEfficiency.ToString([System.Globalization.CultureInfo]::InvariantCulture))
+    $SimulationArguments += @(
+        "--graze-energy", $GrazeEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--poor-fruit-energy", $PoorFruitEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--rich-fruit-energy", $RichFruitEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--pod-energy", $PodEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    )
+    if ($KeepImmigration) { $SimulationArguments += @("--immigration-auto-stop", "0") }
+    if ($EvolutionPreset -eq "breeding") {
+        # Makes lineage continuation less brittle while retaining meaningful food and weather pressure.
+        $SimulationArguments += @(
+            "--maturity-age", 60, "--reproduction-threshold", 110,
+            "--reproduction-cost", 65, "--offspring-energy", 60,
+            "--reproduction-cooldown", 90
+        )
+    }
 }
 & $Executable @SimulationArguments
 if ($LASTEXITCODE -ne 0) { throw "Ecosystem simulation failed with exit code $LASTEXITCODE" }
 
 $ViewerScript = Join-Path $RepoRoot "tools/view_ecosystem.py"
+$ViewerArguments = @($RunPath)
+if (-not $KeepJsonl) { $ViewerArguments += "--gzip-source" }
 if (Get-Command uv -ErrorAction SilentlyContinue) {
-    & uv run python $ViewerScript $RunPath
+    & uv run python $ViewerScript @ViewerArguments
 } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-    & python $ViewerScript $RunPath
+    & python $ViewerScript @ViewerArguments
 } elseif (Get-Command py -ErrorAction SilentlyContinue) {
-    & py -3 $ViewerScript $RunPath
+    & py -3 $ViewerScript @ViewerArguments
 } else {
     throw "Recording saved to $RunPath. Python is required to generate the HTML viewer."
 }
 if ($LASTEXITCODE -ne 0) { throw "Viewer generation failed with exit code $LASTEXITCODE" }
 
+$TailSource = Join-Path $RunPath "ecosystem_tail.jsonl"
+if (Test-Path -LiteralPath $TailSource -PathType Leaf) {
+    $TailViewer = Join-Path $RunPath "ecosystem_tail.html"
+    $TailArguments = @($TailSource, "--output", $TailViewer)
+    if (-not $KeepJsonl) { $TailArguments += "--gzip-source" }
+    if (Get-Command uv -ErrorAction SilentlyContinue) { & uv run python $ViewerScript @TailArguments }
+    elseif (Get-Command python -ErrorAction SilentlyContinue) { & python $ViewerScript @TailArguments }
+    else { & py -3 $ViewerScript @TailArguments }
+    if ($LASTEXITCODE -ne 0) { throw "Detailed-tail viewer generation failed with exit code $LASTEXITCODE" }
+    Write-Host "Detailed tail: $TailViewer"
+}
+
 $ViewerPath = Join-Path $RunPath "ecosystem.html"
 Write-Host "Viewer: $ViewerPath"
+Write-Host "Run files:"
+Get-ChildItem -LiteralPath $RunPath -File | Sort-Object Length -Descending | ForEach-Object {
+    Write-Host ("  {0,-30} {1,9:N2} MiB" -f $_.Name, ($_.Length / 1MB))
+}
 if ($Open) {
     # The user explicitly requested the visible, interactive replay window.
     Start-Process -FilePath $ViewerPath

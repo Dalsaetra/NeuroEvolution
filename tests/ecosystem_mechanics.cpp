@@ -196,6 +196,22 @@ void weather_shelter_and_costs()
     near(world.totals.exposure, 0.16, "Storm exposure accounting wrong");
     near(world.resources[0].stock, 0.4, "Resources replenished during a storm");
 
+    auto no_storm_config = config;
+    no_storm_config.storms_enabled = false;
+    no_storm_config.basal_cost = 0;
+    EcosystemWorld no_storm(no_storm_config, false);
+    no_storm.creatures = {creature(no_storm_config, 1, {5.5, 5.5})};
+    no_storm.resources = {food(1, FoodKind::Graze, {7, 5}, 8)};
+    no_storm.resources[0].stock = 0;
+    no_storm.resources[0].regrowth = 1;
+    for (int i = 0; i < 6; ++i) {
+        require(no_storm.weather() == WeatherPhase::Calm && no_storm.storm_cue() == 0,
+            "Disabled storms changed phase or activated the retained cue sensor");
+        no_storm.step({{}});
+    }
+    near(no_storm.totals.exposure, 0, "Disabled storm still charged exposure");
+    near(no_storm.resources[0].stock, 0.6, "Disabled storm still paused food regrowth");
+
     auto effort_config = fixture_config();
     effort_config.movement_cost = 0.12;
     effort_config.forage_cost = 0.3;
@@ -279,8 +295,8 @@ void reproduction_and_capacity()
     world.step({{}});
     require(world.creatures.size() == 2 && world.totals.births == 1, "Eligible creature did not reproduce");
     near(by_id(world, 1).energy, 75, "Wrong parent birth expenditure");
-    near(by_id(world, 2).energy, 45, "Wrong offspring initial energy");
-    near(world.totals.reproduction_overhead, 30, "Birth creates free energy");
+    near(by_id(world, 2).energy, 50, "Wrong offspring initial energy");
+    near(world.totals.reproduction_overhead, 25, "Birth creates free energy");
     require(by_id(world, 2).parent_id == 1 && by_id(world, 2).generation == 1, "Offspring lineage is missing");
     require(by_id(world, 2).digestion.empty() && by_id(world, 2).age == 0 && by_id(world, 2).spikes == 0, "Offspring inherited adult runtime state");
     for (const auto& neuron : by_id(world, 2).brain.neurons()) require(neuron.potential == 0 && !neuron.spiked && neuron.refractory_remaining == 0, "Offspring inherited neural memories");
@@ -330,6 +346,29 @@ void reproduction_and_capacity()
         near(c.position.y, same.position.y, "Birth placement depends on creature vector order");
         require(c.brain.synapses().size() == same.brain.synapses().size(), "Mutation stream depends on creature vector order");
     }
+
+    std::size_t exact = 0, slight = 0;
+    for (std::uint64_t seed = 1; seed <= 64; ++seed) {
+        auto inheritance_config = fixture_config();
+        inheritance_config.seed = seed;
+        inheritance_config.reproduction = true;
+        inheritance_config.maturity_age = 0;
+        inheritance_config.max_population = 2;
+        EcosystemWorld inheritance(inheritance_config, false);
+        inheritance.creatures = {creature(inheritance_config, 1, {5, 5})};
+        inheritance.creatures[0].genome_id = 1;
+        inheritance.creatures[0].energy = inheritance_config.reproduction_threshold;
+        inheritance.next_creature_id = 2;
+        inheritance.step({{}});
+        const auto& child = by_id(inheritance, 2);
+        if (child.genome_id == 1) ++exact;
+        else {
+            require(child.genome_id == child.id, "Mutated offspring did not receive a new genome ID");
+            ++slight;
+        }
+    }
+    require(exact >= 20 && exact <= 44 && slight >= 20 && slight <= 44,
+        "Natural birth inheritance is not approximately balanced across deterministic seeds");
 }
 
 void rejects_invalid_configuration()
@@ -378,6 +417,10 @@ void seeded_maps_and_brains()
         require(a.resources[i].position.x == b.resources[i].position.x && a.resources[i].position.y == b.resources[i].position.y
             && a.resources[i].kind == b.resources[i].kind && a.resources[i].energy_per_unit == b.resources[i].energy_per_unit,
             "Population size altered a resource");
+        const auto expected_energy = a.resources[i].kind == FoodKind::Graze ? config.graze_energy
+            : a.resources[i].kind == FoodKind::Pod ? config.pod_energy
+            : ((a.resources[i].kind == FoodKind::FruitA) == a.fruit_a_rich ? config.rich_fruit_energy : config.poor_fruit_energy);
+        near(a.resources[i].energy_per_unit, expected_energy, "Generated food ignored configured energy density");
         require(a.traversable(a.resources[i].position) && !a.sheltered(a.resources[i].position), "Food was placed in a wall or shelter");
     }
     require(a.map_rng.next_u64() == b.map_rng.next_u64(), "Founder creation consumed map randomness");

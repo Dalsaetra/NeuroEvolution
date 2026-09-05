@@ -133,6 +133,41 @@ int main()
     }
 
     {
+        neuroevo::BrainConfig config;
+        config.input_count = 1;
+        config.sensory_input_count = 1;
+        config.hidden_count = 1;
+        config.output_count = 1;
+        config.initial_connection_probability = 0;
+        std::vector<neuroevo::Brain::Neuron> neurons(3);
+        neurons[0].position = {0.1, 0.5};
+        neurons[1].position = {0.5, 0.5};
+        neurons[2].position = {0.9, 0.5};
+        auto brain = neuroevo::Brain::from_components(config, neurons, {{0, 2, 2.0, 1}});
+        neuroevo::MutationConfig mutation;
+        mutation.mutate_weight_probability = 0;
+        mutation.mutate_neuron_probability = 0;
+        mutation.add_synapse_probability = 0;
+        mutation.add_neuron_probability = 1;
+        mutation.add_reciprocal_motif_probability = 0;
+        mutation.remove_synapse_probability = 0;
+        mutation.max_hidden_neurons = 2;
+        neuroevo::Random rng(44);
+        brain.mutate(mutation, rng);
+        if (brain.config().hidden_count != 2 || brain.neurons().size() != 4 || brain.synapses().size() != 3) {
+            return fail("Scalar add-neuron mutation did not grow one hidden node and a two-edge branch");
+        }
+        const auto has = [&](std::size_t pre, std::size_t post) {
+            return std::any_of(brain.synapses().begin(), brain.synapses().end(), [&](const auto& edge) {
+                return edge.pre == pre && edge.post == post;
+            });
+        };
+        if (!has(0, 3) || !has(0, 2) || !has(2, 3)) {
+            return fail("Add-neuron mutation did not preserve the parent edge and its new branch");
+        }
+    }
+
+    {
         neuroevo::Genome genome;
         genome.nodes = {
             {1, neuroevo::NodeKind::Hidden, {0.4, 0.4}, 0.0, 1.0, 0.1},

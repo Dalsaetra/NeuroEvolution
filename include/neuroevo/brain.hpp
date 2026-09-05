@@ -37,9 +37,17 @@ struct BrainConfig {
     double conduction_speed = 1.5;
     double initial_connection_probability = 0.25;
     std::size_t max_delay_steps = 24;
+    // Ecosystem v2: deterministic rate-coded sensors and normalized motor rates.
+    // Generic task brains and historical checkpoints retain the LIF interface.
+    bool calibrated_io = false;
+    double sensory_rate_hz = 20.0;
+    double motor_rate_tau = 0.20;
+    double motor_reference_hz = 10.0;
 };
 
 struct MutationConfig {
+    // Opt-in for ecological inheritance; legacy/generic mutation stays available.
+    bool stable = false;
     double weight_sigma = 0.20;
     double bias_sigma = 0.35;
     double threshold_sigma = 0.03;
@@ -52,6 +60,10 @@ struct MutationConfig {
     double background_sensitivity_min = 0.0;
     double background_sensitivity_max = 2.0;
     double add_synapse_probability = 0.24;
+    // Adds a hidden neuron as a side branch of an existing connection. Keeping
+    // the original connection makes topology growth locally heritable.
+    double add_neuron_probability = 0.0;
+    std::size_t max_hidden_neurons = 128;
     double add_reciprocal_motif_probability = 0.06;
     double remove_synapse_probability = 0.04;
     double mutate_weight_probability = 0.12;
@@ -131,8 +143,10 @@ private:
     bool synapse_exists(std::size_t pre, std::size_t post) const noexcept;
     std::size_t compute_delay_steps(Vec2 pre, Vec2 post) const noexcept;
     void rebuild_runtime_state();
-    void add_random_synapse(Random& rng);
-    void add_reciprocal_motif(Random& rng);
+    void mutate_stable(const MutationConfig& config, Random& rng);
+    void add_random_synapse(Random& rng, bool weak = false);
+    void add_random_neuron(Random& rng, bool weak = false);
+    void add_reciprocal_motif(Random& rng, bool weak = false);
     void ensure_io_connectivity(Random& rng);
 };
 

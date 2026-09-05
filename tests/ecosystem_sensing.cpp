@@ -130,6 +130,9 @@ void test_sectors_and_contact()
     const auto contacts = world.observe(0);
     require(contacts[contact] == 1.0, "Wall contact should appear in the front quadrant");
     require(contacts[contact + 2] == 1.0, "Creature contact should appear in the rear quadrant");
+    world.creatures[1].position = {5.20, 5.5};
+    require(world.observe(0)[contact + 2] == 1.0,
+        "Near-contact sensing must activate before numerical collision separation");
     world.creatures[0].position = {0.25, 5.5};
     world.creatures[0].heading = pi;
     require(world.observe(0)[contact] == 1.0, "World boundaries must produce contact");
@@ -149,9 +152,10 @@ void test_nearest_and_hidden_information()
     world.resources.push_back(food({5.5, 5.5}, FoodKind::FruitB));
     world.resources[1].stock = 0.0;
     const auto before = world.observe(0);
-    require(before[center + 1] == 1.0 && before[center + 5] == 1.0
-        && before[center + 4] == 0.0 && before[center + 7] == 0.0,
-        "The nearest food source remains visible when depleted");
+    require(before[center + 1] == 1.0 && before[center + 5] == 0.0
+        && before[center + 4] == 1.0 && before[center + 7] == 1.0
+        && near(before[eco_depleted_offset + 2], 1.0 - 1.0 / world.config.vision_range),
+        "Depleted food must remain separately visible without hiding stocked food");
     require(near(before[center + 12], 0.2), "Vision should report the nearest creature's activity");
     require(before[hearing] == 1.0, "Multiple calls must combine with saturation");
 
@@ -182,17 +186,17 @@ void test_feedback()
     auto inputs = world.observe(0);
     require(near(inputs[body], 0.25) && near(inputs[body + 1], 0.5), "Own energy and motion must be normalized");
     require(inputs[body + 2] == 0.0 && near(inputs[body + 3], 0.75), "Turn feedback has incorrect direction");
-    require(inputs[body + 6] == 1.0 && near(inputs[body + 7], 1.0 / 3.0),
+    require(inputs[body + 6] == 1.0 && near(inputs[body + 7], 4.0 / 15.0),
         "Feedback must distinguish ingested biomass from energy gained later");
-    require(inputs.back() == 1.0, "A newborn must receive the initial activity pulse");
+    require(inputs[body + 8] == 1.0, "A newborn must receive the initial activity pulse");
     self.age = 0.2;
     inputs = world.observe(0);
-    require(inputs.back() == 0.0, "The initial pulse must end after 0.2 seconds");
+    require(inputs[body + 8] == 0.0, "The initial pulse must end after 0.2 seconds");
     for (double value : inputs) require(std::isfinite(value) && value >= 0.0 && value <= 1.0,
         "Every sensory channel must remain finite and normalized");
     const auto labels = ecosystem_input_labels();
     require(labels.size() == eco_input_count && labels[body] == "energy"
-        && labels.back() == "episode_start", "Channel labels must match the sensory schema");
+        && labels[body + 8] == "episode_start" && labels.back() == "vision_4_shelter_proximity", "Channel labels must match the sensory schema");
 }
 
 void test_independent_spiking_brains()
@@ -234,8 +238,8 @@ void test_independent_spiking_brains()
     neurons[output + 2].bias = 30.0;
     world.creatures[0].brain = Brain::from_components(brain_config, neurons, {});
     const auto turn_action = world.control(0);
-    require(turn_action.left > 0.9 && turn_action.right == 0.0,
-        "Differential spike traces must be combined before saturating the turn command");
+    require(turn_action.left > 0.01 && turn_action.left < 0.3 && turn_action.right == 0.0,
+        "Differential motor rates must retain steering direction while respecting actuator inertia");
     for (double value : {turn_action.forward, turn_action.left, turn_action.right, turn_action.forage, turn_action.call}) {
         require(std::isfinite(value) && value >= 0.0 && value <= 1.0, "Motor commands must be finite and normalized");
     }

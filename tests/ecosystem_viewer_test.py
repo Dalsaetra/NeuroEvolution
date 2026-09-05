@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import gzip
 import json
 import re
 import shutil
@@ -19,6 +20,16 @@ SPEC.loader.exec_module(VIEWER)
 
 
 class EcosystemReplayTests(unittest.TestCase):
+    def test_statistics_csv_numeric_columns_and_missing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            self.write_recording(directory, [self.metadata(), {"type": "frame", "time": 0}])
+            (directory / "ecosystem_stats.csv").write_text(
+                "time,population,net_energy,weather\n2,3,-4,calm\n0,1,nan,storm\n", encoding="utf-8")
+            rows = VIEWER.read_replay(directory)["stats"]
+            self.assertEqual(rows, [{"time": 0, "population": 1},
+                                    {"time": 2, "population": 3, "net_energy": -4}])
+
     def write_recording(self, directory: Path, records: list[dict]) -> Path:
         path = directory / "ecosystem.jsonl"
         path.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
@@ -49,6 +60,35 @@ class EcosystemReplayTests(unittest.TestCase):
         self.assertIsNotNone(embedded)
         self.assertEqual(json.loads(embedded.group(1)), payload)
 
+    def test_gzip_source_replaces_jsonl_and_remains_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            source = self.write_recording(directory, [self.metadata(), {"type": "frame", "time": 0}])
+            subprocess.run([sys.executable, str(ROOT / "tools" / "view_ecosystem.py"),
+                            str(directory), "--gzip-source"], check=True, capture_output=True)
+            self.assertFalse(source.exists())
+            compressed = directory / "ecosystem.jsonl.gz"
+            self.assertTrue(compressed.exists())
+            self.assertEqual(VIEWER.read_replay(directory)["frames"][0]["time"], 0)
+            with gzip.open(compressed, "rt", encoding="utf-8") as handle:
+                self.assertEqual(json.loads(handle.readline())["type"], "metadata")
+
+    def test_streaming_compactor_samples_and_removes_heavy_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            creature = {"id": 1, "observation": [1, 2], "brain": {"potentials": [1], "neurons": [{"x": 0}]}}
+            frames = [{"type": "frame", "time": i, "creatures": [creature], "events": [
+                {"type": "ingestion"}, {"type": "birth"}]} for i in range(5)]
+            self.write_recording(directory, [self.metadata(), *frames])
+            subprocess.run([sys.executable, str(ROOT / "tools" / "compact_replay.py"),
+                            str(directory), "--every", "3"], check=True, capture_output=True)
+            payload = VIEWER.read_replay(directory / "ecosystem_compact.jsonl.gz")
+            self.assertEqual([frame["time"] for frame in payload["frames"]], [0, 3, 4])
+            compact_creature = payload["frames"][0]["creatures"][0]
+            self.assertNotIn("observation", compact_creature)
+            self.assertNotIn("brain", compact_creature)
+            self.assertEqual([event["type"] for event in payload["frames"][0]["events"]], ["birth"])
+
     def test_invalid_recordings_have_actionable_errors(self) -> None:
         cases = [
             ([{"type": "frame", "time": 0}], "metadata"),
@@ -70,7 +110,8 @@ class EcosystemReplayTests(unittest.TestCase):
     def test_playback_handles_births_deaths_and_missing_brain_activity(self) -> None:
         metadata = {**self.metadata(), "terrain": [0] * 6, "resources": [], "brains": [], "input_labels": []}
         creature = {"id": 1, "x": 1, "y": 1, "energy": 50, "age": 0}
-        child = {**creature, "id": 2, "parent": 1, "generation": 1, "brain": {
+        child = {**creature, "id": 2, "parent": 0, "generation": 0,
+                 "origin": "archive-clone", "source_id": 1, "genome_id": 1, "brain": {
             "inputs": 1, "outputs": 1,
             "neurons": [{"x": 0, "y": 0, "threshold": 1}, {"x": 1, "y": 1, "threshold": 1}],
             "synapses": [{"pre": 0, "post": 1, "weight": 1}],
@@ -78,7 +119,14 @@ class EcosystemReplayTests(unittest.TestCase):
         }, "observation": [0.25]}
         frames = [{"time": i, "creatures": creatures, "resources": [], "events": [], "totals": {}}
                   for i, creatures in enumerate(([creature], [child], []))]
-        payload = {"name": "lifecycle test", "metadata": metadata, "frames": frames}
+        frames[1]["totals"] = {"immigrants": 1, "immigrant_clones": 1, "immigrant_energy": 90}
+        frames[1]["establishment"] = {"enabled": True, "active": True, "floor": 2, "next_check": 5,
+                                      "archive": [{"genome_id": 1, "niche": "fruit-a", "score": 3.5,
+                                                   "trials": 2, "mean_food_energy": 10}]}
+        frames[2]["establishment"] = {"enabled": True, "active": True, "floor": 2, "next_check": 5, "archive": []}
+        payload = {"name": "lifecycle test", "metadata": metadata, "frames": frames,
+                   "stats": [{"time": 0, "population": 1, "net_energy": -3},
+                             {"time": 2, "population": 0, "net_energy": 2}]}
         # Execute the real rendering code against a minimal DOM/canvas model. This
         # checks lifecycle and optional-diagnostic failures without a browser package.
         harness = r'''
@@ -94,18 +142,38 @@ document.getElementById('replay-data').textContent=PAYLOAD;
 document.getElementById('speed').value='5';
 const scope={document,window:{devicePixelRatio:1,innerWidth:1200,innerHeight:900,addEventListener(){}},performance:{now:()=>0},requestAnimationFrame(){}};
 vm.runInNewContext(SOURCE,scope);
+assert.equal(nodes.get('statSelect').children.length,2);
+nodes.get('statSelect').value='net_energy';
+nodes.get('statSelect').listeners.change();
+assert.match(nodes.get('statCaption').textContent,/ecosystem_stats.csv/);
+vm.runInNewContext(`
+ const sample={id:99,brain:{inputs:3,outputs:1,neurons:Array.from({length:5},()=>({threshold:1})),synapses:[{pre:2,post:3,weight:1},{pre:3,post:4,weight:1}],spiked:[2]},observation:[.1,.2,.3]};
+ drawBrain(sample);
+ if(brainPoints.map(p=>p.i).join(',')!=='2,3,4')throw Error('Filtered neuron indices changed');
+ drawSensors(sample);
+`,scope);
+assert.equal(nodes.get('sensors').children.length,1);
+vm.runInNewContext('render()',scope);
 assert.equal(String(nodes.get('population').textContent),'1');
 assert.equal(nodes.get('brainEmpty').style.display,'block');
+assert.equal(nodes.get('establishmentPanel').hidden,true);
 nodes.get('stepForward').listeners.click();
 assert.equal(nodes.get('selectedContent').hidden,true);
+assert.equal(nodes.get('establishmentPanel').hidden,false);
+assert.equal(String(nodes.get('immigrants').textContent),'1');
+assert.equal(nodes.get('supportState').textContent,'active');
+assert.match(nodes.get('archiveEntries').children[0].textContent,/Genome 1/);
 nodes.get('creatureSelect').listeners.change({target:{value:'2'}});
 assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
+assert.equal(nodes.get('agentParent').textContent,'archive clone · source 1');
 assert.equal(nodes.get('brainEmpty').style.display,'none');
 nodes.get('sensorsTab').listeners.click();
 assert.equal(nodes.get('sensors').children.length,1);
 nodes.get('stepForward').listeners.click();
 assert.equal(String(nodes.get('population').textContent),'0');
 assert.equal(nodes.get('noCreature').hidden,false);
+assert.match(nodes.get('worldStatus').textContent,/immigration remains active/);
+assert.match(nodes.get('archiveEntries').children[0].textContent,/Waiting for food successes/);
 nodes.get('stepBack').listeners.click();
 assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
 '''

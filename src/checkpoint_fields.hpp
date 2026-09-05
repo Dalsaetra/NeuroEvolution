@@ -39,13 +39,27 @@ template<class T> auto brain_fields(T& c) {
         c.initial_background_sensitivity_sigma,c.max_bias_fraction_of_threshold,c.motor_trace_decay,
         c.conduction_speed,c.initial_connection_probability,c.max_delay_steps);
 }
-template<class T> auto mutation_fields(T& c) {
+template<class T> auto legacy_mutation_fields(T& c) {
     return std::tie(c.weight_sigma,c.bias_sigma,c.threshold_sigma,c.position_sigma,c.hidden_bias_min,
         c.hidden_bias_max,c.hidden_bias_jump_min_magnitude,c.hidden_bias_jump_probability,
         c.background_sensitivity_sigma,c.background_sensitivity_min,c.background_sensitivity_max,
         c.add_synapse_probability,c.add_reciprocal_motif_probability,c.remove_synapse_probability,
         c.mutate_weight_probability,c.mutate_neuron_probability,c.mutate_clock_threshold_probability,
         c.clock_threshold_sigma,c.clock_threshold_min,c.clock_threshold_max);
+}
+
+template<class T> auto calibrated_brain_fields(T& c) {
+    return std::tie(c.calibrated_io,c.sensory_rate_hz,c.motor_rate_tau,c.motor_reference_hz);
+}
+template<class T> auto interface_config_fields(T& c) {
+    return std::tie(c.extended_senses,c.actuator_tau,c.archive_eval_trials,c.archive_eval_seed,c.archive_eval_seconds);
+}
+template<class T> auto newborn_trial_fields(T& t) {
+    return std::tie(t.seed,t.offspring,t.descendant_births,t.mature_offspring,t.elapsed,t.focal_age,
+        t.food_energy,t.operating_energy,t.first_birth,t.second_birth,t.matured,t.focal_alive,t.capacity_limited);
+}
+template<class T> auto mutation_fields(T& c) {
+    return std::tuple_cat(legacy_mutation_fields(c),std::tie(c.add_neuron_probability,c.max_hidden_neurons));
 }
 template<class T> auto world_config_fields(T& c) {
     return std::tie(c.width,c.height,c.initial_creatures,c.max_population,c.shelters,c.grazing_patches,
@@ -58,10 +72,40 @@ template<class T> auto world_config_fields(T& c) {
         c.maturity_age,c.reproduction_threshold,c.reproduction_cost,c.offspring_energy,
         c.reproduction_cooldown,c.motor_gain,c.reproduction,c.communication,c.food_assignment,c.controller);
 }
+template<class T> auto food_energy_config_fields(T& c) {
+    return std::tie(c.graze_energy,c.poor_fruit_energy,c.rich_fruit_energy,c.pod_energy);
+}
 template<class T> auto total_fields(T& t) {
     return std::tie(t.births,t.deaths,t.maturations,t.spikes,t.pods_opened,t.consumed_biomass,
         t.regrown_biomass,t.spoiled_biomass,t.energy_gained,t.metabolism,t.movement,t.turning,t.foraging,
         t.calling,t.neural,t.exposure,t.reproduction_overhead,t.discarded_energy);
+}
+
+template<class T> auto legacy_establishment_config_fields(T& c) {
+    return std::tie(c.establishment,c.immigration_auto_stop,c.immigration_floor,c.immigration_batch,
+        c.archive_capacity,c.withdrawal_cycles,c.immigration_interval,c.archive_min_energy,c.archive_min_age);
+}
+template<class T> auto v3_establishment_config_fields(T& c) {
+    return std::tuple_cat(legacy_establishment_config_fields(c),
+        std::tie(c.archive_min_feeding_bouts,c.archive_min_efficiency));
+}
+template<class T> auto v4_establishment_config_fields(T& c) {
+    return std::tuple_cat(v3_establishment_config_fields(c),std::tie(c.storms_enabled));
+}
+template<class T> auto establishment_config_fields(T& c) {
+    return std::tuple_cat(v4_establishment_config_fields(c),std::tie(c.archive_tournament_size));
+}
+template<class T> auto legacy_establishment_total_fields(T& t) {
+    return std::tie(t.immigrants,t.immigrant_mutations,t.immigrant_clones,t.immigrant_random,
+        t.archive_fallbacks,t.natural_spiking_breeders,t.mature_offspring,t.immigrant_energy);
+}
+template<class T> auto establishment_total_fields(T& t) {
+    return std::tuple_cat(legacy_establishment_total_fields(t),
+        std::tie(t.immigrant_slight_mutations,t.immigrant_strong_mutations,t.archive_empty_checks,
+            t.founder_births,t.immigrant_births,t.descendant_births,t.births_first_100s));
+}
+template<class T> auto archive_trial_fields(T& t) {
+    return std::tie(t.creature_id,t.feeding_bouts,t.offspring,t.energy_gained,t.energy_spent,t.age,t.observed_at,t.finished);
 }
 template<class Tuple> void write_tuple(std::ostream& s, Tuple t) {
     std::apply([&s](const auto&... v) { write(s,v...); },t);
