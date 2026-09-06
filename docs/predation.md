@@ -52,6 +52,12 @@ maximum speed is `max_speed/sqrt(m)`. Collision radius remains fixed. Current
 injury does not change mass, speed, or corpse yield. Energy capacity, ingestion,
 attack strength, and turning retain their configured values independently of mass.
 
+Outside shelter during a storm, energy drain is `storm_cost/m` per second.
+Mass 2 takes half the baseline drain, mass 1 takes the baseline, and mass 0.5
+takes double. Shelter still prevents storm drain entirely. Larger bodies therefore
+trade higher basal metabolism and lower speed for greater storm resistance.
+Worlds with body/predation mechanics disabled retain the original fixed storm cost.
+
 Attack effort `a` is a smoothed motor intensity in [0,1]. At full effort it costs
 2 energy/second and deals 5 health damage/second to one target. The target is the
 nearest creature within 0.8 center-to-center units, a forward 60-degree cone,

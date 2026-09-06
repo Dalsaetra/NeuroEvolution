@@ -179,6 +179,20 @@ void food_and_senses()
 }
 void bodies_and_births()
 {
+    for (double mass : {0.5,1.0,2.0}) for (bool storm : {false,true}) for (bool shelter : {false,true}) {
+        auto weather_world=empty(); add(weather_world,{3.5,3.5},0,{mass,0});
+        weather_world.config.storms_enabled=storm;
+        weather_world.config.phase_offset=weather_world.config.calm_duration+weather_world.config.warning_duration;
+        if (shelter) weather_world.terrain[3*weather_world.config.width+3]=Terrain::Shelter;
+        const double initial=ledger(weather_world);
+        const double drain=storm && !shelter ? weather_world.config.storm_cost*weather_world.config.dt/mass : 0;
+        weather_world.step({{}});
+        near(weather_world.creatures[0].energy,100-drain,"Storm drain must scale inversely with mass only when exposed");
+        near(weather_world.totals.exposure,drain,"Mass-scaled storm cost missing from totals");
+        near(weather_world.creatures[0].exposed_time,storm && !shelter ? weather_world.config.dt : 0,
+            "Body mass changed exposure duration");
+        near(ledger(weather_world),initial,"Storm protection broke energy conservation");
+    }
     auto w=empty(); add(w,{3,3},0,{2,0}); w.config.basal_cost=1;
     near(w.max_health(w.creatures[0]),40,"Health must scale with mass");
     EcoAction move; move.forward=1; w.step({move});

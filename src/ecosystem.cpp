@@ -891,7 +891,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         const double calling = config.call_cost * creature.action.call * config.dt;
         const double neural = (config.neuron_cost * static_cast<double>(stats.neuron_count) + config.synapse_cost * static_cast<double>(stats.synapse_count)) * config.dt + config.spike_cost * static_cast<double>(creature.step_spikes);
         const bool exposed = storm && !sheltered(creature.position);
-        const double exposure = exposed ? config.storm_cost * config.dt : 0;
+        const double exposure = exposed ? config.storm_cost * config.dt
+            / (config.predation ? creature.body.mass : 1.0) : 0;
         if (exposed) creature.exposed_time += config.dt;
         const double requested_cost = metabolism + movement + turning + foraging + calling + neural + exposure;
         const double paid = std::min(std::max(0.0, creature.energy), requested_cost);
