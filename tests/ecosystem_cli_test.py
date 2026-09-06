@@ -196,6 +196,77 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(lines[0]["brains"][0]["synapses"], original["brains"][0]["synapses"])
         self.assertTrue(all(c["spikes"] == 0 and c["age"] == 0 for c in lines[1]["creatures"]))
 
+    def test_starting_genomes_samples_reproducibly_and_resets_founders(self):
+        source = self.run_world("source with spaces", "--creatures", 3, "--steps", 20,
+                                "--predation", 1, "--founder-mass", 0.7, "--founder-carnivory", 0.2)
+        saved = (source / "checkpoint.eco").read_bytes()
+        source_meta = json.loads((source / "ecosystem.jsonl").read_text().splitlines()[0])
+        source_brains = {b["id"]: b for b in source_meta["brains"]}
+        outputs = []
+        for name, seed in (("sampled", 49), ("repeated", 49), ("different", 50)):
+            out = self.run_world(name, "--starting-genomes", source, "--creatures", 20,
+                                 "--seed", seed, "--steps", 1, "--founder-energy", 80,
+                                 "--food-assignment", "b-rich")
+            outputs.append(out)
+        self.assertEqual((outputs[0] / "initial.eco").read_bytes(),
+                         (outputs[1] / "initial.eco").read_bytes())
+        self.assertNotEqual((outputs[0] / "starting_genomes.csv").read_bytes(),
+                            (outputs[2] / "starting_genomes.csv").read_bytes())
+        lines = [json.loads(x) for x in (outputs[0] / "ecosystem.jsonl").read_text().splitlines()]
+        meta, first = lines[:2]
+        rows = list(csv.DictReader((outputs[0] / "starting_genomes.csv").read_text().splitlines()))
+        self.assertEqual(len(first["creatures"]), 20)
+        self.assertEqual(meta["seed"], 49)
+        self.assertFalse(meta["fruit_a_rich"])
+        self.assertTrue(meta["predation"])
+        self.assertNotEqual(meta["terrain"], source_meta["terrain"])
+        self.assertGreater(len({r["source_genome_id"] for r in rows}), 1)
+        new_brains = {b["id"]: b for b in meta["brains"]}
+        for c, row in zip(first["creatures"], rows):
+            self.assertEqual(c["id"], int(row["founder_id"]))
+            self.assertEqual(c["genome_id"], int(row["genome_id"]))
+            for key in ("age", "generation", "parent", "offspring", "spikes", "attack", "damage"):
+                self.assertEqual(c[key], 0)
+            self.assertEqual(c["energy"], 80)
+            self.assertAlmostEqual(c["mass"], 0.7)
+            self.assertAlmostEqual(c["carnivory"], 0.2)
+            self.assertEqual(c["health"], c["max_health"])
+            self.assertTrue(all(v == 0 for v in c["brain"]["potentials"]))
+            self.assertEqual(new_brains[c["id"]]["synapses"],
+                             source_brains[int(row["source_creature_id"])]["synapses"])
+        self.assertEqual((source / "checkpoint.eco").read_bytes(), saved)
+
+    def test_starting_genomes_uses_distinct_ids_and_migrates_legacy_brains(self):
+        source = self.run_world("clones", "--creatures", 3, "--steps", 1,
+                                "--founder-brain", "sparse-ancestor", "--sensorimotor", "legacy")
+        out = self.run_world("migrated_sample", "--starting-genomes", source,
+                             "--habitat", "nursery-frontier", "--creatures", 5, "--steps", 1)
+        rows = list(csv.DictReader((out / "starting_genomes.csv").read_text().splitlines()))
+        self.assertEqual({r["source_creature_id"] for r in rows}, {"1"})
+        self.assertEqual({r["genome_id"] for r in rows}, {"1"})
+        meta = json.loads((out / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(meta["initial_creatures"], 5)
+        self.assertEqual(meta["brains"][0]["inputs"], 124)
+
+    def test_starting_genomes_rejects_missing_empty_and_conflicting_sources(self):
+        source = self.run_world("source", "--predation", 1, "--steps", 1)
+        empty = self.run_world("empty", "--creatures", 1, "--basal-cost", 10000,
+                               "--no-reproduction", "--steps", 1)
+        for path, args, message in (
+            (self.root / "missing", (), "checkpoint.eco"),
+            (empty, (), "no living creatures"),
+            (source, ("--resume", source / "checkpoint.eco"), "cannot combine"),
+            (source, ("--founders", source / "checkpoint.eco"), "cannot combine"),
+            (source, ("--founder-brain", "sparse-ancestor"), "cannot combine"),
+            (source, ("--predation", 0), "interface cannot be reduced"),
+        ):
+            result = subprocess.run([str(EXECUTABLE), "--out", str(self.root / "invalid"),
+                                     "--starting-genomes", str(path), *map(str, args)],
+                                    capture_output=True, text=True, timeout=90)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(message, result.stderr)
+        self.assertFalse((self.root / "invalid" / "initial.eco").exists())
+
     def test_invalid_values_and_existing_output_are_rejected(self):
         for arguments in (("--creatures", "-1"), ("--creatures", "0"), ("--steps", "2oops"),
                           ("--dt", "nan"), ("--record-every", "0"), ("--dt", "0.03"),

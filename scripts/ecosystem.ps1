@@ -11,6 +11,7 @@ param(
     [ValidateRange(0, 2147483647)][int]$Seed = 7,
     [string]$RunDir = "",
     [string]$Resume = "",
+    [string]$StartingGenomes = "",
     [ValidateSet("spiking", "reactive", "random")][string]$Controller = "spiking",
     [ValidateSet("random", "sparse-ancestor")][string]$FounderBrain = "random",
     [ValidateSet("calibrated", "legacy")][string]$Sensorimotor = "calibrated",
@@ -59,6 +60,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (-not [string]::IsNullOrWhiteSpace($StartingGenomes)) {
+    foreach ($Parameter in @("Resume", "FounderBrain", "SoloAncestorTrial")) {
+        if ($PSBoundParameters.ContainsKey($Parameter)) {
+            throw "-StartingGenomes cannot be combined with -$Parameter; it supplies founders for a fresh run."
+        }
+    }
+}
 if ($OpenTail -and $DetailedTailSeconds -le 0) {
     throw "-OpenTail requires -DetailedTailSeconds greater than zero."
 }
@@ -74,6 +82,17 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     }
 }
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+$StartingGenomesPath = ""
+if (-not [string]::IsNullOrWhiteSpace($StartingGenomes)) {
+    $StartingGenomesPath = if ([System.IO.Path]::IsPathRooted($StartingGenomes)) {
+        [System.IO.Path]::GetFullPath($StartingGenomes)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $StartingGenomes))
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $StartingGenomesPath "checkpoint.eco") -PathType Leaf)) {
+        throw "Starting genomes require a run folder containing checkpoint.eco: $StartingGenomesPath"
+    }
+}
 $BuildPath = Join-Path $RepoRoot "build"
 if ([string]::IsNullOrWhiteSpace($RunDir)) {
     $RunDir = "runs/ecosystem_$(Get-Date -Format 'yyyyMMdd_HHmmssfff')"
@@ -160,9 +179,14 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     $EffectiveFounderBrain = if ($SoloAncestorTrial) { "sparse-ancestor" } else { $FounderBrain }
     if ($Habitat -eq "nursery-frontier" -and -not $PSBoundParameters.ContainsKey("FounderBrain")) { $EffectiveFounderBrain = "sparse-ancestor" }
     $SimulationArguments += @("--creatures", $EffectiveCreatures, "--seed", $Seed, "--controller", $EffectiveController,
-        "--founder-brain", $EffectiveFounderBrain, "--sensorimotor", $Sensorimotor,
+        "--sensorimotor", $Sensorimotor,
         "--archive-eval-trials", $ArchiveEvalTrials, "--archive-eval-seed", $ArchiveEvalSeed,
         "--archive-eval-seconds", $ArchiveEvalSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture))
+    if ($StartingGenomesPath) {
+        $SimulationArguments += @("--starting-genomes", $StartingGenomesPath)
+    } else {
+        $SimulationArguments += @("--founder-brain", $EffectiveFounderBrain)
+    }
     if ($PSBoundParameters.ContainsKey("ActuatorTau")) {
         $SimulationArguments += @("--actuator-tau", $ActuatorTau.ToString([System.Globalization.CultureInfo]::InvariantCulture))
     }

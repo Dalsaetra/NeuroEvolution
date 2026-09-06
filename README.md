@@ -37,6 +37,28 @@ Run the first ecosystem with independent spiking brains:
 .\scripts\ecosystem.ps1 -Build -Creatures 24 -Steps 4800 -Open
 ```
 
+Start a fresh environment using evolved genomes from another run:
+
+```powershell
+.\scripts\ecosystem.ps1 -Build -StartingGenomes "runs/ecosystem_20260906_031656439" -Habitat nursery-frontier -Seed 48 -Creatures 24 -Steps 120000 -Open
+```
+
+`-StartingGenomes` takes a **run folder** and finds its `checkpoint.eco` automatically.
+It samples uniformly from distinct genome IDs among the saved survivors, with
+replacement, so any starting population size is supported. `-Creatures` defaults
+to 24; `-Seed` controls both the new environment and reproducible genome sampling.
+Brains, mass, and diet are copied without mutation. Founders start at generation
+zero with fresh positions, founder energy, full health, and reset neural/lifetime
+state. New environment settings come from the current command, not the source run.
+Predation is enabled automatically when the source genomes require its interface;
+explicitly incompatible sensory/predation settings are rejected. The selected
+controller still comes from `-Controller` (spiking by default).
+
+The new run records the mapping in `starting_genomes.csv`; the source run is read
+only. This works with compact recordings because genomes live in the checkpoint.
+It cannot be combined with `-Resume`, `-FounderBrain`, or `-SoloAncestorTrial`.
+The executable also accepts `--starting-genomes DIR`.
+
 Validate the sparse ancestral spiking brain with one founder and exact inheritance:
 
 ```powershell

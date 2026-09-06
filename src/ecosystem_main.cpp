@@ -10,6 +10,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -157,7 +158,8 @@ int main(int argc, char** argv)
         std::size_t evaluation_workers=std::max(1u,std::min(4u,std::thread::hardware_concurrency()));
         bool record_brains=true,record_observations=true,record_brain_graphs=true,record_routine_events=true,config_changed=false;
         auto companion_controller=neuroevo::ControllerKind::Reactive;
-        std::string resume,founders,founder_brain="random",habitat="generated";
+        std::string resume,founders,starting_genomes,founder_brain="random",habitat="generated";
+        bool predation_explicit=false;
         bool founder_brain_explicit=false;
         const auto timestamp=std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -209,6 +211,8 @@ int main(int argc, char** argv)
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
                     "  --founders FILE           Copy/reset living brains from a checkpoint into a new world\n"
+                    "  --starting-genomes DIR    Sample surviving genome IDs uniformly, with replacement, from DIR/checkpoint.eco\n"
+                    "                            Fresh population size uses --creatures; sampling uses --seed\n"
                     "  --out DIR                 Fresh output directory (default timestamped runs/ecosystem_...)\n\n"
                     "Integer world/brain settings (defaults):\n";
                 for (const auto& p:sizes) std::cout << "  " << std::left << std::setw(30) << p.first << *p.second << '\n';
@@ -239,6 +243,7 @@ int main(int argc, char** argv)
             else if (arg == "--tail-record-every") tail_record_every=integer(value,arg);
             else if (arg == "--resume") resume=value;
             else if (arg == "--founders") founders=value;
+            else if (arg == "--starting-genomes") starting_genomes=value;
             else {
                 config_changed=true;
                 if (arg == "--seed") cfg.seed=integer(value,arg);
@@ -254,7 +259,7 @@ int main(int argc, char** argv)
                     cfg.brain.conduction_speed = calibrated ? 6.0 : 1.5;
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
-                else if (arg == "--predation") cfg.predation=boolean(value,arg);
+                else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
                 else if (arg == "--nursery-food-relocates") cfg.nursery_food_relocates=boolean(value,arg);
@@ -292,6 +297,18 @@ int main(int argc, char** argv)
         if (detailed_tail_seconds < 0) throw std::invalid_argument("--detailed-tail-seconds must be nonnegative");
         if (evaluation_workers==0 || evaluation_workers>32)
             throw std::invalid_argument("--archive-eval-workers must be 1..32");
+        std::optional<neuroevo::EcosystemWorld> sampled_source;
+        if (!starting_genomes.empty()) {
+            if (!resume.empty() || !founders.empty() || founder_brain_explicit || habitat=="ancestor-nursery")
+                throw std::invalid_argument("--starting-genomes supplies fresh founders; cannot combine with --resume, --founders, --founder-brain or ancestor-nursery");
+            const auto checkpoint=std::filesystem::path(starting_genomes)/"checkpoint.eco";
+            if (!std::filesystem::is_regular_file(checkpoint))
+                throw std::invalid_argument("Starting genomes require a run folder containing checkpoint.eco: "+starting_genomes);
+            sampled_source.emplace(load(checkpoint.string()));
+            // Match the required motor/sensory interface without importing world rules.
+            if (sampled_source->config.predation && !predation_explicit) cfg.predation=true;
+            founders=checkpoint.string();
+        }
         cfg.set_predation(cfg.predation);
         if (habitat=="ancestor-nursery") {
             if (cfg.initial_creatures!=1) throw std::invalid_argument("The ancestor nursery requires --creatures 1");
@@ -314,7 +331,7 @@ int main(int argc, char** argv)
             throw std::invalid_argument("The sparse ancestor is a spiking brain and requires --controller spiking");
         if (resume.empty() && cfg.initial_creatures==0) throw std::invalid_argument("--creatures must be at least 1");
         if (companions>cfg.initial_creatures) throw std::invalid_argument("--companions cannot exceed --creatures");
-        for (const char* name : {"ecosystem.jsonl","ecosystem_tail.jsonl","ecosystem_stats.csv","events.csv","summary.json","checkpoint.eco","initial.eco","archive.csv","newborn_evaluations.csv"})
+        for (const char* name : {"ecosystem.jsonl","ecosystem_tail.jsonl","ecosystem_stats.csv","events.csv","summary.json","checkpoint.eco","initial.eco","archive.csv","newborn_evaluations.csv","starting_genomes.csv"})
             if (std::filesystem::exists(out/name)) throw std::runtime_error("Run output already exists; choose a fresh --out directory: "+out.string());
         auto world=resume.empty()?(habitat=="ancestor-nursery"
             ?neuroevo::make_ancestral_nursery(cfg):neuroevo::EcosystemWorld(cfg)):load(resume);
@@ -331,12 +348,21 @@ int main(int argc, char** argv)
                 creature.genome_id=ancestral_genome_id;
             }
         }
+        std::ostringstream sampled_founders;
         if (!founders.empty()) {
-            auto source=load(founders);
+            auto source=sampled_source ? std::move(*sampled_source) : load(founders);
             if (source.creatures.empty()) throw std::invalid_argument("Founder checkpoint contains no living creatures");
             std::map<std::uint64_t,std::uint64_t> genome_ids;
+            std::map<std::uint64_t,std::size_t> unique_genomes;
+            for (std::size_t i=0;i<source.creatures.size();++i)
+                unique_genomes.emplace(source.creatures[i].genome_id,i);
+            std::vector<std::size_t> pool;
+            for (const auto& entry:unique_genomes) pool.push_back(entry.second);
+            neuroevo::Random sampling_rng(world.config.seed ^ 0x737461727467656eULL);
+            sampled_founders << "founder_id,genome_id,source_creature_id,source_genome_id\n";
             for (std::size_t i=0;i<world.creatures.size();++i) {
-                const auto& source_creature=source.creatures[i%source.creatures.size()];
+                const auto& source_creature=source.creatures[starting_genomes.empty()
+                    ? i%source.creatures.size() : pool[sampling_rng.uniform_index(pool.size())]];
                 const auto& brain=source_creature.brain;
                 if (brain.config().dt != world.config.brain.dt) throw std::invalid_argument("Founder brains require matching --brain-dt");
                 auto brain_config = world.config.brain;
@@ -371,12 +397,21 @@ int main(int argc, char** argv)
                 world.creatures[i].brain.reset_state();
                 const auto entry=genome_ids.emplace(source_creature.genome_id,world.creatures[i].id);
                 world.creatures[i].genome_id=entry.first->second;
+                sampled_founders << world.creatures[i].id << ',' << entry.first->second << ','
+                    << source_creature.id << ',' << source_creature.genome_id << '\n';
             }
             founder_brain="checkpoint";
         }
         for (std::size_t i=0;i<companions;++i)
             world.creatures[world.creatures.size()-1-i].controller=companion_controller;
         std::filesystem::create_directories(out);
+        if (!starting_genomes.empty()) {
+            std::ofstream provenance(out/"starting_genomes.csv");
+            provenance << sampled_founders.str();
+            provenance.close();
+            if (!provenance) throw std::runtime_error("Cannot write starting_genomes.csv");
+            std::cout << "Sampled " << world.creatures.size() << " founders from " << starting_genomes << '\n';
+        }
         if (std::filesystem::exists(out/"performance.csv"))
             throw std::runtime_error("Performance output already exists; choose a fresh --out directory");
         std::ofstream performance(out/"performance.csv");

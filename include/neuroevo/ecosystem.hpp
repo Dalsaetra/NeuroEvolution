@@ -50,7 +50,7 @@ struct EcosystemConfig {
     double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.08;
     bool nursery_frontier = false;
     std::size_t nursery_size = 16;
-    std::size_t nursery_exit_width = 4;
+    std::size_t nursery_exit_width = 3;
     std::size_t shelter_size = 6;
     std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
