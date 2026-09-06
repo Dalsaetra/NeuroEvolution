@@ -153,18 +153,18 @@ void shelter_and_nutrition()
     self.position={3.5,5.5}; self.energy=60; self.brain=Brain(c.brain);
     w.creatures.push_back(self);
     w.terrain[5*c.width+5]=Terrain::Shelter;
-    require(w.observe(0)[eco_shelter_offset+2]>0,"Visible shelter lacks a directional cue");
+    require(w.observe(0)[eco_shelter_offset+eco_sectors/2]>0,"Visible shelter lacks a directional cue");
     w.terrain[5*c.width+4]=Terrain::Wall;
-    require(w.observe(0)[eco_shelter_offset+2]==0,"Shelter cue leaks through walls");
+    require(w.observe(0)[eco_shelter_offset+eco_sectors/2]==0,"Shelter cue leaks through walls");
     w.terrain[5*c.width+4]=Terrain::Ground;
     w.creatures[0].heading=3.141592653589793;
     for (std::size_t i=eco_shelter_offset;i<eco_input_count;++i)
         require(w.observe(0)[i]==0,"Shelter cue leaks outside field of view");
     w.config.poor_fruit_energy=13; w.config.rich_fruit_energy=40; w.config.pod_energy=60;
     w.creatures[0].digestion_pulse=13*c.ingestion_rate*c.dt;
-    const double poor=w.observe(0)[eco_legacy_input_count-2];
+    const double poor=w.observe(0)[eco_unsheltered_input-2];
     w.creatures[0].digestion_pulse=40*c.ingestion_rate*c.dt;
-    const double rich=w.observe(0)[eco_legacy_input_count-2];
+    const double rich=w.observe(0)[eco_unsheltered_input-2];
     require(poor>0 && rich>poor && rich<1,"Nutrition feedback saturates across configured food values");
 }
 }

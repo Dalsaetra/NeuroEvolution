@@ -73,6 +73,40 @@ int main()
         require(state(original)==state(resumed),"Resumed spiking simulation diverged from uninterrupted execution");
         require(original.totals.spikes>0,"Checkpoint continuation did not exercise spiking activity");
 
+        // Older three-sector genomes gain a disconnected sensor without losing
+        // membrane state, delayed currents, motor traces or existing routing.
+        auto historical = original;
+        --historical.config.brain.input_count;
+        --historical.config.brain.sensory_input_count;
+        neuroevo::Random genome_rng(192);
+        for (auto& c : historical.creatures) {
+            c.brain=neuroevo::Brain::random(historical.config.brain,genome_rng);
+            for(int i=0;i<7;++i) c.brain.step(std::vector<double>(historical.config.brain.input_count,0.8),&genome_rng);
+        }
+        std::istringstream old_input(state(historical));
+        const auto migrated=neuroevo::EcosystemWorld::load_checkpoint(old_input);
+        require(migrated.config.brain.input_count==config.brain.input_count,"Unsheltered migration lost input count");
+        for(std::size_t i=0;i<historical.creatures.size();++i) {
+            auto old=historical.creatures[i].brain;
+            auto current=migrated.creatures[i].brain;
+            const auto old_edges=old.synapses();
+            require(current.synapses().size()==old_edges.size(),"Migration connected the new sensor");
+            for(std::size_t e=0;e<old_edges.size();++e) {
+                const auto& a=old_edges[e];const auto& b=current.synapses()[e];
+                require(b.pre==a.pre+(a.pre>=neuroevo::eco_unsheltered_input)
+                    && b.post==a.post+(a.post>=neuroevo::eco_unsheltered_input)
+                    && b.weight==a.weight && b.delay_steps==a.delay_steps,"Migration changed existing routes");
+            }
+            neuroevo::Random a(89),b(89);
+            for(int step=0;step<20;++step) {
+                auto old_values=std::vector<double>(old.config().input_count,0.4);
+                auto new_values=old_values;
+                new_values.insert(new_values.begin()+neuroevo::eco_unsheltered_input,1.0);
+                require(old.step(old_values,&a).motor_outputs==current.step(new_values,&b).motor_outputs,
+                    "Sensor migration disturbed existing running motor behavior");
+            }
+        }
+
         // Pending digestion, opening progress, weather offset, and transient events
         // must survive checkpoints in addition to visible positions and genomes.
         original.config.phase_offset=179.95;
@@ -92,6 +126,7 @@ int main()
         // Storm toggling did not exist in v1, whose implicit behavior was on.
         // Construct a genuinely historical 87-input world for the v1 fixture.
         auto legacy_config = config;
+        legacy_config.typed_food_proximity = false;
         legacy_config.outdoor_food_relocates = false;
         legacy_config.shelters = 0;
         legacy_config.mutation.remove_neuron_probability = 0;

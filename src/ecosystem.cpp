@@ -178,17 +178,19 @@ EcosystemConfig::EcosystemConfig()
     brain.synaptic_gain = 32.0;
     // Ecosystem reproduction needs enough variation to explore new behavior
     // while retaining the sparse ancestor's useful feeding circuit.
-    mutation.weight_sigma = 0.30;
+    mutation.weight_sigma = 1.0;
     mutation.stable = true;
-    mutation.bias_sigma = 0.50;
-    mutation.threshold_sigma = 0.06;
-    mutation.position_sigma = 0.05;
-    mutation.background_sensitivity_sigma = 0.12;
+    mutation.bias_sigma = 0.75;
+    mutation.threshold_sigma = 0.4;
+    mutation.position_sigma = 0.3;
+    mutation.background_sensitivity_sigma = 0.3;
     mutation.mutate_weight_probability = 0.22;
     mutation.mutate_neuron_probability = 0.16;
     mutation.add_synapse_probability = 0.40;
     mutation.add_neuron_probability = 0.12;
     mutation.add_reciprocal_motif_probability = 0.12;
+    mutation.remove_synapse_probability = 0.40;
+    mutation.remove_neuron_probability = 0.12;
 }
 
 void EcosystemConfig::validate() const
@@ -260,6 +262,8 @@ void EcosystemConfig::validate() const
         throw std::invalid_argument("Nursery food decay must be slower than ingestion");
     positive(graze_decay, "Graze decay", true);
     positive(fruit_decay, "Fruit decay", true);
+    positive(shelter_food_decay, "Shelter food decay", true);
+    if(shelter_food_decay>=ingestion_rate)throw std::invalid_argument("Shelter food decay must be slower than ingestion");
     positive(shelter_food_energy, "Shelter food energy");
     positive(shelter_food_capacity, "Shelter food capacity");
     positive(shelter_food_regrowth, "Shelter food regrowth", true);
@@ -732,6 +736,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (std::size_t i = 0; i < population; ++i) {
         const auto& creature = creatures[i];
         if (creature.action.forage <= 0 || creature.energy <= 0 || (config.predation && creature.health <= 0)) continue;
+        // Foraging intent and its energy cost remain, but exposed creatures
+        // cannot harvest during the storm interval. Use post-movement shelter.
+        if (storm && !sheltered(creature.position)) continue;
         std::size_t target = resources.size();
         double nearest = config.interaction_range + epsilon;
         std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
@@ -838,6 +845,17 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             totals.regrown_biomass += resource.capacity-resource.stock;
             resource.stock=resource.capacity;
             events.push_back({end,"nursery_food_relocated",0,0,resource.id,resource.stock});
+        }
+    }
+
+    if(config.shelter_food_decay>0)for(auto& resource:resources) {
+        if(!resource.shelter_food)continue;
+        const double spoiled=std::min(resource.stock,config.shelter_food_decay*config.dt);
+        resource.stock-=spoiled;totals.spoiled_biomass+=spoiled;
+        if(resource.stock<=epsilon && relocate_shelter_food(resource)) {
+            totals.regrown_biomass+=resource.capacity-resource.stock;
+            resource.stock=resource.capacity;
+            events.push_back({end,"shelter_food_relocated",0,0,resource.id,resource.stock});
         }
     }
 
@@ -957,11 +975,12 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (!found) continue;
             EcoCreature child;
             child.id = next_creature_id;
-            // One draw selects 25% copies, 50% slight and 25% strong mutations.
+            // Preserve successful genomes while retaining mostly local exploration.
+            // One draw selects 50% copies, 45% slight and 5% strong mutations.
             const double inheritance = mutation_rng.uniform(0.0, 1.0);
-            const bool exact_inheritance = inheritance < 0.25;
+            const bool exact_inheritance = inheritance < 0.50;
             child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
-            child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= 0.75, mutation_rng);
+            child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= 0.95, mutation_rng);
             child.health = max_health(child);
             const double body_cost = config.predation ? config.body_energy_per_mass * child.body.mass : 0.0;
             const double birth_cost = config.reproduction_cost + body_cost;
@@ -975,7 +994,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.energy = config.offspring_energy;
             child.controller = parent.controller;
             child.brain = parent.brain;
-            if (!exact_inheritance) child.brain.mutate(inheritance < 0.75
+            if (!exact_inheritance) child.brain.mutate(inheritance < 0.95
                 ? detail::slight_mutation(config.mutation)
                 : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation));
             child.brain.reset_state();
@@ -1008,6 +1027,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
     for (auto& resource : resources) {
         if (resource.kind == FoodKind::Meat) continue;
+        if(resource.shelter_food && config.shelter_food_decay>0)continue;
         if (config.nursery_food_relocates && in_nursery(resource.position)) continue;
         if (config.outdoor_food_relocates && resource.kind != FoodKind::Pod
             && !resource.shelter_food && !in_nursery(resource.position)) continue;

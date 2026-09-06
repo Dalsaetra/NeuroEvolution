@@ -404,36 +404,55 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
 
 void Brain::mutate_stable(const MutationConfig& config, Random& rng, const InputGroups& input_groups)
 {
-    // One structural operation OR at most two local parameter edits. Probabilities
+    // One structural operation OR a bounded number of local parameter edits. Probabilities
     // select operators, rather than multiplying the edit count by genome size.
     const double add = config.add_synapse_probability;
-    const double grow = config_.hidden_count < config.max_hidden_neurons ? config.add_neuron_probability : 0.0;
+    const bool budgeted = config.structural_edit_probability >= 0;
+    const double grow = budgeted || config_.hidden_count < config.max_hidden_neurons ? config.add_neuron_probability : 0.0;
     const double motif = config_.hidden_count >= 2 ? config.add_reciprocal_motif_probability : 0.0;
-    const double remove = synapses_.empty() ? 0.0 : config.remove_synapse_probability;
-    const double prune = config_.hidden_count > 0 ? config.remove_neuron_probability : 0.0;
+    const double remove = budgeted || !synapses_.empty() ? config.remove_synapse_probability : 0.0;
+    const double prune = budgeted || config_.hidden_count > 0 ? config.remove_neuron_probability : 0.0;
     const double structural = add + grow + motif + remove + prune;
     bool moved = false;
-    if (structural > 0 && rng.chance(std::min(1.0, structural))) {
+    if (structural > 0 && rng.chance(budgeted ? config.structural_edit_probability : std::min(1.0, structural))) {
         const double choice = rng.uniform(0.0, structural);
         if (choice < add) add_random_synapse(rng, true, input_groups);
-        else if (choice < add + grow) add_random_neuron(rng, true);
+        else if (choice < add + grow) {
+            if (config_.hidden_count < config.max_hidden_neurons) add_random_neuron(rng, true);
+        }
         else if (choice < add + grow + motif) add_reciprocal_motif(rng, true);
-        else if (choice < add + grow + motif + remove)
-            synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
+        else if (choice < add + grow + motif + remove) {
+            if (!synapses_.empty())
+                synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
+        }
         else remove_random_neuron(rng);
     } else {
-        const double weights = synapses_.empty() ? 0.0 : config.mutate_weight_probability;
-        const double neurons = config_.hidden_count + config_.output_count > 0 ? config.mutate_neuron_probability : 0.0;
+        const double weights = synapses_.empty() ? 0.0 : config.mutate_weight_probability * (budgeted ? 4.0 : 1.0);
+        const bool sensory_edits = budgeted && !input_groups.empty();
+        const double neurons = config_.hidden_count + config_.output_count > 0 || sensory_edits ? config.mutate_neuron_probability : 0.0;
         const double total = weights + neurons;
-        for (int edit = 0; edit < 2 && total > 0; ++edit) {
+        // Budgeted offspring choose one parameter family for the entire batch.
+        // At ecosystem defaults, roughly 85% of parameter batches edit weights only.
+        const bool weight_batch = budgeted && total > 0 && rng.chance(weights / total);
+        for (std::size_t edit = 0; edit < config.local_edit_limit && total > 0; ++edit) {
             if (!rng.chance(std::min(1.0, 8.0 * total))) continue;
-            if (rng.uniform(0.0, total) < weights) {
+            if (budgeted ? weight_batch : rng.uniform(0.0, total) < weights) {
                 auto& edge = synapses_[rng.uniform_index(synapses_.size())];
                 // Small connections should not receive perturbations as large as
                 // established strong pathways. A floor permits growth from zero.
-                const double sigma = std::min(config.weight_sigma, 0.1 * std::abs(edge.weight) + 0.01);
+                const double sigma = std::min(config.weight_sigma,
+                    config.local_weight_limit_multiplier * (0.1 * std::abs(edge.weight) + 0.01));
                 edge.weight = std::clamp(edge.weight + rng.normal(0.0, sigma), -6.0, 6.0);
             } else {
+                // Sensory threshold is a rate sensitivity in calibrated mode.
+                // Select categories first so sector-rich senses do not dominate.
+                if (sensory_edits && (config_.hidden_count + config_.output_count == 0 || rng.chance(0.25))) {
+                    const auto& group = input_groups[rng.uniform_index(input_groups.size())];
+                    auto& neuron = neurons_[group[rng.uniform_index(group.size())]];
+                    const double sigma = std::min(config.threshold_sigma, 0.05 * neuron.threshold);
+                    neuron.threshold = std::clamp(neuron.threshold + rng.normal(0.0, sigma), 0.2, 5.0);
+                    continue;
+                }
                 const auto i = config_.input_count + rng.uniform_index(config_.hidden_count + config_.output_count);
                 auto& neuron = neurons_[i];
                 const double property = rng.uniform(0.0, 1.0);
@@ -460,6 +479,27 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng, const Input
     if (moved) for (auto& edge : synapses_)
         edge.delay_steps = compute_delay_steps(neurons_[edge.pre].position, neurons_[edge.post].position);
     rebuild_runtime_state();
+}
+
+void Brain::insert_sensory_input(std::size_t index)
+{
+    if (index > config_.input_count) throw std::invalid_argument("Invalid sensory insertion index");
+    Neuron sensor;
+    sensor.position = {0.05, 0.5};
+    neurons_.insert(neurons_.begin() + index, sensor);
+    current_buffers_.insert(current_buffers_.begin() + index,
+        std::vector<double>(config_.max_delay_steps + 1, 0.0));
+    ++config_.input_count;
+    if (config_.sensory_input_count > 0) ++config_.sensory_input_count;
+    if (config_.has_clock_input && config_.clock_input_index >= index) ++config_.clock_input_index;
+    if (config_.has_episode_start_input && config_.episode_start_input_index >= index) ++config_.episode_start_input_index;
+    outgoing_.assign(total_neurons(), {});
+    for (std::size_t i=0;i<synapses_.size();++i) {
+        auto& edge=synapses_[i];
+        if (edge.pre>=index) ++edge.pre;
+        if (edge.post>=index) ++edge.post;
+        outgoing_[edge.pre].push_back(i);
+    }
 }
 
 void Brain::remove_random_neuron(Random& rng)
@@ -562,7 +602,7 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
         synapse.pre = pre;
         synapse.post = post;
         synapse.weight = random_synapse_weight(rng);
-        if (weak) synapse.weight = std::copysign(std::min(6.0, 0.15 * 32.0 / config_.synaptic_gain), synapse.weight);
+        if (weak) synapse.weight = std::copysign(std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain), synapse.weight);
         synapse.delay_steps = compute_delay_steps(neurons_[pre].position, neurons_[post].position);
         synapses_.push_back(synapse);
         return;
@@ -614,7 +654,7 @@ void Brain::add_random_neuron(Random& rng, bool weak)
     // the new neuron. This makes node growth useful without erasing the
     // parent's behavior in a single mutation.
     const double drive = std::clamp(std::max(0.75, std::abs(inherited_weight)), 0.75, 6.0);
-    const double limit = weak ? std::min(6.0, 0.15 * 32.0 / config_.synaptic_gain) : 6.0;
+    const double limit = weak ? std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain) : 6.0;
     const double branch = std::clamp(inherited_weight * 0.5, -limit, limit);
     synapses_.push_back({pre, insertion, drive,
         compute_delay_steps(neurons_[pre].position, neurons_[insertion].position)});
@@ -644,7 +684,7 @@ void Brain::add_reciprocal_motif(Random& rng, bool weak)
         synapses_.push_back({
             pre,
             post,
-            weak ? std::copysign(std::min(6.0, 0.15 * 32.0 / config_.synaptic_gain), random_synapse_weight(rng)) : random_synapse_weight(rng),
+            weak ? std::copysign(std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain), random_synapse_weight(rng)) : random_synapse_weight(rng),
             compute_delay_steps(neurons_[pre].position, neurons_[post].position),
         });
     };

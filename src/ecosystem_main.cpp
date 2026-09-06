@@ -126,6 +126,7 @@ int main(int argc, char** argv)
             {"--graze-energy",&cfg.graze_energy},{"--poor-fruit-energy",&cfg.poor_fruit_energy},
             {"--rich-fruit-energy",&cfg.rich_fruit_energy},{"--pod-energy",&cfg.pod_energy},
             {"--graze-decay",&cfg.graze_decay},{"--fruit-decay",&cfg.fruit_decay},
+            {"--shelter-food-decay",&cfg.shelter_food_decay},
             {"--shelter-food-energy",&cfg.shelter_food_energy},{"--shelter-food-capacity",&cfg.shelter_food_capacity},
             {"--shelter-food-regrowth",&cfg.shelter_food_regrowth},
             {"--graze-regrowth",&cfg.graze_regrowth},{"--fruit-regrowth",&cfg.fruit_regrowth},
@@ -153,6 +154,7 @@ int main(int argc, char** argv)
         std::size_t steps=4800,record_every=10,tail_record_every=10,companions=0;
         double detailed_tail_seconds=0;
         int stable_mutations_override=-1;
+        int typed_food_override=-1;
         double remove_neuron_override=0;
         bool remove_neuron_explicit=false;
         std::size_t evaluation_workers=std::max(1u,std::min(4u,std::thread::hardware_concurrency()));
@@ -173,7 +175,8 @@ int main(int argc, char** argv)
                     "  --record-every N          Save a replay frame every N steps, default 10\n"
                     "  --record-brains 0|1       Record neural activity, default 1\n"
                     "  --record-observations 0|1 Record sensory values per creature, default 1\n"
-                    "  --sensorimotor X          calibrated (97 inputs, default) or legacy (87 inputs)\n"
+                    "  --sensorimotor X          calibrated (66 inputs, default) or legacy (60 inputs); three vision sectors\n"
+                    "  --typed-food-proximity 0|1  Per-food-type distance signals; default 1, also overrides resume\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
                     "  --stable-mutations 0|1    Local edits and weak growth; new-world default 1, explicit resume override\n"
                     "  --mutate-remove-neuron-prob N  Hidden-neuron pruning (default 0.01; also overrides resume)\n"
@@ -228,6 +231,7 @@ int main(int argc, char** argv)
             else if (arg == "--steps") steps=integer(value,arg);
             else if (arg == "--archive-eval-workers") evaluation_workers=integer(value,arg);
             else if (arg == "--stable-mutations") stable_mutations_override=boolean(value,arg);
+            else if (arg == "--typed-food-proximity") typed_food_override=boolean(value,arg);
             else if (arg == "--mutate-remove-neuron-prob") {
                 remove_neuron_override=number(value,arg);
                 if (remove_neuron_override<0 || remove_neuron_override>1)
@@ -337,6 +341,7 @@ int main(int argc, char** argv)
             ?neuroevo::make_ancestral_nursery(cfg):neuroevo::EcosystemWorld(cfg)):load(resume);
         world.evaluation_workers=evaluation_workers;
         if (stable_mutations_override>=0) world.config.mutation.stable=stable_mutations_override!=0;
+        if (typed_food_override>=0) world.config.typed_food_proximity=typed_food_override!=0;
         if (remove_neuron_explicit) world.config.mutation.remove_neuron_probability=remove_neuron_override;
         if (resume.empty() && founder_brain=="sparse-ancestor") {
             const auto ancestor=neuroevo::make_sparse_ancestral_brain(world.config);

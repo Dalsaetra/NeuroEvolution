@@ -18,9 +18,10 @@ enum class ControllerKind { Spiking, Reactive, Random };
 enum class WeatherPhase { Calm, Warning, Storm };
 // Values 0..4 are checkpoint-stable. Strong mutation was appended in v3.
 enum class CreatureOrigin { Founder, Birth, ArchiveMutation, ArchiveClone, RandomImmigrant, ArchiveStrongMutation };
-constexpr std::size_t eco_sectors = 5;
+constexpr std::size_t eco_sectors = 3;
 constexpr std::size_t eco_sector_channels = 14;
-constexpr std::size_t eco_legacy_input_count = eco_sectors * eco_sector_channels + 17;
+constexpr std::size_t eco_unsheltered_input = eco_sectors * eco_sector_channels + 17;
+constexpr std::size_t eco_legacy_input_count = eco_unsheltered_input + 1;
 constexpr std::size_t eco_depleted_offset = eco_legacy_input_count;
 constexpr std::size_t eco_shelter_offset = eco_depleted_offset + eco_sectors;
 constexpr std::size_t eco_input_count = eco_shelter_offset + eco_sectors;
@@ -40,6 +41,7 @@ struct BodyGenes {
 };
 
 struct EcosystemConfig {
+    bool typed_food_proximity = true;
     bool predation = false; // Enabled by default in new nursery-frontier runs.
     double founder_mass = 1.0, founder_carnivory = 0.0;
     double health_per_mass = 20, body_energy_per_mass = 30;
@@ -71,6 +73,7 @@ struct EcosystemConfig {
     double graze_regrowth = 0.02, fruit_regrowth = 0.01, pod_regrowth = 0.08;
     bool outdoor_food_relocates = true;
     double graze_decay = 0.005, fruit_decay = 0.005; // biomass per second
+    double shelter_food_decay = 0.005;
     double shelter_food_energy = 1, shelter_food_capacity = 2, shelter_food_regrowth = 0.6;
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
     double calm_duration = 150, warning_duration = 30, storm_duration = 60;
@@ -109,6 +112,7 @@ struct EcoResource {
     FoodKind kind = FoodKind::Graze;
     Vec2 position;
     double stock = 0, capacity = 0, regrowth = 0, energy_per_unit = 0;
+    Vec2 shelter_origin; // Original shelter center, stable across food relocations.
     bool shelter_food = false; // Low-quality graze; shares the existing graze sensory channel.
     PodState pod_state = PodState::Closed;
     double progress = 0, opened_at = 0;
@@ -217,6 +221,7 @@ public:
     bool relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures);
     bool relocate_outdoor_food(EcoResource& resource);
     void add_shelter_food(Vec2 position);
+    bool relocate_shelter_food(EcoResource& resource);
     bool traversable(Vec2 position) const;
     bool line_of_sight(Vec2 from, Vec2 to) const;
     void generate_world();
@@ -240,7 +245,8 @@ public:
     static EcosystemWorld load_checkpoint(std::istream& stream);
 };
 
-std::vector<std::string> ecosystem_input_labels(bool extended = true, bool predation = false);
+std::vector<std::string> ecosystem_input_labels(bool extended = true, bool predation = false,
+    bool typed_food_proximity = true);
 const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false);
 // A deliberately small, deterministic founder genome. It uses seven hidden
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary

@@ -10,7 +10,7 @@ namespace {
 
 using namespace neuroevo;
 constexpr double pi = 3.14159265358979323846;
-constexpr std::size_t center = 2 * eco_sector_channels;
+constexpr std::size_t center = (eco_sectors / 2) * eco_sector_channels;
 constexpr std::size_t hearing = eco_sectors * eco_sector_channels;
 constexpr std::size_t contact = hearing + 4;
 constexpr std::size_t body = contact + 4;
@@ -77,6 +77,13 @@ void test_visibility()
     world.resources.push_back(food({8.5, 5.5}));
     world.terrain[5 * world.config.width + 6] = Terrain::Wall;
     auto inputs = world.observe(0);
+    require(inputs[eco_unsheltered_input]==1 && inputs[body+4]==0,
+        "Exposed creature must sense unsheltered");
+    world.terrain[5*world.config.width+4]=Terrain::Shelter;
+    const auto protected_inputs=world.observe(0);
+    require(protected_inputs[eco_unsheltered_input]==0 && protected_inputs[body+4]==1,
+        "Unsheltered must be the complement of sheltered");
+    world.terrain[5*world.config.width+4]=Terrain::Ground;
     require(inputs.size() == eco_input_count, "Incorrect sensory channel count");
     require(near(inputs[center], 0.75), "Wall proximity should use its visible surface");
     require(inputs[center + 1] == 0.0 && inputs[center + 10] == 0.0,
@@ -114,16 +121,18 @@ void test_sectors_and_contact()
     auto world = empty_world();
     world.creatures.push_back(creature(world, {4.5, 4.5}));
     world.resources.push_back(food({6.0, 6.0}));
+    const auto unobstructed = world.observe(0);
     world.terrain[5 * world.config.width + 6] = Terrain::Wall;
     const auto inputs = world.observe(0);
-    const double boundary_distance = 0.5 / std::sin(pi / 12.0);
+    // The nearest wall corner is inside the wider center sector, but the
+    // sector's central ray still misses the wall entirely.
+    const double boundary_distance = std::hypot(1.5, 0.5);
     require(near(inputs[center], 1.0 - boundary_distance / world.config.vision_range),
         "A sector must detect partial wall intersections away from its center ray");
-    require(inputs[eco_sector_channels] == 0.0, "An obstacle outside a sector must not activate it");
+    require(inputs[0] == unobstructed[0], "An obstacle outside a sector must not activate it");
     world.terrain[5 * world.config.width + 6] = Terrain::Ground;
     const auto left_inputs = world.observe(0);
-    require(left_inputs[4 * eco_sector_channels + 1] > 0.0
-        || left_inputs[3 * eco_sector_channels + 1] > 0.0,
+    require(left_inputs[(eco_sectors - 1) * eco_sector_channels + 1] > 0.0,
         "Positive bearings should activate a left vision sector");
 
     world.creatures[0].position = {5.75, 5.5};
@@ -155,8 +164,8 @@ void test_nearest_and_hidden_information()
     world.resources[1].stock = 0.0;
     const auto before = world.observe(0);
     require(before[center + 1] == 1.0 && before[center + 5] == 0.0
-        && before[center + 4] == 1.0 && before[center + 7] == 1.0
-        && near(before[eco_depleted_offset + 2], 1.0 - 1.0 / world.config.vision_range),
+        && near(before[center + 4], 1.0 - 4.0 / world.config.vision_range) && before[center + 7] == 1.0
+        && near(before[eco_depleted_offset + eco_sectors / 2], 1.0 - 1.0 / world.config.vision_range),
         "Depleted food must remain separately visible without hiding stocked food");
     require(near(before[center + 12], 0.2), "Vision should report the nearest creature's activity");
     require(before[hearing] == 1.0, "Multiple calls must combine with saturation");
@@ -173,6 +182,29 @@ void test_nearest_and_hidden_information()
     require(world.observe(0) == before, "Hidden nutrition, identity, ancestry, and energy must not leak into observations");
     std::reverse(world.resources.begin(), world.resources.end());
     require(world.observe(0) == before, "Resource iteration order must not change nearest-source sensing");
+}
+
+void test_typed_food_proximity()
+{
+    auto world = empty_world();
+    world.creatures.push_back(creature(world, {4.5, 5.5}));
+    world.resources = {food({5.5,5.5},FoodKind::Graze), food({7.5,5.5},FoodKind::FruitA),
+        food({8.5,5.5},FoodKind::FruitA), food({6.5,5.5},FoodKind::FruitB)};
+    const auto seen = world.observe(0);
+    require(near(seen[center+3],5.0/6) && near(seen[center+4],0.5)
+        && near(seen[center+5],4.0/6) && seen[center+6]==0,
+        "Each food type must independently report its nearest visible distance");
+    std::reverse(world.resources.begin(),world.resources.end());
+    require(world.observe(0)==seen,"Typed food sensing depends on resource order");
+    world.terrain[5*world.config.width+6]=Terrain::Wall;
+    require(world.observe(0)[center+4]==0,"Typed food proximity leaks through walls");
+    world.terrain[5*world.config.width+6]=Terrain::Ground;
+    world.config.typed_food_proximity=false;
+    const auto old=world.observe(0);
+    require(old[center+3]==1 && old[center+4]==0 && old[center+5]==0,
+        "Historical binary food-type encoding changed");
+    require(ecosystem_input_labels()[center+4]=="vision_1_food_fruit_a_proximity",
+        "Typed food label does not describe its signal");
 }
 
 void test_feedback()
@@ -198,7 +230,8 @@ void test_feedback()
         "Every sensory channel must remain finite and normalized");
     const auto labels = ecosystem_input_labels();
     require(labels.size() == eco_input_count && labels[body] == "energy"
-        && labels[body + 8] == "episode_start" && labels.back() == "vision_4_shelter_proximity", "Channel labels must match the sensory schema");
+        && labels[body + 8] == "episode_start" && labels[eco_unsheltered_input] == "unsheltered"
+        && labels.back() == "vision_2_shelter_proximity", "Channel labels must match the sensory schema");
 }
 
 void test_independent_spiking_brains()
@@ -280,6 +313,7 @@ int main()
         test_visibility();
         test_sectors_and_contact();
         test_nearest_and_hidden_information();
+        test_typed_food_proximity();
         test_feedback();
         test_independent_spiking_brains();
         test_baseline_information_boundary();

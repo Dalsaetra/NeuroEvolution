@@ -1,90 +1,87 @@
-# Stable ecological mutations
+# Budgeted ecological mutations
 
-New ecosystems default to stable mutations. Natural reproduction still produces
-25% exact genome copies, 50% children using slight mutations, and 25% using
-strong mutations. Strong mutations use the broad legacy operator, even when
-the world uses stable mutations for slight offspring.
-Stable mutation gives each mutated child either one structural operation or at
-most two local parameter edits, independent of genome size. The parent is never
-modified. This limits disruption; it does not guarantee unchanged behavior in a
-recurrent spiking circuit.
+Natural reproduction uses 50% exact genome copies, 45% slight mutations and 5%
+strong mutations. Each mutated child receives either one structural operation
+or a bounded batch of local parameter edits. The parent is never modified.
 
-Structural operator probabilities are added, capped at one for the chance of
-choosing structural mutation, then used as relative weights to select one
-operation. With the current slight defaults this is a 44.85% structural chance
-among mutated children. Unavailable growth/motif/removal operations are excluded.
-A failed connection search can leave the topology unchanged.
+| Preset | Structural attempt | Otherwise | Weight-change cap |
+| --- | --- | --- | --- |
+| Slight | 25% | Up to 2 local edits | `0.1 * abs(weight) + 0.01` |
+| Strong | 35% | Up to 4 local edits | Twice the slight cap |
 
-Otherwise, each of two parameter-edit opportunities occurs with probability
-`min(1, 8 * (weight_probability + neuron_probability))`. Those two probabilities
-also determine the relative choice of weight versus neuron edits. A uniformly
-selected edge or non-input neuron is edited; an element may be chosen twice.
-Zero probabilities disable the corresponding operators.
+These controls are derived in `src/ecosystem_mutation.hpp` when mutation is
+applied; they are not additional saved world configuration. Both ecosystem modes
+and archive mutation presets use this bounded policy, including after resume.
+The generic Brain stable/legacy policies and separate NEAT workflow remain
+available outside these presets. The saved `mutation.stable` field does not
+switch ecosystem offspring back to unbounded strong mutation.
 
-- Weight perturbation uses standard deviation
-  `min(weight_sigma, 0.1 * abs(weight) + 0.01)`, protecting weak pathways while
-  allowing zero-weight connections to become active.
-- A hidden-neuron edit chooses threshold (40%), bias (30%), background
-  sensitivity (25%), or one position axis (5%). Output neurons substitute noise
-  sensitivity for bias edits and threshold for position edits. Input neurons
-  are not edited by this policy. Threshold edits also clamp hidden bias when
-  necessary to retain the existing subthreshold safety bound.
-- Position changes recalculate delays; other parameter edits preserve delays.
-- New edges and reciprocal motifs start at magnitude 0.15 at synaptic gain 32,
-  scaled inversely with gain and capped at 6.
-- New sensory-source edges sample uniformly across available sensor categories,
-  then uniformly across available neurons in that category, then across legal
-  destinations. Each vision channel is one category spanning its five sectors;
-  hearing and contact each span four directions. Body cues such as `storm_cue`
-  are singleton categories. Extended depleted-food and shelter proximity each
-  form a five-sector category. Thus storm cue and all shelter-proximity sectors
-  combined have equal probability, conditional on choosing a sensory source
-  and both categories having a legal new edge. Fully connected neurons and
-  categories are excluded without biasing selection toward larger categories.
-  Hidden-source edges retain their existing sampling rules. This applies to
-  slight and strong ecosystem offspring and archive mutations, including future
-  mutations after resume. Existing edges, random initialization, neuron side
-  branches and the separate generic/NEAT workflows are unchanged.
-- New neurons retain the original edge. The new branch output is capped at that
-  weak magnitude, while its input retains the inherited drive. New branch
-  neurons start with zero background sensitivity.
-- Synapse pruning selects one random edge (base probability 0.04).
-- Neuron pruning selects one random hidden neuron and deletes its incoming and
-  outgoing edges, including recurrent/self connections (base probability 0.01).
-  Inputs and outputs are protected; the last hidden neuron can be removed.
-  Surviving neuron order, connection weights and delays are preserved, with
-  endpoints remapped to the compacted neuron indices. Runtime buffers are rebuilt.
-  This is one structural operation, even when it removes several incident edges.
-- Slight mutations scale both pruning probabilities by 0.65: 2.6% synapse
-  removal and 0.65% hidden-neuron removal per mutated child when available at
-  default settings. Including both slight and strong offspring, the default removal-operation
-  probabilities are 3.8% for synapses and 0.825% for hidden neurons per birth
-  when eligible (neuron removal also deletes its incident synapses). These are conservative starting rates, not empirically tuned
-  optima; neuron removal is rarer because it can disrupt multiple pathways.
-  Useful edges and hidden neurons are not permanently locked.
+## Structural selection
 
-Strong archive immigrants use the broad mutation operator for exploration,
-with 10% synapse removal and 2% neuron removal at default settings. Generic
-brain mutations also support the new 1% neuron pruning operator. The separate
-NEAT workflow is unchanged (connection toggling, no physical neuron pruning).
-No offspring screening or offline evaluation audit is added.
+The structural budget is independent of the sum of operator weights. Each
+preset averages the configured add/remove weights within each enabled pair,
+so adding and removing have equal selection probability. Explicit zero settings
+remain disabled and can intentionally break that symmetry. The unpaired
+reciprocal-motif operator is disabled in ecosystem presets.
 
-Use `-MutationMode stable` or `-MutationMode legacy` in `scripts/ecosystem.ps1`,
-or `--stable-mutations 1|0` in the executable. An explicit setting can be used
-with resume and affects future mutations; it does not rewire living or archived
-brains. Without an explicit override, resume retains the saved policy.
-Ecosystem checkpoint version 8 stores this choice. Versions 1–7 load with legacy
-mutation to preserve their continuation behavior. The summary records the choice
-in `mutation.stable`.
+With the current ecosystem weights (0.40 for each synapse operation and 0.12
+for each neuron operation), conditional on choosing a structural attempt:
 
-Checkpoint version 13 also stores `mutation.remove_neuron_probability` and the
-summary reports both pruning rates. Versions 1–12 load with neuron pruning
-disabled to preserve continuation behavior. Use `--mutate-remove-neuron-prob
-0.01` to enable it explicitly on resume, or `0` to disable it. The same option
-configures new worlds. `--mutate-remove-synapse-prob` configures new-world edge
-pruning and retains its existing default of 0.04.
+- Add one synapse: 38.46%.
+- Remove one synapse: 38.46%.
+- Add one hidden neuron: 11.54%.
+- Remove one hidden neuron: 11.54%.
 
-Both stable and legacy worlds use the 25% copy / 50% slight / 25% strong birth
-split, including resumed worlds. Resuming an older run therefore adopts the new
-birth split for future offspring. Explicitly zero mutation probabilities remain
-disabled in both slight and strong mutations.
+Unavailable operations are no-ops, not redistributed to the opposite operation.
+For example, an add-neuron attempt at the hidden-neuron limit does not increase
+pruning probability. Removing a neuron deletes all incident edges, whereas
+adding a neuron adds two edges; equal event probabilities do not guarantee equal
+edge-count changes. Input and output neurons cannot be removed.
+
+New neurons form a side branch while retaining the original edge. New edges
+and branch outputs start at magnitude at most 0.5 at synaptic gain 32, scaled
+inversely with gain and capped at 6. Branch inputs retain inherited drive; new
+branch neurons start with zero background sensitivity.
+
+New sensory edges sample uniformly across available categories, then available
+neurons within the category, then legal destinations. Vision channels span
+sectors, hearing and contact span directions, and body cues are singleton
+categories. Storm cue and all shelter-proximity sectors combined therefore have
+equal sensory-source probability when both can connect. Fully occupied sensory
+categories are excluded by connection search. This does not redistribute the
+structural operation into deletion. Existing edges and random initialization
+are unchanged.
+
+## Parameter edits
+
+A batch edits either weights or neuron parameters. Weight selection receives
+four times the configured weight probability relative to neuron probability.
+With defaults 0.22 and 0.16, about 84.6% of parameter batches edit weights only.
+Across all mutated children, weight-only batches are approximately 63.5% for
+slight mutation and 55% for strong mutation; structural attempts are 25%/35%.
+These rates assume available edges, neurons and default nonzero settings.
+
+Each edit opportunity occurs with probability
+`min(1, 8 * (4 * weight_probability + neuron_probability))`, after excluding
+unavailable parameter families. An element may be selected repeatedly. Setting
+both parameter probabilities to zero disables all parameter edits.
+
+Weight perturbation sigma is the smaller of the configured sigma and the cap
+in the table. Slight sigmas are scaled by 0.45; strong sigmas by 1.75. This keeps
+weak pathways protected while allowing zero-weight edges to become active.
+
+Neuron edits select threshold (40%), bias (30%), background sensitivity (25%),
+or one position axis (5%). Output neurons substitute background sensitivity
+for bias and threshold for position edits. Within non-weight parameter batches, 25% of edit opportunities select a
+sensory threshold instead. These sample a category uniformly, then a neuron
+within that category. Sigma is capped at 5% of its current threshold (and by
+`threshold_sigma`), with thresholds clamped to 0.2–5. Each threshold change uses
+one local edit; zero neuron-mutation probability disables sensory edits too.
+In calibrated mode, a lower threshold produces a higher sensory firing rate. Threshold changes can also clamp hidden bias to its subthreshold
+bound. Position edits recalculate delays; other parameter edits preserve them.
+Runtime adjacency and buffers are rebuilt after mutation.
+
+No fitness screening, twin births or evaluation-based offspring rejection is
+introduced by this policy. Checkpoints retain the base mutation weights and
+future mutations use the current derived presets. Older checkpoints without
+neuron pruning retain a zero neuron-removal weight until explicitly changed.

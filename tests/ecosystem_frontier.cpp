@@ -31,7 +31,7 @@ void geography_and_inheritance()
                 covered+=tile==Terrain::Wall;
             }
         }
-        require(count+covered==custom.shelters*size*size,"Configured shelter size was not used by map generation");
+        require(frontier ? (count>0 && count<=custom.shelters*size*size) : count+covered==custom.shelters*size*size,"Configured shelter size was not used by map generation");
         std::istringstream checkpoint(saved(shelters));
         require(saved(EcosystemWorld::load_checkpoint(checkpoint))==saved(shelters),"Checkpoint lost shelter size");
     }
@@ -151,12 +151,9 @@ void wall_lines()
         require(wall_count>0&&wall_count<=cfg.width*cfg.height/50,"Wall coverage is not sparse");
         for(const auto& r:w.resources) {
             require(w.traversable(r.position),"Resource inside wall");
-            if(!r.shelter_food)continue;
-            const auto cx=std::size_t(r.position.x),cy=std::size_t(r.position.y);
-            const auto low=cfg.shelter_size/2,high=cfg.shelter_size-1-low;
-            for(auto y=cy-low;y<=cy+high;++y)for(auto x=cx-low;x<=cx+high;++x)
-                shelter_walls+=w.terrain[y*cfg.width+x]==Terrain::Wall;
         }
+        for(std::size_t i=cfg.width+1;i+cfg.width+1<w.terrain.size();++i)if(outdoor_wall(i))
+            for(auto n:{i-1,i+1,i-cfg.width,i+cfg.width})shelter_walls+=w.terrain[n]==Terrain::Shelter;
         // Closed nursery gates are intentional; outdoors must still be one region.
         std::vector<std::size_t> open;seen.assign(w.terrain.size(),false);
         std::size_t expected=0;
@@ -177,7 +174,7 @@ void weather_and_costs()
     cfg.phase_offset=cfg.calm_duration+cfg.warning_duration+1;
     EcosystemWorld w(cfg);
     const auto inner=std::find_if(w.resources.begin(),w.resources.end(),[&](const auto& r){return w.in_nursery(r.position);});
-    const auto outer=std::find_if(w.resources.begin(),w.resources.end(),[&](const auto& r){return !w.in_nursery(r.position)&&r.kind==FoodKind::Graze;});
+    const auto outer=std::find_if(w.resources.begin(),w.resources.end(),[&](const auto& r){return !w.in_nursery(r.position)&&!w.sheltered(r.position)&&r.kind==FoodKind::Graze;});
     const auto inner_index=inner-w.resources.begin(),outer_index=outer-w.resources.begin();
     EcoCreature a; a.id=1; a.position=inner->position; a.energy=90; a.brain=make_sparse_ancestral_brain(cfg);
     EcoCreature b=a;b.id=2;b.position=outer->position;
@@ -238,7 +235,7 @@ void relocation()
     require(length(w.resources.front().position-new_position)==0,"Nondepleted food moved");
     require(std::abs(w.resources.front().stock-(cfg.nursery_food_capacity-cfg.nursery_food_decay*cfg.dt))<1e-9,
         "Nursery food must decay at the configured rate during storms");
-    require(w.resources.size()==cfg.nursery_food_patches+cfg.grazing_patches+cfg.fruit_patches+cfg.pods+cfg.shelters,
+    require(w.resources.size()==cfg.nursery_food_patches+cfg.grazing_patches+cfg.fruit_patches+cfg.pods,
         "Relocation changed fixed resource count");
 }
 }

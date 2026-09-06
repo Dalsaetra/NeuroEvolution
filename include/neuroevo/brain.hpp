@@ -48,6 +48,11 @@ struct BrainConfig {
 struct MutationConfig {
     // Opt-in for ecological inheritance; legacy/generic mutation stays available.
     bool stable = false;
+    // Derived offspring-preset controls, not checkpoint configuration. Negative
+    // budget retains the generic stable policy's summed operator probabilities.
+    double structural_edit_probability = -1.0;
+    std::size_t local_edit_limit = 2;
+    double local_weight_limit_multiplier = 1.0;
     double weight_sigma = 0.20;
     double bias_sigma = 0.35;
     double threshold_sigma = 0.03;
@@ -116,6 +121,8 @@ public:
         std::vector<Synapse> synapses);
 
     void reset_state();
+    // Insert a disconnected sensor while preserving the running circuit state.
+    void insert_sensory_input(std::size_t index);
     BrainStepResult step(const std::vector<double>& inputs, Random* rng = nullptr);
     // Optional partition of all inputs for category-balanced connection growth.
     void mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups = {});

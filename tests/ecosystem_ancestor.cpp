@@ -74,12 +74,12 @@ void sparse_genome_contract()
     EcosystemConfig config;
     const Brain ancestor = make_sparse_ancestral_brain(config);
     require(ancestor.config().input_count == eco_input_count
-        && ancestor.config().hidden_count == 7
+        && ancestor.config().hidden_count == 2 + eco_sectors
         && ancestor.config().output_count == eco_output_count,
-        "The ancestor must use the ecosystem interface with only seven hidden neurons");
+        "The ancestor must use two rhythm neurons plus one hidden neuron per vision sector");
     require(ancestor.config().background_activity_enabled,
         "The ancestral locomotion circuit must permit low-rate spontaneous restarts");
-    require(ancestor.synapses().size() == 41,
+    require(ancestor.synapses().size() == 32,
         "The ancestral circuit must stay sparse and reviewable");
 
     std::set<std::size_t> sensory_sources;
@@ -88,10 +88,10 @@ void sparse_genome_contract()
         if (synapse.pre < eco_input_count) sensory_sources.insert(synapse.pre);
         require(synapse.post < output_begin + eco_output_count, "Ancestral synapse endpoint is invalid");
     }
-    require(sensory_sources.size() == 25,
-        "The ancestor should include storm, sheltered state, and five shelter directions");
+    require(sensory_sources.size() == 11 + 3 * eco_sectors,
+        "The ancestor should include storm, sheltered state, and all shelter directions");
     const std::size_t body = eco_sectors * eco_sector_channels + 8;
-    std::set<std::size_t> environmental{body + 4, body + 5};
+    std::set<std::size_t> environmental{body + 4, body + 5, eco_unsheltered_input};
     for (std::size_t sector = 0; sector < eco_sectors; ++sector)
         environmental.insert(eco_shelter_offset + sector);
     for (const auto source : environmental) {
@@ -106,8 +106,8 @@ void sparse_genome_contract()
     legacy.extended_senses = false;
     legacy.brain.input_count = legacy.brain.sensory_input_count = eco_legacy_input_count;
     const auto legacy_ancestor = make_sparse_ancestral_brain(legacy);
-    require(legacy_ancestor.synapses().size() == 36,
-        "Legacy ancestor must seed only the two available environmental cues");
+    require(legacy_ancestor.synapses().size() == 29,
+        "Legacy ancestor must seed all three available environmental cues");
     for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
         for (std::size_t channel : {std::size_t{3}, std::size_t{4}, std::size_t{5}, std::size_t{6},
                  std::size_t{8}, std::size_t{9}, std::size_t{10}, std::size_t{11},
@@ -218,7 +218,7 @@ void stable_mutation_contract()
             && a.weight == b.weight && a.delay_steps == b.delay_steps,
             "Structural growth disturbed the inherited pathway or also mutated parameters");
     }
-    require(std::abs(child.synapses().back().weight) <= 0.15,
+    require(std::abs(child.synapses().back().weight) <= 0.5,
         "New branch must initially have weak influence");
     auto exact = parent;
     auto disabled = exact_inheritance(); disabled.stable = true;

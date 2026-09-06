@@ -130,10 +130,10 @@ void food_and_senses()
     w.step({both,{}});
     require(w.creatures.front().digestion.empty(),"A new corpse was eaten in its creation tick");
     const auto seen=w.observe(0);
-    require(seen[2*eco_sector_channels+1]==1 && seen[eco_meat_offset+2]==1,"Plant hid meat in the same sector");
-    const double amount=seen[eco_meat_offset+2*eco_sectors+2];
+    require(seen[(eco_sectors/2)*eco_sector_channels+1]==1 && seen[eco_meat_offset+eco_sectors/2]==1,"Plant hid meat in the same sector");
+    const double amount=seen[eco_meat_offset+2*eco_sectors+eco_sectors/2];
     w.resources.back().stock*=0.5; w.resources.back().capacity*=0.5;
-    near(w.observe(0)[eco_meat_offset+2*eco_sectors+2],amount*0.5,"Meat amount uses per-corpse capacity instead of a shared scale");
+    near(w.observe(0)[eco_meat_offset+2*eco_sectors+eco_sectors/2],amount*0.5,"Meat amount uses per-corpse capacity instead of a shared scale");
     w.resources.back().stock*=2; w.resources.back().capacity*=2;
     w.step({eat()});
     near(w.resources.front().stock,2,"Pure carnivore consumed blocking plant");

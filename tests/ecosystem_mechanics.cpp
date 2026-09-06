@@ -70,6 +70,35 @@ const EcoCreature& by_id(const EcosystemWorld& world, std::uint64_t id)
 
 EcoAction forage(double intensity = 1) { return {0, 0, 0, intensity, 0}; }
 
+void storm_feeding()
+{
+    auto cfg=fixture_config();cfg.phase_offset=cfg.calm_duration+cfg.warning_duration+1;
+    cfg.forage_cost=.3;cfg.digestion_delay=0;cfg.meat_decay=1e-12;cfg.set_predation(true);cfg.healing_rate=0;
+    for(auto kind:{FoodKind::Graze,FoodKind::FruitA,FoodKind::FruitB,FoodKind::Pod,FoodKind::Meat}) {
+        EcosystemWorld w(cfg,false);
+        w.creatures={creature(cfg,1,{4.5,5.5}),creature(cfg,2,{5.5,5.5},pi)};
+        for(auto& c:w.creatures)c.body.carnivory=kind==FoodKind::Meat?1:0;
+        w.terrain[5*cfg.width+5]=Terrain::Shelter;
+        w.resources={food(1,kind,{5.0,5.5})};w.resources[0].pod_state=PodState::Open;
+        w.resources[0].opened_at=w.time();
+        w.step({forage(),forage()});
+        near(w.creatures[0].action.forage,1,"Storm erased foraging intent");
+        near(w.creatures[0].ingestion_pulse,0,"Exposed storm feeder ingested food");
+        near(w.creatures[0].energy,90-cfg.forage_cost*cfg.dt,"Exposed feeder gained food energy or avoided effort cost");
+        require(w.creatures[0].digestion.empty(),"Storm feeder queued digestion");
+        near(w.creatures[1].ingestion_pulse,cfg.ingestion_rate*cfg.dt,"Sheltered feeder was blocked or shared with exposed feeder");
+        near(w.resources[0].stock,12-cfg.ingestion_rate*cfg.dt,"Storm consumption depleted wrong amount");
+        auto exposed=w;exposed.creatures.resize(1);exposed.resources[0].stock=12;
+        exposed.step({forage()});near(exposed.resources[0].stock,12,"Exposed-only feeding depleted resource");
+        exposed.config.storms_enabled=false;exposed.step({forage()});
+        require(exposed.creatures[0].ingestion_pulse>0,"Feeding did not resume when storm disabled");
+    }
+    // Food swallowed before the storm can still finish digestion.
+    EcosystemWorld w(cfg,false);w.creatures={creature(cfg,1,{4.5,5.5})};
+    w.creatures[0].digestion.push_back({0,1,FoodKind::Graze});
+    w.step({{}});near(w.creatures[0].energy,91,"Storm blocked digestion of already swallowed food");
+}
+
 void fair_food_and_delayed_energy()
 {
     EcosystemWorld world(fixture_config(), false);
@@ -398,28 +427,28 @@ void reproduction_and_capacity()
             auto expected_rng = inheritance.mutation_rng;
             const double choice = expected_rng.uniform(0, 1);
             auto expected_brain = inheritance.creatures[0].brain;
-            if (choice >= 0.25) expected_brain.mutate(choice < 0.75
+            if (choice >= 0.50) expected_brain.mutate(choice < 0.95
                 ? detail::slight_mutation(inheritance_config.mutation)
                 : detail::strong_mutation(inheritance_config.mutation), expected_rng,
                 ecosystem_input_groups(inheritance_config.extended_senses));
             expected_brain.reset_state();
             inheritance.step({{}});
             const auto& child = by_id(inheritance, 2);
-            if (choice < 0.25) {
+            if (choice < 0.50) {
                 require(child.genome_id == 1, "Exact offspring lost the parent genome ID");
                 ++exact;
             }
             else {
                 require(child.genome_id == child.id, "Mutated offspring did not receive a new genome ID");
-                if (choice < 0.75) ++slight;
+                if (choice < 0.95) ++slight;
                 else ++strong;
             }
             std::ostringstream actual_state, expected_state;
             child.brain.save_state(actual_state); expected_brain.save_state(expected_state);
             require(actual_state.str() == expected_state.str(), "Birth used the wrong mutation preset or failed to reset activity");
         }
-        require(exact >= 40 && exact <= 88 && slight >= 96 && slight <= 160 && strong >= 40 && strong <= 88,
-            "Birth inheritance is not approximately 25% copy / 50% slight / 25% strong across deterministic seeds");
+        require(exact >= 96 && exact <= 160 && slight >= 83 && slight <= 147 && strong >= 3 && strong <= 26,
+            "Birth inheritance is not approximately 50% copy / 45% slight / 5% strong across deterministic seeds");
     }
 }
 
@@ -543,6 +572,7 @@ void long_running_accounts()
 int main()
 {
     try {
+        storm_feeding();
         fair_food_and_delayed_energy();
         cooperative_pods();
         weather_shelter_and_costs();
@@ -558,3 +588,4 @@ int main()
         return 1;
     }
 }
+

@@ -53,6 +53,8 @@ void category_distribution(bool stable, bool extended)
         child.mutate(mutation, rng, groups);
         require(child.synapses().size() == 1, "Growth failed on an empty sensory graph");
         const auto pre = child.synapses()[0].pre;
+        if (stable) require(std::abs(std::abs(child.synapses()[0].weight) - 0.5 * 32 / config.synaptic_gain) < 1e-12,
+            "New stable synapse did not use the increased magnitude");
         ++counts[membership[pre]]; ++inputs[pre];
     }
     for (auto count : counts) require(count > 800 && count < 1200, "Sensory categories are not equally sampled");
@@ -87,9 +89,48 @@ void saturated_categories(bool stable)
     require(singleton > 1800 && singleton < 2200, "Partial saturation biased category choice");
 }
 
+void sensory_thresholds()
+{
+    BrainConfig config;
+    config.input_count=4; config.hidden_count=0; config.output_count=0;
+    config.calibrated_io=true; config.background_activity_enabled=false;
+    const Brain parent(config);
+    const Brain::InputGroups groups{{0},{1,2,3}};
+    auto mutation=growth_only(true);
+    mutation.structural_edit_probability=0;
+    mutation.local_edit_limit=1;
+    mutation.mutate_neuron_probability=1;
+    mutation.threshold_sigma=0.2;
+    Random rng(328);
+    std::size_t singleton=0,other=0;
+    for (int trial=0;trial<4000;++trial) {
+        auto child=parent; child.mutate(mutation,rng,groups);
+        std::size_t changed=0;
+        for (std::size_t i=0;i<4;++i) {
+            const auto& n=child.neurons()[i];
+            require(n.threshold>=0.2 && n.threshold<=5,"Sensory threshold escaped bounds");
+            if (n.threshold!=1) { ++changed; if (i==0)++singleton; else ++other; }
+        }
+        require(changed==1,"Sensory threshold mutation exceeded one local edit");
+        require(child.synapses().empty(),"Threshold mutation changed topology");
+    }
+    require(singleton>1800 && singleton<2200 && other==4000-singleton,
+        "Sensory threshold mutations were biased toward larger categories");
+    mutation.mutate_neuron_probability=0;
+    auto disabled=parent; disabled.mutate(mutation,rng,groups);
+    for(const auto& n:disabled.neurons())require(n.threshold==1,"Disabled sensory mutations changed thresholds");
+    auto slow_neurons=parent.neurons();
+    for(auto& n:slow_neurons)n.threshold=2;
+    auto slow=Brain::from_components(config,slow_neurons,{}), fast=parent;
+    std::size_t fast_spikes=0,slow_spikes=0;
+    for(int i=0;i<100;++i){fast_spikes+=fast.step({0.5,0.5,0.5,0.5}).spikes;slow_spikes+=slow.step({0.5,0.5,0.5,0.5}).spikes;}
+    require(fast_spikes>slow_spikes && slow_spikes>0,"Sensory threshold failed to modulate firing rate");
+}
+
 int main()
 {
     try {
+        sensory_thresholds();
         for (bool stable : {false, true}) {
             for (bool extended : {false, true}) category_distribution(stable, extended);
             saturated_categories(stable);

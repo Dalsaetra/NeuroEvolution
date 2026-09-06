@@ -29,7 +29,7 @@ Before mixing founders in the shared habitat, run the controlled one-founder nur
 
 The runner selects `sparse-ancestor`, disables mutation for exact inheritance, and creates a fixed 24 × 24 nursery with dense rich fruit and a calm phase longer than the trial. Energy capacity, metabolism, feeding mechanics, maturity age, reproduction threshold, reproduction cost, offspring energy, and cooldown retain their baseline values. The founder begins 1.5 units from food rather than on top of it. This isolates the question “can this spiking genome feed and continue a lineage?” from shelter learning, food-value learning, and competition.
 
-The ancestor is an ordinary inheritable `Brain`, not a scripted controller. It has 97 input neurons, 7 hidden neurons, 5 motor neurons, 41 synapses, and sensory connections from 25 inputs:
+The ancestor is an ordinary inheritable `Brain`, not a scripted controller. It has 65 input neurons, 7 hidden neurons, 5 motor neurons, 41 synapses, and sensory connections from 25 inputs:
 
 - obstacle proximity in five visual sectors;
 - food proximity in five visual sectors;
@@ -106,7 +106,7 @@ The slight branch uses 45% of the configured mutation magnitudes and 65% of its 
 
 Each immigrant first selects one represented food niche uniformly, then samples three distinct archive entries from that niche and uses the highest-scoring one. If the niche has fewer than three entries, every entry competes. This preserves ecological diversity while giving genomes with stronger accumulated evidence more descendants. Set the tournament size with `--archive-tournament-size` or `-ArchiveTournamentSize`.
 
-At each natural birth, the child has a 25% chance of exact inheritance, a 50% chance of slight mutation, and a 25% chance of strong mutation, using the same mutation presets as immigration. Exact children retain the parent's genome ID, allowing repeated outcomes to accumulate evidence for that genotype in the archive. Both slightly and strongly mutated children receive a new genome ID. Child energy is 50 in the baseline ecology and 60 in the breeding preset.
+At each natural birth, the child has a 50% chance of exact inheritance, a 45% chance of slight mutation, and a 5% chance of strong mutation, using the same mutation presets as immigration. Exact children retain the parent's genome ID, allowing repeated outcomes to accumulate evidence for that genotype in the archive. Both slightly and strongly mutated children receive a new genome ID. Child energy is 50 in the baseline ecology and 60 in the breeding preset.
 
 Before any genome qualifies, immigration waits and increments `archive_empty_checks`. It does not inject an unrelated random brain. A complete shuffled group of five arrivals has the exact 40/40/20 proportions; a partial group can differ.
 
@@ -162,23 +162,23 @@ Closed pods require 10 units of work. Opening speed is the square of the combine
 
 The default weather cycle is 150 seconds calm, 30 seconds warning, and 60 seconds storm. A perceptible warning cue rises before the storm. Storms pause food regrowth and add 0.8 energy cost per second outside shelter. Normal metabolism continues everywhere. There is no food inside shelter.
 
-Use `-NoStorms` with `scripts/ecosystem.ps1`, or `--no-storms` / `--storms 0` with the executable, to hold the simulation in calm weather. This removes warning and storm phases, exposure cost, and storm pauses in food regrowth. The sensory layout remains at 97 inputs, including the storm-cue neuron, whose value stays zero.
+Use `-NoStorms` with `scripts/ecosystem.ps1`, or `--no-storms` / `--storms 0` with the executable, to hold the simulation in calm weather. This removes warning and storm phases, exposure cost, and storm pauses in food regrowth. The sensory layout remains at 65 inputs, including the storm-cue neuron, whose value stays zero.
 
 ### Energy and reproduction
 
 Founders start with 90 energy and have capacity 200. Basal metabolism costs 0.20 per second; movement, turning, foraging, calling, neurons, synapses, and spikes have additional explicit costs. Rough terrain multiplies movement cost by two. At zero energy a creature dies, and its remaining body energy and undigested food leave the system.
 
-Reproduction is automatic and asexual. The default requirements are age 120 seconds, at least 150 energy, a 120-second cooldown, and free nearby space. A birth deducts 75 energy from the parent, gives 50 energy to the offspring, and spends the remaining 25 as reproductive overhead. The offspring has a 25% chance of exact inheritance, 50% slight mutation, and 25% strong mutation, with neural activity reset. It gets its own independent neural random-number stream.
+Reproduction is automatic and asexual. The default requirements are age 120 seconds, at least 150 energy, a 120-second cooldown, and free nearby space. A birth deducts 75 energy from the parent, gives 50 energy to the offspring, and spends the remaining 25 as reproductive overhead. The offspring has a 50% chance of exact inheritance, 45% slight mutation, and 5% strong mutation, with neural activity reset. It gets its own independent neural random-number stream.
 
 The population cap blocks births without stopping movement, feeding, aging, weather, or deaths. After deaths are processed, eligible parents receive available birth slots in descending energy order; equal-energy ties use the reproducible per-step ordering. A parent unable to place a child is skipped without spending energy. The `capacity_limited` flag reports the current full state and clears when capacity becomes available; it is not a terminal status. This also applies when resuming a checkpoint saved at capacity. `maturations` counts all creatures reaching maturity, including founders; use maturation events' parent IDs to measure offspring survival separately.
 
 ## Senses and actions
 
-Each ecological brain has **97 input neurons and 5 output neurons**. Hidden-neuron count defaults to 16 and can be selected with `--hidden`. The default visual range is 6 units over a 150-degree forward arc, divided into five sectors.
+Each ecological brain has **65 input neurons and 5 output neurons**. Hidden-neuron count defaults to 16 and can be selected with `--hidden`. The default visual range is 6 units over a 150-degree forward arc, divided into three sectors.
 
 Each visual sector has 14 channels: obstacle proximity; food presence, proximity, four appearance categories, and remaining stock; pod closed/open state; other-creature presence, proximity, foraging activity, and calling activity. Food attributes refer to the nearest stocked, non-refilling resource in that sector; other-creature attributes refer to the nearest visible creature. Walls occlude both visual observations and calls.
 
-Ten appended channels report depleted-food proximity and visible shelter proximity in the five sectors. Additional inputs are four directional hearing channels, four directional contact channels, energy, speed, left and right turn feedback, shelter status, storm cue, ingestion, digestion gain, and a brief pulse at birth. Hearing range defaults to 6 units, and call strength decreases with distance. There are no creature identities, global coordinates, absolute compass headings, maps, partner assignments, global clocks, or hidden food values in the observation vector.
+Six appended channels report depleted-food proximity and visible shelter proximity in the three sectors. Additional inputs are four directional hearing channels, four directional contact channels, energy, speed, left and right turn feedback, shelter status, storm cue, ingestion, digestion gain, and a brief pulse at birth. Hearing range defaults to 6 units, and call strength decreases with distance. There are no creature identities, global coordinates, absolute compass headings, maps, partner assignments, global clocks, or hidden food values in the observation vector.
 
 The five outputs control forward movement, left turn, right turn, forage/work, and call. Movement and actions are continuous intensities decoded from normalized output firing rates and smoothed by actuator dynamics. Foraging slows forward motion to make sustained resource interaction possible. A creature can interact with a resource within 0.8 units and its forward 120-degree interaction arc. Calls cost energy and have no assigned semantic meaning.
 

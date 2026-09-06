@@ -10,7 +10,9 @@ remain open.
 
 Shelters are placed first, so lines can cross shelter footprints. Covered tiles
 become impassable walls; the remaining shelter floor retains storm protection.
-The center food patch and its immediate approaches stay clear. Every proposed
+The shelter center and its immediate approaches stay clear. Ordinary grazing
+can now spawn on any eligible shelter floor; low-quality frontier shelter patches
+are disabled. Every proposed
 line is checked with an outdoor flood fill and rejected if it would isolate any
 walkable outdoor cell. Deliberately closed nursery gates are supported.
 

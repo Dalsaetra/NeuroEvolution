@@ -29,7 +29,7 @@ Or:
 
 ## Shared Ecosystem
 
-New runs use calibrated sensory spike rates, smoothed motor output, 97 local inputs including depleted-food and shelter cues, and repeated newborn trials for archive selection. See [interface calibration and newborn evaluation](docs/sensorimotor-calibration.md) for controls, scoring, and checkpoint compatibility.
+New runs use calibrated sensory spike rates, smoothed motor output, 66 local inputs including depleted-food and shelter cues, and repeated newborn trials for archive selection. See [interface calibration and newborn evaluation](docs/sensorimotor-calibration.md) for controls, scoring, and checkpoint compatibility.
 
 Run the first ecosystem with independent spiking brains:
 
@@ -65,7 +65,7 @@ Validate the sparse ancestral spiking brain with one founder and exact inheritan
 .\scripts\ecosystem.ps1 -Build -SoloAncestorTrial -Steps 4800 -Recording detailed -Open
 ```
 
-This controlled nursery uses the normal energy and reproduction rules. It removes storms and supplies dense rich fruit so the test isolates neural feeding and lineage continuity. The founder has 7 hidden neurons, 41 synapses, and connections from 25 of the 97 inputs. The automated test verifies that a child matures and produces a grandchild.
+This controlled nursery uses the normal energy and reproduction rules. It removes storms and supplies dense rich fruit so the test isolates neural feeding and lineage continuity. The founder has 5 hidden neurons, 32 synapses, and connections from 20 of the 66 inputs. The automated test verifies that a child matures and produces a grandchild.
 
 New ecosystems use [stable mutations](docs/stable-mutations.md): each ordinary mutation makes one structural change or up to two local parameter edits, with weak new pathways. Use `-MutationMode stable` to explicitly switch a resumed run; otherwise checkpoints retain their saved mutation policy.
 
@@ -86,7 +86,7 @@ To establish a population with archive-based immigration (40% archive clones, 40
 .\scripts\ecosystem.ps1 -Build -Establishment -FounderBrain sparse-ancestor -Creatures 24 -Steps 12000 -Open
 ```
 
-Repeated, efficient feeding or reproduction seeds the archive. Limited immigration keeps exploration running through population crashes, with separate birth/immigration accounting and automatic withdrawal after sustained descendant breeding. Every immigrant now descends from archived evidence; support waits when the archive is empty. Archive parents are chosen by a three-entry tournament within a uniformly selected food niche. Natural births use 25% exact inheritance, 50% slight mutation, and 25% strong mutation. Baseline children start with 50 energy; the breeding preset gives them 60. Checkpoints preserve both the world and archive.
+Repeated, efficient feeding or reproduction seeds the archive. Limited immigration keeps exploration running through population crashes, with separate birth/immigration accounting and automatic withdrawal after sustained descendant breeding. Every immigrant now descends from archived evidence; support waits when the archive is empty. Archive parents are chosen by a three-entry tournament within a uniformly selected food niche. Natural births use 50% exact inheritance, 45% slight mutation, and 5% strong mutation. Baseline children start with 50 energy; the breeding preset gives them 60. Checkpoints preserve both the world and archive.
 
 For longer evolution runs, the runner now defaults to a compact history and saves full neural/sensory detail only for a bounded final window. A multi-seed sweep and a less brittle experimental reproduction preset are available:
 

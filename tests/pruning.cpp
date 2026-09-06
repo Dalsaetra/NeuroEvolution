@@ -1,4 +1,4 @@
-#include "neuroevo/brain.hpp"
+#include "neuroevo/ecosystem.hpp"
 #include "../src/ecosystem_mutation.hpp"
 #include <iostream>
 #include <sstream>
@@ -113,10 +113,71 @@ void pruning_contract()
 
 }
 
+void budget_contract()
+{
+    BrainConfig config;
+    config.input_count = 3; config.hidden_count = 12; config.output_count = 2;
+    Random initial(171);
+    const auto parent = Brain::random(config, initial);
+    for (bool strong : {false, true}) {
+        EcosystemConfig ecosystem;
+        auto mutation = strong ? detail::strong_mutation(ecosystem.mutation)
+            : detail::slight_mutation(ecosystem.mutation);
+        require(mutation.stable && mutation.add_reciprocal_motif_probability == 0,
+            "Budgeted presets must use local edits without unpaired motif growth");
+        require(mutation.add_synapse_probability == mutation.remove_synapse_probability
+            && mutation.add_neuron_probability == mutation.remove_neuron_probability,
+            "Structural add/remove probabilities are asymmetric");
+        std::size_t add_edges=0, remove_edges=0, add_nodes=0, remove_nodes=0, weight_only=0;
+        Random rng(932);
+        for (int trial=0; trial<10000; ++trial) {
+            auto child=parent;
+            child.mutate(mutation,rng);
+            const auto before=parent.config().hidden_count, after=child.config().hidden_count;
+            if (after>before) { require(after==before+1,"More than one node added"); ++add_nodes; }
+            else if (after<before) { require(after+1==before,"More than one node removed"); ++remove_nodes; }
+            else if (child.synapses().size()>parent.synapses().size()) {
+                require(child.synapses().size()==parent.synapses().size()+1,"More than one edge added"); ++add_edges;
+            } else if (child.synapses().size()<parent.synapses().size()) {
+                require(child.synapses().size()+1==parent.synapses().size(),"More than one edge removed"); ++remove_edges;
+            } else {
+                std::size_t weights=0, neurons=0;
+                for (std::size_t i=0;i<child.synapses().size();++i)
+                    weights += child.synapses()[i].weight != parent.synapses()[i].weight;
+                for (std::size_t i=0;i<child.neurons().size();++i) {
+                    const auto& a=parent.neurons()[i]; const auto& b=child.neurons()[i];
+                    neurons += a.threshold!=b.threshold || a.bias!=b.bias || a.background_sensitivity!=b.background_sensitivity
+                        || a.position.x!=b.position.x || a.position.y!=b.position.y;
+                }
+                require(weights+neurons <= (strong?4u:2u),"Local edit count exceeded preset limit");
+                require(weights==0 || neurons==0,"Budgeted offspring mixed parameter families");
+                weight_only += weights>0 && neurons==0;
+            }
+        }
+        const auto structural=add_edges+remove_edges+add_nodes+remove_nodes;
+        require(structural>(strong?3300u:2300u) && structural<(strong?3700u:2700u),"Wrong structural budget");
+        require(weight_only>5000,"Weight-only changes must be the most frequent offspring mutation");
+        require(std::abs(double(add_edges)-double(remove_edges))<180
+            && std::abs(double(add_nodes)-double(remove_nodes))<100,"Observed structural choices are asymmetric");
+
+        mutation.structural_edit_probability=1;
+        mutation.add_synapse_probability=mutation.remove_synapse_probability=0;
+        mutation.add_neuron_probability=mutation.remove_neuron_probability=1;
+        mutation.max_hidden_neurons=config.hidden_count;
+        std::size_t unchanged=0;
+        for (int trial=0;trial<1000;++trial) {
+            auto child=parent; child.mutate(mutation,rng);
+            unchanged += child.config().hidden_count==config.hidden_count;
+        }
+        require(unchanged>400 && unchanged<600,"Unavailable growth was redistributed into pruning");
+    }
+}
+
 int main()
 {
     try {
         pruning_contract();
+        budget_contract();
         std::cout << "pruning contracts passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << "\n";

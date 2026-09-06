@@ -37,7 +37,7 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     }
 
     BrainConfig brain_config = config.brain;
-    brain_config.hidden_count = 7;
+    brain_config.hidden_count = 2 + eco_sectors;
     brain_config.background_activity_enabled = true;
     brain_config.initial_connection_probability = 0.0;
     brain_config.seed_input_output_synapses = false;
@@ -112,6 +112,7 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     // or disappear like any other synapse. No direct shelter-steering reflex.
     connect(body_offset + 5, locomotion_a, -0.15); // storm warning/intensity
     connect(body_offset + 4, locomotion_b, -0.15); // currently sheltered
+    connect(eco_unsheltered_input, locomotion_a, 0.15); // weak movement drive outside shelter
     if (config.extended_senses) {
         for (std::size_t sector = 0; sector < eco_sectors; ++sector)
             connect(eco_shelter_offset + sector, hidden + 2 + sector, -0.15);
@@ -120,18 +121,14 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     // Proximity carries enough information to bias simultaneous signals toward
     // the nearest patch. The ancestor cannot compare stock or nutritional value.
     connect(0 * eco_sector_channels + 2, turn_right, 1.75);
-    connect(1 * eco_sector_channels + 2, turn_right, 1.55);
-    connect(3 * eco_sector_channels + 2, turn_left, 1.55);
-    connect(4 * eco_sector_channels + 2, turn_left, 1.75);
+    connect((eco_sectors - 1) * eco_sector_channels + 2, turn_left, 1.75);
 
     // Weak initial avoidance (half the original weights) leaves food attraction
     // more influence near walls. These ordinary synapses remain evolvable.
     // A symmetric obstacle ahead still biases left.
     connect(0 * eco_sector_channels, turn_left, 1.1);
-    connect(1 * eco_sector_channels, turn_left, 1.0);
-    connect(2 * eco_sector_channels, turn_left, 1.1);
-    connect(3 * eco_sector_channels, turn_right, 1.0);
-    connect(4 * eco_sector_channels, turn_right, 1.1);
+    connect((eco_sectors / 2) * eco_sector_channels, turn_left, 1.1);
+    connect((eco_sectors - 1) * eco_sector_channels, turn_right, 1.1);
 
     // Contact is body-relative: front, left, back, right. Side contacts turn
     // away; a frontal contact picks a stable side; pressure from behind keeps

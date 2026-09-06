@@ -30,13 +30,13 @@ New brains use conduction speed 6 and a maximum delay of eight neural steps (0.1
 
 ## Observation layout
 
-The original indices 0–86 are retained. Five depleted-food proximity channels occupy 87–91, and five directional shelter proximity channels occupy 92–96. The complete interface has 97 inputs and five outputs. Sector order remains right to left, with sector two facing forward.
+The three-sector layout has 59 base inputs. Three depleted-food proximity channels occupy 59–61, and three directional shelter proximity channels occupy 62–64. The complete non-predation interface has 65 inputs and five outputs; predation extends it to 82 inputs and six outputs. Sector order is right (0), forward (1), left (2). The default 150-degree cone has three 50-degree sectors. Five-sector checkpoints (87, 97 or 124 inputs) require the earlier build; this build rejects both resume and founder import rather than reinterpret their saved connections.
 
 The existing food channels now select the nearest stocked resource that is not a refilling pod. Empty patches and refilling pods remain perceptible through the separate depleted-food channels, without hiding stocked opportunities in the same sector. Closed stocked pods remain visible as work opportunities. Physical foraging uses the same availability rule. Existing food stock channels continue to report the selected patch's stock/capacity ratio; nutritional value is not revealed visually.
 
 Shelter signals encode the nearest visible shelter-cell center in each sector, respecting field of view, range, and wall occlusion. The existing body-relative `sheltered` input remains present. Digestion feedback scales by the largest configured food energy density times ingestion rate and world timestep, preserving differences between poor and rich food when nutrition settings change.
 
-The sparse ancestor keeps its 7 hidden neurons, 41 synapses, and 25 connected inputs. Storm intensity, current shelter occupancy, and all five directional shelter cues have weak excitatory connections into existing hidden neurons (nominal weight 0.15 at synaptic gain 32). These connections can evolve normally; they do not encode a shelter-seeking policy. Stock cues remain initially unconnected. Legacy ancestors receive only the storm and shelter-occupancy connections. Existing checkpoints and imported genomes retain their saved wiring. The ancestor's existing input thresholds now set rate sensitivity in calibrated mode; old LIF threshold interpretations apply only in legacy mode. Its automated nursery test still requires a child to mature and produce a grandchild.
+The sparse ancestor keeps its 5 hidden neurons, 31 synapses, and 19 connected inputs. Storm intensity, current shelter occupancy, and all three directional shelter cues have weak inhibitory connections into existing hidden neurons (nominal weight -0.15 at synaptic gain 32). These connections can evolve normally; they do not encode a shelter-seeking policy. Stock cues remain initially unconnected. Legacy ancestors receive only the storm and shelter-occupancy connections. Existing checkpoints and imported genomes retain their saved wiring. The ancestor's existing input thresholds now set rate sensitivity in calibrated mode; old LIF threshold interpretations apply only in legacy mode. Its automated nursery test still requires a child to mature and produce a grandchild.
 
 ## Repeated newborn evaluation
 
@@ -116,3 +116,48 @@ speedup depends on hardware and trial duration imbalance. Parallel execution
 reduces pauses but does not remove them: the main world still waits so archive
 selection timing remains unchanged. Benchmark harness and per-step CSVs are in
 `runs/runtime_investigation_20260905`.
+
+## Independent food-type proximity
+
+New worlds use the existing four food-type slots in each sector for
+`food_graze_proximity`, `food_fruit_a_proximity`, `food_fruit_b_proximity`, and
+`food_pod_proximity`. Each reports `max(0, 1 - distance / vision_range)` for the
+nearest stocked visible source of that type. Empty and refilling sources do not
+activate these signals. Occlusion and field-of-view rules still apply. The
+existing generic food proximity, presence, stock and pod-state signals remain
+for the nearest generic food target. Input counts and indices do not change.
+Meat already has its own independent proximity signal.
+
+Checkpoint version 18 saves this encoding choice. Older compatible three-sector
+checkpoints resume with their original binary type signals. Use
+`--typed-food-proximity 1` to opt into the new encoding on resume; use `0` for
+the old encoding in a new world. Replay metadata records the choice and labels
+the type inputs accordingly. Five-sector checkpoints still require the older
+five-sector build.
+
+Budgeted neuron-parameter mutations can now alter sensory thresholds, sampling
+categories uniformly. Changes use the existing local-edit budget and a sigma
+capped at 5% of the current threshold, with thresholds clamped to 0.2–5. Input
+thresholds are already stored in brain checkpoints. New weak synapses now start
+at magnitude 0.5 at synaptic gain 32 (gain-scaled); new branch outputs use the
+same cap. Existing weights and ancestral seed weights are not rewritten.
+
+## Unsheltered feedback
+
+`unsheltered` is 1 outside shelter and 0 inside, using the same shelter test as
+`sheltered`. It is independent of weather and forms its own mutation category.
+It is inserted after `episode_start`, at input index 59. The current input
+counts are 60 base, 66 extended, and 83 predation. Appended visual/predation
+inputs shift by one; the earlier body and vision inputs keep their indices.
+
+New sparse ancestors connect this input to the first hidden locomotion neuron
+with nominal weight +0.15 at gain 32, scaled inversely with gain. This weak drive
+is not a directional shelter-seeking reflex. The ancestor now has 5 hidden
+neurons, 32 synapses and 20 connected inputs in the extended interface. Its
+threshold and connection remain evolvable.
+
+Older compatible three-sector checkpoints with 59/65/82 inputs are upgraded on
+load. A disconnected sensor is inserted into living and archived brains;
+existing endpoints are shifted while weights, delays and runtime buffers are
+preserved. Only newly created ancestors receive the seeded connection.
+Five-sector checkpoints remain incompatible.

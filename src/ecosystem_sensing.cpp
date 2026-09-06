@@ -106,12 +106,16 @@ EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConf
                 const double present = meat ? inputs[eco_meat_offset + sector] : inputs[offset + 1];
                 const double stock = meat ? inputs[eco_meat_offset + 2 * eco_sectors + sector] : inputs[offset + 7];
                 if (efficiency <= 0 || present <= 0 || stock <= 0) continue;
-                const bool refilling = !meat && inputs[offset + 6] > 0.0
+                const auto nearest_type = [&](std::size_t channel) {
+                    return inputs[offset + channel] > 0 && (!config.typed_food_proximity
+                        || std::abs(inputs[offset + channel] - inputs[offset + 2]) < epsilon);
+                };
+                const bool refilling = !meat && nearest_type(6)
                     && inputs[offset + 8] == 0.0 && inputs[offset + 9] == 0.0;
                 if (refilling) continue;
                 const double proximity = meat ? inputs[eco_meat_offset + eco_sectors + sector] : inputs[offset + 2];
                 const double distance = (1.0 - proximity) * config.vision_range;
-                const double value = !meat && inputs[offset + 3] > 0.0 ? 1.0 : 1.5;
+                const double value = !meat && nearest_type(3) ? 1.0 : 1.5;
                 const bool pod = !meat && inputs[offset + 8] > 0.0;
                 const double score = efficiency * value * stock / (0.5 + distance + (pod ? 2.0 : 0.0));
                 if (score > best_score) {
@@ -244,16 +248,23 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
             depleted = std::max(depleted, unit(1.0 - distance / config.vision_range));
             continue;
         }
+        const std::size_t offset = sector * eco_sector_channels;
+        if (config.typed_food_proximity && resource.stock > epsilon
+            && !(resource.kind == FoodKind::Pod && resource.pod_state == PodState::Refilling)) {
+            auto& proximity = inputs[offset + 3 + static_cast<std::size_t>(resource.kind)];
+            proximity = std::max(proximity, unit(1.0 - distance / config.vision_range));
+        }
         if (distance > food_distances[sector] + epsilon
             || (std::abs(distance - food_distances[sector]) <= epsilon && angle >= food_angles[sector])) continue;
         food_distances[sector] = distance;
         food_angles[sector] = angle;
-        const std::size_t offset = sector * eco_sector_channels;
-        std::fill(inputs.begin() + static_cast<std::ptrdiff_t>(offset + 1),
-            inputs.begin() + static_cast<std::ptrdiff_t>(offset + 10), 0.0);
+        if (!config.typed_food_proximity)
+            std::fill(inputs.begin() + static_cast<std::ptrdiff_t>(offset + 3),
+                inputs.begin() + static_cast<std::ptrdiff_t>(offset + 7), 0.0);
+        inputs[offset + 8] = inputs[offset + 9] = 0;
         inputs[offset + 1] = 1.0;
         inputs[offset + 2] = unit(1.0 - distance / config.vision_range);
-        inputs[offset + 3 + static_cast<std::size_t>(resource.kind)] = 1.0;
+        if (!config.typed_food_proximity) inputs[offset + 3 + static_cast<std::size_t>(resource.kind)] = 1.0;
         inputs[offset + 7] = resource.capacity > 0.0 ? unit(resource.stock / resource.capacity) : 0.0;
         if (resource.kind == FoodKind::Pod) {
             inputs[offset + 8] = resource.pod_state == PodState::Closed ? 1.0 : 0.0;
@@ -304,6 +315,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     inputs[body_offset + 2] = config.max_turn_rate > 0.0 ? unit(self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 3] = config.max_turn_rate > 0.0 ? unit(-self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 4] = sheltered(self.position) ? 1.0 : 0.0;
+    inputs[eco_unsheltered_input] = 1.0 - inputs[body_offset + 4];
     inputs[body_offset + 5] = unit(storm_cue());
     inputs[body_offset + 6] = unit(self.ingestion_pulse / (config.ingestion_rate * config.dt));
     const double nutrition_scale = config.extended_senses
@@ -398,7 +410,7 @@ const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation)
     return predation ? combat : extended ? current : legacy;
 }
 
-std::vector<std::string> ecosystem_input_labels(bool extended, bool predation)
+std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity)
 {
     constexpr const char* channels[] = {"obstacle_proximity", "food_present", "food_proximity",
         "food_graze", "food_fruit_a", "food_fruit_b", "food_pod", "food_stock",
@@ -408,13 +420,16 @@ std::vector<std::string> ecosystem_input_labels(bool extended, bool predation)
     labels.reserve(eco_input_count);
     for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
         for (const char* channel : channels) {
-            labels.push_back("vision_" + std::to_string(sector) + "_" + channel);
+            std::string name = channel;
+            if (typed_food_proximity && (name == "food_graze" || name == "food_fruit_a"
+                || name == "food_fruit_b" || name == "food_pod")) name += "_proximity";
+            labels.push_back("vision_" + std::to_string(sector) + "_" + name);
         }
     }
     for (const char* direction : {"front", "left", "back", "right"}) labels.push_back(std::string("hearing_") + direction);
     for (const char* direction : {"front", "left", "back", "right"}) labels.push_back(std::string("contact_") + direction);
     for (const char* channel : {"energy", "speed", "turn_left", "turn_right", "sheltered",
-        "storm_cue", "ingestion", "digestion_gain", "episode_start"}) labels.emplace_back(channel);
+        "storm_cue", "ingestion", "digestion_gain", "episode_start", "unsheltered"}) labels.emplace_back(channel);
     if (extended) {
         for (std::size_t sector = 0; sector < eco_sectors; ++sector)
             labels.push_back("vision_" + std::to_string(sector) + "_depleted_food_proximity");

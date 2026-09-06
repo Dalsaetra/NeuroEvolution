@@ -73,7 +73,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_16");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_18");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -92,6 +92,8 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
         config.shelter_food_energy,config.shelter_food_capacity,config.shelter_food_regrowth);
     checkpoint::write(s,config.nursery_food_decay);
     checkpoint::write_tuple(s,checkpoint::predation_config_fields(config));
+    checkpoint::write(s,config.shelter_food_decay);
+    checkpoint::write(s,config.typed_food_proximity);
     checkpoint::write(s,next_resource_id);
     checkpoint::write_tuple(s,checkpoint::predation_total_fields(totals));
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
@@ -108,7 +110,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,resources.size());
     for (const auto& r : resources)
         checkpoint::write(s,r.id,r.kind,r.position.x,r.position.y,r.stock,r.capacity,r.regrowth,
-            r.energy_per_unit,r.pod_state,r.progress,r.opened_at,r.shelter_food);
+            r.energy_per_unit,r.pod_state,r.progress,r.opened_at,r.shelter_food,r.shelter_origin.x,r.shelter_origin.y);
     checkpoint::write(s,creatures.size());
     for (const auto& c : creatures) {
         checkpoint::write(s,c.id,c.parent_id,c.generation,c.position.x,c.position.y,c.heading,c.energy,
@@ -144,7 +146,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool predation_state = version == "NEUROEVO_ECOSYSTEM_16";
+    const bool typed_food_state = version == "NEUROEVO_ECOSYSTEM_18";
+    const bool shelter_decay_state = typed_food_state || version == "NEUROEVO_ECOSYSTEM_17";
+    const bool predation_state = shelter_decay_state || version == "NEUROEVO_ECOSYSTEM_16";
     const bool nursery_decay_state = predation_state || version == "NEUROEVO_ECOSYSTEM_15";
     const bool dynamic_food_state = nursery_decay_state || version == "NEUROEVO_ECOSYSTEM_14";
     const bool pruning_state = dynamic_food_state || version == "NEUROEVO_ECOSYSTEM_13";
@@ -164,10 +168,18 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!establishment_state && version != "NEUROEVO_ECOSYSTEM_1")
         throw std::runtime_error("Unknown ecosystem checkpoint version");
     EcosystemConfig cfg;
+    cfg.shelter_food_decay=0;
     cfg.nursery_food_decay = 0;
     cfg.outdoor_food_relocates = false; // Validate the policy only after its versioned fields are read.
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
+    const bool add_unsheltered = cfg.brain.input_count == 59 || cfg.brain.input_count == 65 || cfg.brain.input_count == 82;
+    if (add_unsheltered) {
+        ++cfg.brain.input_count;
+        ++cfg.brain.sensory_input_count;
+    }
+    if (cfg.brain.input_count == 87 || cfg.brain.input_count == 97 || cfg.brain.input_count == 124)
+        throw std::runtime_error("This checkpoint uses five vision sectors. This build uses three; start a new run or resume with the five-sector build. Sensor indices cannot be reinterpreted safely.");
     if (modern_state) checkpoint::read_tuple(s,checkpoint::mutation_fields(cfg.mutation));
     else checkpoint::read_tuple(s,checkpoint::legacy_mutation_fields(cfg.mutation));
     if (current_state || v5_state) checkpoint::read_tuple(s,checkpoint::establishment_config_fields(cfg));
@@ -209,6 +221,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         cfg.shelter_food_energy,cfg.shelter_food_capacity,cfg.shelter_food_regrowth);
     if (nursery_decay_state) checkpoint::read(s,cfg.nursery_food_decay);
     if (predation_state) checkpoint::read_tuple(s,checkpoint::predation_config_fields(cfg));
+    if(shelter_decay_state)checkpoint::read(s,cfg.shelter_food_decay);
+    cfg.typed_food_proximity = false;
+    if (typed_food_state) checkpoint::read(s,cfg.typed_food_proximity);
     EcosystemWorld w(cfg,false);
     if (predation_state) {
         checkpoint::read(s,w.next_resource_id);
@@ -267,6 +282,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::read(s,r.id,r.kind,r.position.x,r.position.y,r.stock,r.capacity,r.regrowth,
             r.energy_per_unit,r.pod_state,r.progress,r.opened_at);
         if (dynamic_food_state) checkpoint::read(s,r.shelter_food);
+        r.shelter_origin=r.position;
+        if(shelter_decay_state)checkpoint::read(s,r.shelter_origin.x,r.shelter_origin.y);
         if (!ids.insert(r.id).second || r.kind < FoodKind::Graze || r.kind > (cfg.predation ? FoodKind::Meat : FoodKind::Pod)
             || r.pod_state < PodState::Closed || r.pod_state > PodState::Refilling
             || r.stock < 0 || r.stock > r.capacity+1e-8 || r.capacity <= 0 || r.regrowth < 0
@@ -298,6 +315,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         }
         c.neural_rng.load_state(s);
         c.brain = Brain::load_state(s);
+        if (add_unsheltered) c.brain.insert_sensory_input(eco_unsheltered_input);
         if (c.id == 0 || c.id >= w.next_creature_id || !ids.insert(c.id).second
             || c.genome_id == 0 || c.genome_id >= w.next_creature_id || c.source_id >= w.next_creature_id
             || c.origin < CreatureOrigin::Founder || c.origin > CreatureOrigin::ArchiveStrongMutation
@@ -326,6 +344,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
                     throw std::runtime_error("Invalid archive trial checkpoint");
             }
             entry.genome = Brain::load_state(s);
+            if (add_unsheltered) entry.genome.insert_sensory_input(eco_unsheltered_input);
             if (entry.genome.config().input_count != cfg.brain.input_count || entry.genome.config().output_count != eco_output_count
                 || std::abs(entry.genome.config().dt-cfg.brain.dt)>1e-12)
                 throw std::runtime_error("Incompatible archived brain checkpoint");
@@ -399,6 +418,8 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"shelter_size\":" << w.config.shelter_size
       << ",\"outdoor_food_relocates\":" << (w.config.outdoor_food_relocates?"true":"false")
       << ",\"graze_decay\":" << w.config.graze_decay << ",\"fruit_decay\":" << w.config.fruit_decay
+      << ",\"shelter_food_decay\":" << w.config.shelter_food_decay
+      << ",\"typed_food_proximity\":" << (w.config.typed_food_proximity ? "true" : "false")
       << ",\"shelter_food_energy\":" << w.config.shelter_food_energy
       << ",\"shelter_food_capacity\":" << w.config.shelter_food_capacity
       << ",\"shelter_food_regrowth\":" << w.config.shelter_food_regrowth
@@ -428,7 +449,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"archive_eval_seconds\":" << w.config.archive_eval_seconds
       << ",\"archive_eval_seed\":" << w.config.archive_eval_seed
       << ",\"input_labels\":";
-    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation),[&](const std::string& v){ quoted(s,v); });
+    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity),[&](const std::string& v){ quoted(s,v); });
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"resources\":";
