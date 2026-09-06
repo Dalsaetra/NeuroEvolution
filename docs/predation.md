@@ -60,6 +60,13 @@ energy; insufficient reserve scales effort and damage to what was actually paid.
 All hits use post-movement geometry and apply simultaneously, allowing mutual
 kills and avoiding vector-order priority. Herbivores can attack defensively.
 
+Creatures inside the nursery are immune to attack damage. Attacks still activate
+and consume energy, but hits on protected targets report zero damage and produce
+no injury feedback. Protection uses the target's post-movement center position:
+attacks from outside cannot hurt a creature inside, while targets outside remain
+vulnerable even when the attacker is inside. Ordinary frontier shelters do not
+provide this protection.
+
 Health heals at 0.1 units/second, costing 2 energy per health restored. Healing
 cannot exceed maximum health, use unavailable reserve, revive a dead creature,
 or occur on a step in which damage was received. Death occurs at zero health or

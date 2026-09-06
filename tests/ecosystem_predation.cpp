@@ -44,6 +44,26 @@ double ledger(const EcosystemWorld& w)
 }
 void combat()
 {
+    const auto nursery_attack = [](double attacker_x, double target_x, bool protected_target) {
+        auto cfg=empty().config;
+        cfg.width=cfg.height=80; cfg.nursery_frontier=true;
+        EcosystemWorld nursery(cfg,false); // Open ground isolates gate-crossing geometry.
+        add(nursery,{attacker_x,40},attacker_x<target_x ? 0 : 3.141592653589793);
+        add(nursery,{target_x,40});
+        nursery.step({attack(),{}});
+        const double expected_damage=protected_target ? 0 : 0.5;
+        near(nursery.creatures[1].health,20-expected_damage,"Nursery damage protection follows wrong position");
+        near(nursery.creatures[1].damage_pulse,expected_damage,"Protected attack generated injury feedback");
+        near(nursery.totals.damage,expected_damage,"Protected damage entered totals");
+        near(nursery.totals.attacking,0.2,"Nursery attacks must still consume energy");
+        near(nursery.creatures[0].energy,99.8,"Nursery attacker did not pay for effort");
+        near(nursery.creatures[0].action.attack,1,"Nursery protection disabled attack output");
+    };
+    nursery_attack(40,40.6,true);
+    nursery_attack(31.7,32.3,true); // Attacker outside, victim inside.
+    nursery_attack(32.3,31.7,false); // Attacker inside, victim outside.
+    nursery_attack(30,30.6,false);
+
     auto w=empty(); add(w,{3,3}); add(w,{3.6,3},3.141592653589793);
     const double initial=ledger(w);
     w.creatures[0].health=w.creatures[1].health=0.4;

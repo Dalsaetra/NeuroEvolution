@@ -19,7 +19,7 @@ EcosystemConfig nursery_frontier_config()
     c.graze_energy = 30; c.poor_fruit_energy = 35; c.rich_fruit_energy = 60; c.pod_energy = 100;
     c.graze_capacity = 4; c.fruit_capacity = 4; c.pod_capacity = 10;
     c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 7.0;
+    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 5.0;
     c.energy_capacity = 300;
     c.maturity_age = 60; c.reproduction_threshold = 225;
     c.reproduction_cost = 130; c.offspring_energy = 60; c.reproduction_cooldown = 90;
