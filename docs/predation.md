@@ -74,9 +74,14 @@ zero energy. Combat deaths do not digest pending packets or forage after the hit
 
 Meat uses the same forage output, ingestion budget, proportional sharing, and
 delayed digestive packets as plants. All four plant types have efficiency `1-c`;
-meat has efficiency `c`, where `c` is carnivory. Efficiency scales queued energy,
-not removed biomass. Indigestible resources are skipped when choosing a forage
-target. Intermediate diets are allowed; specialist populations are not guaranteed.
+meat has efficiency `c`, where `c` is carnivory. Meat consumption speed also scales
+by `c`: requested biomass is `forage * ingestion_rate * dt * c`, before sharing
+limited stock. A 1% carnivore therefore removes meat at 1% of the normal rate and
+extracts 1% of that bite's energy. Plant consumption speed is unchanged. Both
+foods retain the configured digestion delay (3 seconds by default), measured
+after a bite is removed from the ground. Indigestible resources are skipped when
+choosing a forage target. Intermediate diets are allowed; specialist populations
+are not guaranteed.
 
 Corpses become edible on the next step, have 20 energy per biomass unit, decay
 by 0.02 biomass/second everywhere, and disappear when depleted. They never

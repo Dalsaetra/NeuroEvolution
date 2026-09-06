@@ -792,7 +792,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             const auto& action = creatures[i].action;
             const double settled = 1.0 - std::clamp(action.forward, 0.0, 1.0);
             const double efficiency = (resource.kind != FoodKind::Meat && in_nursery(resource.position)) ? 0.35 + 0.65 * settled * settled : 1.0;
-            return action.forage * config.ingestion_rate * config.dt * efficiency;
+            // Low-carnivory passers-by can only take small bites. Apply this
+            // before shared allocation so they cannot strip a corpse at full speed.
+            const double meat_rate = resource.kind == FoodKind::Meat ? creatures[i].body.carnivory : 1.0;
+            return action.forage * config.ingestion_rate * config.dt * efficiency * meat_rate;
         };
         double requested = 0;
         for (const auto i : consumers) requested += demand(i);

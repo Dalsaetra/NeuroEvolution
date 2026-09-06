@@ -139,6 +139,27 @@ void food_and_senses()
     w.resources.push_back(plant); w.step({eat()});
     near(w.creatures[0].digestion[0].energy,0.75,"Diet not applied to queued energy");
     near(w.totals.discarded_energy,0.25,"Digestive inefficiency disappeared from ledger");
+    for (double carnivory : {0.0,0.01,0.5,1.0}) {
+        auto passing=empty(); add(passing,{3,3},0,{1,carnivory});
+        EcoResource meat; meat.id=1; meat.kind=FoodKind::Meat; meat.position={3.3,3};
+        meat.stock=meat.capacity=1; meat.energy_per_unit=passing.config.meat_energy;
+        passing.resources.push_back(meat);
+        const auto initial_energy=ledger(passing);
+        auto moving_eat=eat(); moving_eat.forward=1;
+        passing.step({moving_eat});
+        const double bite=passing.config.ingestion_rate*passing.config.dt*carnivory;
+        near(passing.creatures[0].eaten[4],bite,"Passing creature consumed meat faster than its carnivory permits");
+        near(passing.resources[0].stock,1-bite-passing.config.meat_decay*passing.config.dt,
+            "Low-carnivory eater removed excess meat from the environment");
+        near(passing.creatures[0].energy_gained,0,"Meat bypassed digestion delay");
+        if (carnivory>0) {
+            near(passing.creatures[0].digestion[0].due,passing.time()+passing.config.digestion_delay,
+                "Carnivory changed digestion delay instead of intake rate");
+            near(passing.creatures[0].digestion[0].energy,bite*meat.energy_per_unit*carnivory,
+                "Slower meat consumption changed digestive efficiency");
+        } else require(passing.creatures[0].digestion.empty(),"Herbivore consumed meat");
+        near(ledger(passing),initial_energy,"Carnivory-scaled intake broke energy conservation");
+    }
     // Shared meat uses the existing proportional ingestion allocation.
     w=empty(); add(w,{3,3},0,{1,1}); add(w,{3.6,3},3.141592653589793,{1,1});
     plant.kind=FoodKind::Meat; plant.position={3.3,3}; plant.stock=plant.capacity=0.1;
@@ -146,6 +167,10 @@ void food_and_senses()
     near(w.creatures[0].eaten[4],0.05,"First eater received unfair corpse share");
     near(w.creatures[1].eaten[4],0.05,"Second eater received unfair corpse share");
     require(w.resources.empty(),"Depleted meat was not removed");
+    w=empty(); add(w,{3,3},0,{1,0.01}); add(w,{3.6,3},3.141592653589793,{1,1});
+    w.resources.push_back(plant); w.step({eat(),eat()});
+    near(w.creatures[0].eaten[4],0.1*0.01/1.01,"Shared corpse allocation ignored low carnivory");
+    near(w.creatures[1].eaten[4],0.1/1.01,"Carnivore lost meat to an oversized low-carnivory request");
     // A tiny corpse inside relocating nursery terrain must decay away permanently.
     auto cfg=nursery_frontier_config(); cfg.initial_creatures=0; cfg.meat_decay=1;
     EcosystemWorld nursery(cfg,false); plant.stock=plant.capacity=0.01; plant.position={40,40};
