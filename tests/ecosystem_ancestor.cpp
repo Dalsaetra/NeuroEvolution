@@ -98,8 +98,8 @@ void sparse_genome_contract()
         const auto edge = std::find_if(ancestor.synapses().begin(), ancestor.synapses().end(),
             [source](const auto& synapse) { return synapse.pre == source; });
         require(edge != ancestor.synapses().end() && edge->post >= eco_input_count
-            && edge->post < output_begin && edge->weight > 0
-            && edge->weight * config.brain.synaptic_gain < 5,
+            && edge->post < output_begin && edge->weight != 0
+            && std::abs(edge->weight) * config.brain.synaptic_gain < 5,
             "Environmental cues need weak connections into hidden neurons");
     }
     auto legacy = config;

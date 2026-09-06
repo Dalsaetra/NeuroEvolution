@@ -39,6 +39,10 @@ void graph(std::ostream& s, const EcoCreature& c)
 void totals_json(std::ostream& s, const EcoTotals& t)
 {
     s << "{\"births\":" << t.births << ",\"deaths\":" << t.deaths << ",\"maturations\":" << t.maturations
+      << ",\"attacking\":" << t.attacking << ",\"healing\":" << t.healing
+      << ",\"body_construction\":" << t.body_construction << ",\"external_body_energy\":" << t.external_body_energy
+      << ",\"carcass_energy\":" << t.carcass_energy << ",\"meat_spoiled_energy\":" << t.meat_spoiled_energy
+      << ",\"damage\":" << t.damage << ",\"predation_deaths\":" << t.predation_deaths
       << ",\"spikes\":" << t.spikes << ",\"pods_opened\":" << t.pods_opened
       << ",\"consumed_biomass\":" << t.consumed_biomass << ",\"regrown_biomass\":" << t.regrown_biomass
       << ",\"spoiled_biomass\":" << t.spoiled_biomass << ",\"energy_gained\":" << t.energy_gained
@@ -69,7 +73,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_15");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_16");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -87,6 +91,9 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.outdoor_food_relocates,config.graze_decay,config.fruit_decay,
         config.shelter_food_energy,config.shelter_food_capacity,config.shelter_food_regrowth);
     checkpoint::write(s,config.nursery_food_decay);
+    checkpoint::write_tuple(s,checkpoint::predation_config_fields(config));
+    checkpoint::write(s,next_resource_id);
+    checkpoint::write_tuple(s,checkpoint::predation_total_fields(totals));
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
     checkpoint::write_tuple(s,checkpoint::total_fields(totals));
     checkpoint::write_tuple(s,checkpoint::establishment_total_fields(totals));
@@ -108,7 +115,8 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
             c.age,c.last_birth,c.speed,c.turn,c.ingestion_pulse,c.digestion_pulse,c.controller,
             c.spikes,c.step_spikes,c.offspring,c.energy_gained,c.energy_spent,c.pod_work,c.exposed_time,c.matured);
         checkpoint::write(s,c.origin,c.genome_id,c.source_id,c.feeding_bouts,c.last_fed_time);
-        checkpoint::write(s,c.action.forward,c.action.left,c.action.right,c.action.forage,c.action.call);
+        checkpoint::write(s,c.action.forward,c.action.left,c.action.right,c.action.forage,c.action.call,c.action.attack);
+        checkpoint::write(s,c.body.mass,c.body.carnivory,c.health,c.damage_pulse);
         for (const auto v : c.eaten) checkpoint::write_value(s,v);
         s << '\n';
         checkpoint::write(s,c.digestion.size());
@@ -136,7 +144,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool nursery_decay_state = version == "NEUROEVO_ECOSYSTEM_15";
+    const bool predation_state = version == "NEUROEVO_ECOSYSTEM_16";
+    const bool nursery_decay_state = predation_state || version == "NEUROEVO_ECOSYSTEM_15";
     const bool dynamic_food_state = nursery_decay_state || version == "NEUROEVO_ECOSYSTEM_14";
     const bool pruning_state = dynamic_food_state || version == "NEUROEVO_ECOSYSTEM_13";
     const bool moving_food_state = pruning_state || version == "NEUROEVO_ECOSYSTEM_12";
@@ -183,7 +192,6 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         cfg.actuator_tau = 0;
         cfg.archive_eval_trials = 0;
     }
-    cfg.validate();
     cfg.mutation.stable = false;
     if (stable_state) checkpoint::read(s,cfg.mutation.stable);
     if (frontier_state) checkpoint::read(s,cfg.nursery_frontier,cfg.nursery_size,cfg.nursery_food_energy,
@@ -200,7 +208,15 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (dynamic_food_state) checkpoint::read(s,cfg.outdoor_food_relocates,cfg.graze_decay,cfg.fruit_decay,
         cfg.shelter_food_energy,cfg.shelter_food_capacity,cfg.shelter_food_regrowth);
     if (nursery_decay_state) checkpoint::read(s,cfg.nursery_food_decay);
+    if (predation_state) checkpoint::read_tuple(s,checkpoint::predation_config_fields(cfg));
     EcosystemWorld w(cfg,false);
+    if (predation_state) {
+        checkpoint::read(s,w.next_resource_id);
+        if (!w.next_resource_id) throw std::runtime_error("Invalid next resource ID");
+        checkpoint::read_tuple(s,checkpoint::predation_total_fields(w.totals));
+        std::apply([](const auto&... v) { if (((v < 0) || ...)) throw std::runtime_error("Negative predation total"); },
+            checkpoint::predation_total_fields(w.totals));
+    }
     checkpoint::read(s,w.step_index,w.next_creature_id,w.fruit_a_rich,w.capacity_limited);
     checkpoint::read_tuple(s,checkpoint::total_fields(w.totals));
     if (modern_state) checkpoint::read_tuple(s,checkpoint::establishment_total_fields(w.totals));
@@ -245,15 +261,16 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::read(s,tile);
         if (tile < Terrain::Ground || tile > Terrain::Shelter) throw std::runtime_error("Invalid terrain in checkpoint");
     }
-    w.resources.resize(checkpoint::count(s,tiles));
+    w.resources.resize(checkpoint::count(s,predation_state ? 1000000 : tiles));
     std::set<std::uint64_t> ids;
     for (auto& r : w.resources) {
         checkpoint::read(s,r.id,r.kind,r.position.x,r.position.y,r.stock,r.capacity,r.regrowth,
             r.energy_per_unit,r.pod_state,r.progress,r.opened_at);
         if (dynamic_food_state) checkpoint::read(s,r.shelter_food);
-        if (!ids.insert(r.id).second || r.kind < FoodKind::Graze || r.kind > FoodKind::Pod
+        if (!ids.insert(r.id).second || r.kind < FoodKind::Graze || r.kind > (cfg.predation ? FoodKind::Meat : FoodKind::Pod)
             || r.pod_state < PodState::Closed || r.pod_state > PodState::Refilling
             || r.stock < 0 || r.stock > r.capacity+1e-8 || r.capacity <= 0 || r.regrowth < 0
+            || (r.kind == FoodKind::Meat && (r.regrowth != 0 || r.shelter_food))
             || r.energy_per_unit < 0 || r.progress < 0 || !w.traversable(r.position))
             throw std::runtime_error("Invalid resource checkpoint");
     }
@@ -266,11 +283,17 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         if (establishment_state) checkpoint::read(s,c.origin,c.genome_id,c.source_id,c.feeding_bouts,c.last_fed_time);
         else { c.genome_id=c.id; c.origin=c.parent_id ? CreatureOrigin::Birth : CreatureOrigin::Founder; }
         checkpoint::read(s,c.action.forward,c.action.left,c.action.right,c.action.forage,c.action.call);
-        for (auto& v : c.eaten) checkpoint::read(s,v);
+        if (predation_state) {
+            checkpoint::read(s,c.action.attack,c.body.mass,c.body.carnivory,c.health,c.damage_pulse);
+            if (c.body.mass < eco_min_mass || c.body.mass > eco_max_mass || c.body.carnivory < 0 || c.body.carnivory > 1
+                || c.health <= 0 || c.health > w.max_health(c)+1e-8 || c.damage_pulse < 0
+                || c.action.attack < 0 || c.action.attack > 1) throw std::runtime_error("Invalid predation creature state");
+        }
+        for (std::size_t k = 0; k < (predation_state ? 5u : 4u); ++k) checkpoint::read(s,c.eaten[k]);
         c.digestion.resize(checkpoint::count(s,1000000));
         for (auto& p : c.digestion) {
             checkpoint::read(s,p.due,p.energy,p.kind);
-            if (p.energy < 0 || p.kind < FoodKind::Graze || p.kind > FoodKind::Pod)
+            if (p.energy < 0 || p.kind < FoodKind::Graze || p.kind > (cfg.predation ? FoodKind::Meat : FoodKind::Pod))
                 throw std::runtime_error("Invalid digestive packet checkpoint");
         }
         c.neural_rng.load_state(s);
@@ -281,7 +304,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
             || c.energy <= 0 || c.energy > cfg.energy_capacity+1e-8 || c.age < 0
             || c.controller < ControllerKind::Spiking || c.controller > ControllerKind::Random
             || !w.traversable(c.position) || c.brain.config().input_count != cfg.brain.input_count
-            || c.brain.config().output_count != eco_output_count
+            || c.brain.config().output_count != cfg.brain.output_count
             || std::abs(c.brain.config().dt-cfg.brain.dt) > 1e-12)
             throw std::runtime_error("Invalid creature checkpoint");
     }
@@ -354,6 +377,24 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"food_patches\":" << w.config.nursery_food_patches
       << ",\"food_relocates\":" << (w.config.nursery_food_relocates?"true":"false") << "}"
       << ",\"fov_degrees\":" << w.config.fov_degrees << ",\"seed\":" << w.config.seed
+      << ",\"predation\":" << (w.config.predation ? "true" : "false")
+      << ",\"founder_mass\":" << w.config.founder_mass
+      << ",\"founder_carnivory\":" << w.config.founder_carnivory
+      << ",\"health_per_mass\":" << w.config.health_per_mass
+      << ",\"body_energy_per_mass\":" << w.config.body_energy_per_mass
+      << ",\"attack_range\":" << w.config.attack_range
+      << ",\"attack_degrees\":" << w.config.attack_degrees
+      << ",\"attack_damage\":" << w.config.attack_damage
+      << ",\"attack_cost\":" << w.config.attack_cost
+      << ",\"healing_rate\":" << w.config.healing_rate
+      << ",\"healing_cost\":" << w.config.healing_cost
+      << ",\"meat_energy\":" << w.config.meat_energy
+      << ",\"meat_decay\":" << w.config.meat_decay
+      << ",\"carcass_recovery\":" << w.config.carcass_recovery
+      << ",\"mass_mutation_probability\":" << w.config.mass_mutation_probability
+      << ",\"mass_mutation_sigma\":" << w.config.mass_mutation_sigma
+      << ",\"carnivory_mutation_probability\":" << w.config.carnivory_mutation_probability
+      << ",\"carnivory_mutation_sigma\":" << w.config.carnivory_mutation_sigma
       << ",\"max_speed\":" << w.config.max_speed << ",\"max_turn_rate\":" << w.config.max_turn_rate
       << ",\"shelter_size\":" << w.config.shelter_size
       << ",\"outdoor_food_relocates\":" << (w.config.outdoor_food_relocates?"true":"false")
@@ -387,7 +428,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"archive_eval_seconds\":" << w.config.archive_eval_seconds
       << ",\"archive_eval_seed\":" << w.config.archive_eval_seed
       << ",\"input_labels\":";
-    array(s,ecosystem_input_labels(w.config.extended_senses),[&](const std::string& v){ quoted(s,v); });
+    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation),[&](const std::string& v){ quoted(s,v); });
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"resources\":";
@@ -444,6 +485,10 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     array(s,w.creatures,[&](const EcoCreature& c){
         s << "{\"id\":" << c.id << ",\"parent\":" << c.parent_id << ",\"generation\":" << c.generation
           << ",\"x\":" << c.position.x << ",\"y\":" << c.position.y << ",\"heading\":" << c.heading
+          << ",\"mass\":" << c.body.mass << ",\"carnivory\":" << c.body.carnivory
+          << ",\"health\":" << c.health << ",\"max_health\":" << w.max_health(c)
+          << ",\"damage\":" << c.damage_pulse << ",\"attack\":" << c.action.attack
+          << ",\"maximum_speed\":" << w.maximum_speed(c)
           << ",\"energy\":" << c.energy << ",\"age\":" << c.age << ",\"speed\":" << c.speed
           << ",\"forward\":" << c.action.forward << ",\"turn\":" << c.turn
           << ",\"forage\":" << c.action.forage << ",\"call\":" << c.action.call
@@ -482,8 +527,12 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     });
     s << ",\"resources\":";
     array(s,w.resources,[&](const EcoResource& r){
-        s << "{\"id\":" << r.id << ",\"x\":" << r.position.x << ",\"y\":" << r.position.y
-          << ",\"stock\":" << r.stock << ",\"progress\":" << r.progress << ",\"state\":";
+        s << "{\"id\":" << r.id << ",\"x\":" << r.position.x << ",\"y\":" << r.position.y;
+        // Plants already have descriptors in metadata. Corpses can appear after
+        // recording starts and must remain self-contained when frames are sampled.
+        if (r.kind == FoodKind::Meat)
+            s << ",\"kind\":\"meat\",\"capacity\":" << r.capacity << ",\"value\":" << r.energy_per_unit;
+        s << ",\"stock\":" << r.stock << ",\"progress\":" << r.progress << ",\"state\":";
         quoted(s,to_string(r.pod_state)); s << '}';
     });
     s << ",\"events\":";
@@ -503,7 +552,7 @@ void write_ecosystem_stats_header(std::ostream& s)
          "immigrants,immigrant_mutations,immigrant_slight_mutations,immigrant_strong_mutations,immigrant_clones,immigrant_random,"
          "archive_fallbacks,archive_empty_checks,immigrant_energy,founder_births,immigrant_births,descendant_births,births_first_100s,"
          "natural_spiking_breeders,mature_offspring,archive_entries,immigration_active,immigration_withdrawn,"
-         "archive_best_score,archive_median_score,newborn_evaluated_genomes,nursery_population,frontier_population\n";
+         "archive_best_score,archive_median_score,newborn_evaluated_genomes,nursery_population,frontier_population,attacking,healing,body_construction,external_body_energy,carcass_energy,meat_spoiled_energy,damage,predation_deaths,mean_mass,mean_carnivory,mean_health_fraction,meat_biomass\n";
 }
 void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
 {
@@ -533,6 +582,19 @@ void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
       << (w.immigration_enabled()?1:0) << ',' << (w.immigration_withdrawn?1:0) << ','
       << archive_best << ',' << archive_median << ',' << w.newborn_evaluations.size();
     const auto nursery = std::count_if(w.creatures.begin(),w.creatures.end(),[&](const auto& c){return w.in_nursery(c.position);});
-    s << ',' << nursery << ',' << w.creatures.size()-nursery << '\n';
+    double mass=0,carnivory=0,health=0,meat=0;
+    for (const auto& c:w.creatures) { mass+=c.body.mass; carnivory+=c.body.carnivory; health+=c.health/w.max_health(c); }
+    for (const auto& r:w.resources) if (r.kind==FoodKind::Meat) meat+=r.stock;
+    const double population=static_cast<double>(std::max<std::size_t>(1,w.creatures.size()));
+    s << ',' << nursery << ',' << w.creatures.size()-nursery
+      << ',' << t.attacking
+      << ',' << t.healing
+      << ',' << t.body_construction
+      << ',' << t.external_body_energy
+      << ',' << t.carcass_energy
+      << ',' << t.meat_spoiled_energy
+      << ',' << t.damage
+      << ',' << t.predation_deaths
+      << ',' << mass/population << ',' << carnivory/population << ',' << health/population << ',' << meat << '\n';
 }
 } // namespace neuroevo

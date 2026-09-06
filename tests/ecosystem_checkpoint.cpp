@@ -33,7 +33,7 @@ std::string legacy_state(const neuroevo::EcosystemWorld& w)
             c.age,c.last_birth,c.speed,c.turn,c.ingestion_pulse,c.digestion_pulse,c.controller,
             c.spikes,c.step_spikes,c.offspring,c.energy_gained,c.energy_spent,c.pod_work,c.exposed_time,c.matured);
         checkpoint::write(s,c.action.forward,c.action.left,c.action.right,c.action.forage,c.action.call);
-        for(auto v:c.eaten) checkpoint::write(s,v);
+        for(std::size_t k=0;k<4;++k) checkpoint::write(s,c.eaten[k]);
         checkpoint::write(s,c.digestion.size());
         for(const auto& p:c.digestion) checkpoint::write(s,p.due,p.energy,p.kind);
         c.neural_rng.save_state(s);

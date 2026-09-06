@@ -152,7 +152,7 @@ bool connected(const EcosystemWorld& world)
 
 EcoAction bounded_action(EcoAction action, bool communication)
 {
-    for (double* value : {&action.forward, &action.left, &action.right, &action.forage, &action.call}) {
+    for (double* value : {&action.forward, &action.left, &action.right, &action.forage, &action.call, &action.attack}) {
         if (!std::isfinite(*value)) throw std::invalid_argument("Creature actions must be finite");
         *value = std::clamp(*value, 0.0, 1.0);
     }
@@ -280,8 +280,23 @@ void EcosystemConfig::validate() const
     positive(motor_gain, "Motor gain");
     positive(actuator_tau, "Actuator time constant", true);
     if (food_assignment < -1 || food_assignment > 1) throw std::invalid_argument("Food assignment must be -1 (seeded), 0 (A rich), or 1 (B rich)");
-    const auto inputs = extended_senses ? eco_input_count : eco_legacy_input_count;
-    if (brain.input_count != inputs || brain.output_count != eco_output_count || brain.sensory_input_count != inputs || brain.has_clock_input || brain.has_episode_start_input) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout without clock inputs");
+    for (const auto value : {health_per_mass, body_energy_per_mass, attack_range, attack_degrees,
+             attack_damage, attack_cost, healing_cost, meat_energy, meat_decay}) positive(value, "Predation parameter");
+    for (const auto value : {healing_rate, mass_mutation_sigma, carnivory_mutation_sigma})
+        positive(value, "Body mutation/healing parameter", true);
+    for (const auto value : {founder_carnivory, mass_mutation_probability, carnivory_mutation_probability}) {
+        positive(value, "Trait/probability", true);
+        if (value > 1) throw std::invalid_argument("Traits and mutation probabilities must be in [0,1]");
+    }
+    positive(founder_mass, "Founder mass");
+    if (founder_mass < eco_min_mass || founder_mass > eco_max_mass || attack_degrees > 360)
+        throw std::invalid_argument("Mass must be 0.5..2; attack arc must be <=360 degrees");
+    positive(carcass_recovery, "Carcass recovery");
+    if (carcass_recovery >= 1) throw std::invalid_argument("Carcass recovery must be strictly less than one");
+    if (predation && (!extended_senses || establishment))
+        throw std::invalid_argument("Predation requires extended senses and does not yet support archive establishment");
+    const auto inputs = predation ? eco_predation_input_count : extended_senses ? eco_input_count : eco_legacy_input_count;
+    if (brain.input_count != inputs || brain.output_count != (predation ? eco_predation_output_count : eco_output_count) || brain.sensory_input_count != inputs || brain.has_clock_input || brain.has_episode_start_input) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout without clock inputs");
     positive(brain.sensory_rate_hz, "Sensory spike rate");
     positive(brain.motor_rate_tau, "Motor rate time constant");
     positive(brain.motor_reference_hz, "Motor reference spike rate");
@@ -566,6 +581,7 @@ void EcosystemWorld::generate_world()
         creature.brain = Brain::random(config.brain, genome_rng);
         creature.brain.reset_state();
         creature.neural_rng = Random(mix(config.seed ^ mix(creature.id) ^ 0x6e657572616cULL));
+        initialize_body(creature);
         creatures.push_back(std::move(creature));
     }
     if (config.reproduction && creatures.size() >= config.max_population) {
@@ -581,6 +597,11 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (std::size_t i = 0; i < creatures.size(); ++i) {
         if (!traversable(creatures[i].position)) throw std::runtime_error("A creature begins the step inside a wall or outside the world");
         if (!std::isfinite(creatures[i].heading) || !std::isfinite(creatures[i].energy)) throw std::runtime_error("Creature heading and energy must be finite");
+        if (config.predation && (!std::isfinite(creatures[i].body.mass)
+            || creatures[i].body.mass < eco_min_mass || creatures[i].body.mass > eco_max_mass
+            || !std::isfinite(creatures[i].body.carnivory) || creatures[i].body.carnivory < 0 || creatures[i].body.carnivory > 1
+            || !std::isfinite(creatures[i].health) || creatures[i].health > max_health(creatures[i]) + epsilon))
+            throw std::runtime_error("Invalid creature body or health");
         for (std::size_t j = 0; j < i; ++j) {
             if (squared(creatures[i].position - creatures[j].position) < 4 * config.radius * config.radius - epsilon) throw std::runtime_error("Creatures overlap at the start of a step");
         }
@@ -599,6 +620,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (std::size_t i = 0; i < population; ++i) {
         creatures[i].step_spikes = 0;
         actions.push_back(bounded_action(supplied_actions.empty() ? control(i) : supplied_actions[i], config.communication));
+        if (!config.predation) actions.back().attack = 0;
     }
     std::vector<Vec2> beginning(population), displacements(population);
     double largest_displacement = 0;
@@ -609,7 +631,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         creature.ingestion_pulse = creature.digestion_pulse = 0;
         creature.turn = (actions[i].left - actions[i].right) * config.max_turn_rate;
         creature.heading = angle(creature.heading + creature.turn * config.dt);
-        const double distance = actions[i].forward * config.max_speed * (1 - 0.75 * actions[i].forage) * config.dt;
+        const double distance = actions[i].forward * maximum_speed(creature) * (1 - 0.75 * actions[i].forage) * config.dt;
         displacements[i] = Vec2{std::cos(creature.heading), std::sin(creature.heading)} * distance;
         largest_displacement = std::max(largest_displacement, distance);
         totals.spikes += creature.step_spikes;
@@ -659,16 +681,59 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     }
     for (std::size_t i = 0; i < population; ++i) creatures[i].speed = length(creatures[i].position - beginning[i]) / config.dt;
 
+    // Paid, continuous attack effort. Select from an immutable geometry/liveness
+    // snapshot, then accumulate hits in stable attacker order before applying damage.
+    if (config.predation) {
+        std::vector<std::size_t> attackers(population);
+        std::iota(attackers.begin(), attackers.end(), 0);
+        std::sort(attackers.begin(), attackers.end(), [&](auto a, auto b) { return creatures[a].id < creatures[b].id; });
+        std::vector<double> damage(population, 0);
+        for (auto& c : creatures) c.damage_pulse = 0;
+        for (const auto i : attackers) {
+            auto& c = creatures[i];
+            if (c.health <= 0 || c.energy <= 0 || c.action.attack <= 0) continue;
+            std::size_t target = population;
+            double nearest = config.attack_range + epsilon;
+            std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
+            for (std::size_t j = 0; j < population; ++j) {
+                if (i == j || creatures[j].health <= 0) continue;
+                const auto delta = creatures[j].position - c.position;
+                const double distance = length(delta);
+                if (distance > config.attack_range + epsilon || distance > nearest + epsilon
+                    || std::abs(angle(std::atan2(delta.y, delta.x) - c.heading)) > config.attack_degrees * pi / 360 + epsilon
+                    || !line_of_sight(c.position, creatures[j].position)) continue;
+                const auto tie = mix(tie_seed ^ mix(c.id) ^ mix(creatures[j].id));
+                if (target == population || distance < nearest - epsilon || tie < best_tie) {
+                    target = j; nearest = distance; best_tie = tie;
+                }
+            }
+            const double paid = std::min(c.energy, config.attack_cost * c.action.attack * config.dt);
+            c.energy -= paid; c.energy_spent += paid; totals.attacking += paid;
+            if (target != population) {
+                const double hit = config.attack_damage * paid / config.attack_cost;
+                damage[target] += hit;
+                events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit});
+            }
+        }
+        for (std::size_t i = 0; i < population; ++i) {
+            auto& c = creatures[i];
+            c.damage_pulse = std::min(std::max(0.0, c.health), damage[i]);
+            c.health = std::max(0.0, c.health - damage[i]);
+            totals.damage += c.damage_pulse;
+        }
+    }
+
     // 3. Targets use post-movement geometry and the starting resource state.
     // A seeded ID hash breaks exact distance ties without vector-order priority.
     std::vector<std::vector<std::size_t>> requests(resources.size());
     for (std::size_t i = 0; i < population; ++i) {
         const auto& creature = creatures[i];
-        if (creature.action.forage <= 0 || creature.energy <= 0) continue;
+        if (creature.action.forage <= 0 || creature.energy <= 0 || (config.predation && creature.health <= 0)) continue;
         std::size_t target = resources.size();
         double nearest = config.interaction_range + epsilon;
         std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
         for (std::size_t r = 0; r < resources.size(); ++r) {
+            if (dietary_efficiency(creature, resources[r].kind) <= 0) continue;
             if (config.extended_senses && (resources[r].stock <= epsilon
                 || (resources[r].kind == FoodKind::Pod && resources[r].pod_state == PodState::Refilling))) continue;
             const Vec2 difference = resources[r].position - creature.position;
@@ -723,7 +788,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         const auto demand = [&](std::size_t i) {
             const auto& action = creatures[i].action;
             const double settled = 1.0 - std::clamp(action.forward, 0.0, 1.0);
-            const double efficiency = in_nursery(resource.position) ? 0.35 + 0.65 * settled * settled : 1.0;
+            const double efficiency = (resource.kind != FoodKind::Meat && in_nursery(resource.position)) ? 0.35 + 0.65 * settled * settled : 1.0;
             return action.forage * config.ingestion_rate * config.dt * efficiency;
         };
         double requested = 0;
@@ -738,7 +803,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (end - creature.last_fed_time > 5.0) ++creature.feeding_bouts;
             creature.last_fed_time = end;
             creature.eaten[static_cast<std::size_t>(resource.kind)] += amount;
-            creature.digestion.push_back({end + config.digestion_delay, amount * resource.energy_per_unit, resource.kind});
+            const double raw_energy = amount * resource.energy_per_unit;
+            const double digestible = raw_energy * dietary_efficiency(creature, resource.kind);
+            totals.discarded_energy += raw_energy - digestible;
+            creature.digestion.push_back({end + config.digestion_delay, digestible, resource.kind});
             events.push_back({end, "ingestion", creature.id, 0, resource.id, amount});
         }
         resource.stock = std::max(0.0, resource.stock - allocated);
@@ -755,7 +823,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     // Relocate only after all feeding allocations: newly placed food cannot be
     // eaten through another creature's stale target in this step.
     for (auto& resource : resources) {
-        if (!in_nursery(resource.position)) continue;
+        if (resource.kind == FoodKind::Meat || !in_nursery(resource.position)) continue;
         const double spoiled=std::min(resource.stock,config.nursery_food_decay*config.dt);
         resource.stock-=spoiled;
         totals.spoiled_biomass+=spoiled;
@@ -768,7 +836,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     }
 
     if (config.outdoor_food_relocates) for (auto& resource : resources) {
-        if (resource.kind == FoodKind::Pod || resource.shelter_food || in_nursery(resource.position)) continue;
+        if (resource.kind == FoodKind::Meat || resource.kind == FoodKind::Pod || resource.shelter_food || in_nursery(resource.position)) continue;
         const double decay = resource.kind == FoodKind::Graze ? config.graze_decay : config.fruit_decay;
         const double spoiled = std::min(resource.stock, decay * config.dt);
         resource.stock -= spoiled;
@@ -780,12 +848,24 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         }
     }
 
+    // Existing corpses decay everywhere, independently of weather/plant policies.
+    for (auto& r : resources) if (r.kind == FoodKind::Meat) {
+        const double spoiled = std::min(r.stock, config.meat_decay * config.dt);
+        r.stock -= spoiled;
+        totals.spoiled_biomass += spoiled;
+        totals.meat_spoiled_energy += spoiled * r.energy_per_unit;
+    }
+    resources.erase(std::remove_if(resources.begin(), resources.end(), [](const auto& r) {
+        return r.kind == FoodKind::Meat && r.stock <= 0;
+    }), resources.end());
+
     // 4. Due digestive packets arrive at the end boundary, then this interval's
     // energetic costs are charged. Future packets cannot rescue a starving body.
     for (auto& creature : creatures) {
+        const bool killed = config.predation && creature.health <= 0;
         std::size_t pending = 0;
         for (const auto& packet : creature.digestion) {
-            if (packet.due <= end + epsilon) {
+            if (!killed && packet.due <= end + epsilon) {
                 const double gain = std::min(packet.energy, std::max(0.0, config.energy_capacity - creature.energy));
                 creature.energy += gain;
                 creature.energy_gained += gain;
@@ -798,7 +878,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         creature.digestion.resize(pending);
         const auto stats = creature.brain.stats();
         const double rough = terrain_at(creature.position) == Terrain::Rough ? config.rough_multiplier : 1;
-        const double metabolism = config.basal_cost * config.dt;
+        const double metabolism = config.basal_cost * (config.predation ? creature.body.mass : 1.0) * config.dt;
         const double movement = config.movement_cost * creature.action.forward * creature.action.forward * rough * config.dt;
         const double turning = config.turn_cost * std::abs(creature.action.left - creature.action.right) * config.dt;
         const double foraging = config.forage_cost * creature.action.forage * config.dt;
@@ -819,23 +899,24 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         totals.calling += calling * fraction;
         totals.neural += neural * fraction;
         totals.exposure += exposure * fraction;
+        if (config.predation && !killed && creature.energy > 0 && creature.damage_pulse == 0) {
+            const double healed = std::min({max_health(creature) - creature.health,
+                config.healing_rate * config.dt, creature.energy / config.healing_cost});
+            const double healing_paid = std::max(0.0, healed) * config.healing_cost;
+            creature.health += std::max(0.0, healed);
+            creature.energy -= healing_paid;
+            creature.energy_spent += healing_paid;
+            totals.healing += healing_paid;
+        }
         creature.age += config.dt;
-        if (creature.energy > 0 && !creature.matured && creature.age + epsilon >= config.maturity_age) {
+        if (!killed && creature.energy > 0 && !creature.matured && creature.age + epsilon >= config.maturity_age) {
             creature.matured = true;
             ++totals.maturations;
             if (creature.parent_id != 0) ++totals.mature_offspring;
             events.push_back({end, "maturation", creature.id, creature.parent_id, 0, creature.age});
         }
-        if (creature.energy <= 0) {
-            consider_archive(creature, true, end);
-            double discarded = 0;
-            for (const auto& packet : creature.digestion) discarded += packet.energy;
-            totals.discarded_energy += discarded;
-            ++totals.deaths;
-            events.push_back({end, "death", creature.id, creature.parent_id, 0, discarded});
-        }
     }
-    creatures.erase(std::remove_if(creatures.begin(), creatures.end(), [](const EcoCreature& creature) { return creature.energy <= 0; }), creatures.end());
+    remove_dead(end);
 
     // 5. Birth placement prioritizes energy, breaks ties reproducibly and validates
     // full circles against terrain and every living/born body. Failed birth is free.
@@ -868,11 +949,17 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             }
             if (!found) continue;
             EcoCreature child;
-            child.id = next_creature_id++;
+            child.id = next_creature_id;
             // One draw selects 25% copies, 50% slight and 25% strong mutations.
             const double inheritance = mutation_rng.uniform(0.0, 1.0);
             const bool exact_inheritance = inheritance < 0.25;
             child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
+            child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= 0.75, mutation_rng);
+            child.health = max_health(child);
+            const double body_cost = config.predation ? config.body_energy_per_mass * child.body.mass : 0.0;
+            const double birth_cost = config.reproduction_cost + body_cost;
+            if (parent.energy < birth_cost) continue;
+            ++next_creature_id;
             child.origin = CreatureOrigin::Birth;
             child.parent_id = parent.id;
             child.generation = parent.generation + 1;
@@ -883,11 +970,12 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.brain = parent.brain;
             if (!exact_inheritance) child.brain.mutate(inheritance < 0.75
                 ? detail::slight_mutation(config.mutation)
-                : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses));
+                : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation));
             child.brain.reset_state();
             child.neural_rng = Random(mix(config.seed ^ mix(child.id) ^ 0x6e657572616cULL));
-            parent.energy -= config.reproduction_cost;
-            parent.energy_spent += config.reproduction_cost;
+            parent.energy -= birth_cost;
+            parent.energy_spent += birth_cost;
+            totals.body_construction += body_cost;
             parent.last_birth = end;
             if (parent.parent_id != 0 && parent.offspring == 0 && parent.controller == ControllerKind::Spiking)
                 ++totals.natural_spiking_breeders;
@@ -901,18 +989,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             events.push_back({end, "birth", child.id, parent.id, 0, config.offspring_energy});
             creatures.push_back(std::move(child));
         }
-        // Configurations with birth cost equal to the reserve threshold can
-        // exhaust a parent completely. Its offspring survives, but the parent
-        // must be removed at this same boundary and loses its pending digestion.
-        for (const auto& creature : creatures) if (creature.energy <= 0) {
-            consider_archive(creature, true, end);
-            double discarded = 0;
-            for (const auto& packet : creature.digestion) discarded += packet.energy;
-            totals.discarded_energy += discarded;
-            ++totals.deaths;
-            events.push_back({end, "death", creature.id, creature.parent_id, 0, discarded});
-        }
-        creatures.erase(std::remove_if(creatures.begin(), creatures.end(), [](const EcoCreature& creature) { return creature.energy <= 0; }), creatures.end());
+        remove_dead(end);
     }
     const bool full = config.reproduction && creatures.size() >= config.max_population;
     if (full != capacity_limited)
@@ -923,6 +1000,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     // 6. Regrowth uses the weather at interval start and appears at its end.
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
     for (auto& resource : resources) {
+        if (resource.kind == FoodKind::Meat) continue;
         if (config.nursery_food_relocates && in_nursery(resource.position)) continue;
         if (config.outdoor_food_relocates && resource.kind != FoodKind::Pod
             && !resource.shelter_food && !in_nursery(resource.position)) continue;
@@ -950,7 +1028,7 @@ const char* to_string(Terrain value)
 }
 const char* to_string(FoodKind value)
 {
-    switch (value) { case FoodKind::Graze: return "graze"; case FoodKind::FruitA: return "fruit-a"; case FoodKind::FruitB: return "fruit-b"; case FoodKind::Pod: return "pod"; }
+    switch (value) { case FoodKind::Graze: return "graze"; case FoodKind::FruitA: return "fruit-a"; case FoodKind::FruitB: return "fruit-b"; case FoodKind::Pod: return "pod"; case FoodKind::Meat: return "meat"; }
     throw std::invalid_argument("Invalid food kind");
 }
 const char* to_string(PodState value)

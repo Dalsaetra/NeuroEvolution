@@ -11,6 +11,7 @@ add_library(neuroevo_core
     src/brain.cpp
     src/brain_state.cpp
     src/ecosystem.cpp
+    src/ecosystem_predation.cpp
     src/ecosystem_ancestor.cpp
     src/ecosystem_frontier.cpp
     src/ecosystem_establishment.cpp
@@ -46,6 +47,9 @@ add_executable(neuroevo_ecosystem src/ecosystem_main.cpp)
 target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
+add_executable(neuroevo_ecosystem_predation tests/ecosystem_predation.cpp)
+target_link_libraries(neuroevo_ecosystem_predation PRIVATE neuroevo_core)
+add_test(NAME neuroevo_ecosystem_predation COMMAND neuroevo_ecosystem_predation)
 
 add_executable(neuroevo_sensory_mutation_tests tests/sensory_mutation.cpp)
 target_link_libraries(neuroevo_sensory_mutation_tests PRIVATE neuroevo_core)

@@ -28,8 +28,8 @@ Brain::Neuron neuron_at(double x, double y, double threshold = 1.0)
 
 Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
 {
-    if (config.brain.input_count != (config.extended_senses ? eco_input_count : eco_legacy_input_count)
-        || config.brain.output_count != eco_output_count) {
+    if (config.brain.input_count != (config.predation ? eco_predation_input_count : config.extended_senses ? eco_input_count : eco_legacy_input_count)
+        || config.brain.output_count != (config.predation ? eco_predation_output_count : eco_output_count)) {
         throw std::invalid_argument("The sparse ecosystem ancestor requires the ecosystem sensor and motor layout");
     }
     if (!(config.brain.synaptic_gain > 0.0) || !std::isfinite(config.brain.synaptic_gain)) {
@@ -201,6 +201,7 @@ EcosystemWorld make_ancestral_nursery(EcosystemConfig config)
     founder.controller = ControllerKind::Spiking;
     founder.brain = make_sparse_ancestral_brain(world.config);
     founder.neural_rng = Random(config.seed ^ 0x6e757273657279ULL);
+    world.initialize_body(founder);
     world.creatures.push_back(std::move(founder));
     world.next_creature_id = 2;
     return world;

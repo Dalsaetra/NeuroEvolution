@@ -9,19 +9,20 @@ EcosystemConfig nursery_frontier_config()
 {
     EcosystemConfig c;
     c.nursery_frontier = true;
+    c.set_predation(true);
     c.width = c.height = 80;
     c.max_population = 100;
     c.shelters = 32;
-    c.nursery_food_energy = 50; c.nursery_food_capacity = 2; c.nursery_food_regrowth = 0.02;
+    c.nursery_food_energy = 60; c.nursery_food_capacity = 2; c.nursery_food_regrowth = 0.02;
     c.nursery_food_patches = 16;
     c.grazing_patches = 400; c.fruit_patches = 60; c.pods = 80;
-    c.graze_energy = 25; c.poor_fruit_energy = 35; c.rich_fruit_energy = 60; c.pod_energy = 100;
+    c.graze_energy = 30; c.poor_fruit_energy = 35; c.rich_fruit_energy = 60; c.pod_energy = 100;
     c.graze_capacity = 4; c.fruit_capacity = 4; c.pod_capacity = 10;
     c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 10.0;
+    c.calm_duration = 180; c.warning_duration = 45; c.storm_duration = 60; c.storm_cost = 7.0;
     c.energy_capacity = 300;
     c.maturity_age = 60; c.reproduction_threshold = 225;
-    c.reproduction_cost = 150; c.offspring_energy = 60; c.reproduction_cooldown = 90;
+    c.reproduction_cost = 130; c.offspring_energy = 60; c.reproduction_cooldown = 90;
     c.establishment = false; c.archive_eval_trials = 0;
     return c;
 }
@@ -183,6 +184,7 @@ void EcosystemWorld::generate_nursery_frontier()
         Random genome_rng(config.seed ^ (c.id*104729ULL));
         c.brain=Brain::random(config.brain,genome_rng);
         c.neural_rng=Random(config.seed ^ (c.id*13007ULL));
+        initialize_body(c);
         creatures.push_back(std::move(c));
     }
     if (config.reproduction && creatures.size()>=config.max_population) {

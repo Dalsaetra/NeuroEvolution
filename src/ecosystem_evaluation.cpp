@@ -10,6 +10,7 @@ namespace neuroevo {
 
 NewbornEvaluation EcosystemWorld::evaluate_newborn(const Brain& genome) const
 {
+    if (config.predation) throw std::invalid_argument("Predation archive evaluation is not supported yet");
     if (genome.config().input_count != config.brain.input_count
         || genome.config().output_count != eco_output_count || genome.config().dt != config.brain.dt)
         throw std::invalid_argument("Newborn evaluation requires a compatible ecosystem genome");

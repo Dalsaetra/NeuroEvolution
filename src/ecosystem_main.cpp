@@ -82,6 +82,24 @@ int main(int argc, char** argv)
             {"--archive-min-feeding-bouts",&cfg.archive_min_feeding_bouts},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
+            {"--founder-mass",&cfg.founder_mass},
+            {"--founder-carnivory",&cfg.founder_carnivory},
+            {"--health-per-mass",&cfg.health_per_mass},
+            {"--body-energy-per-mass",&cfg.body_energy_per_mass},
+            {"--attack-range",&cfg.attack_range},
+            {"--attack-degrees",&cfg.attack_degrees},
+            {"--attack-damage",&cfg.attack_damage},
+            {"--attack-cost",&cfg.attack_cost},
+            {"--healing-rate",&cfg.healing_rate},
+            {"--healing-cost",&cfg.healing_cost},
+            {"--meat-energy",&cfg.meat_energy},
+            {"--meat-decay",&cfg.meat_decay},
+            {"--carcass-recovery",&cfg.carcass_recovery},
+            {"--mass-mutation-probability",&cfg.mass_mutation_probability},
+            {"--mass-mutation-sigma",&cfg.mass_mutation_sigma},
+            {"--carnivory-mutation-probability",&cfg.carnivory_mutation_probability},
+            {"--carnivory-mutation-sigma",&cfg.carnivory_mutation_sigma},
+
             {"--nursery-food-decay",&cfg.nursery_food_decay},
             {"--nursery-food-energy",&cfg.nursery_food_energy},
             {"--nursery-food-capacity",&cfg.nursery_food_capacity},
@@ -182,6 +200,14 @@ int main(int argc, char** argv)
                     "                             Archive parents use niche-preserving tournament selection\n"
                     "                             Floor 0 means half the initial population (at least 1)\n"
                     "  --resume FILE             Continue full state from a checkpoint (no world overrides)\n"
+                    "  --predation 0|1           Combat/body/diet mechanics (on in nursery-frontier)\n"
+                    "  --founder-mass X          Initial body mass, 0.5..2 (default 1)\n"
+                    "  --founder-carnivory X     Initial meat efficiency, 0..1 (default 0)\n"
+                    "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
+                    "  --carnivory-mutation-probability X / --carnivory-mutation-sigma X\n"
+                    "  --attack-range X / --attack-degrees X / --attack-damage X / --attack-cost X\n"
+                    "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
+                    "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
                     "  --founders FILE           Copy/reset living brains from a checkpoint into a new world\n"
                     "  --out DIR                 Fresh output directory (default timestamped runs/ecosystem_...)\n\n"
                     "Integer world/brain settings (defaults):\n";
@@ -228,6 +254,7 @@ int main(int argc, char** argv)
                     cfg.brain.conduction_speed = calibrated ? 6.0 : 1.5;
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
+                else if (arg == "--predation") cfg.predation=boolean(value,arg);
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
                 else if (arg == "--nursery-food-relocates") cfg.nursery_food_relocates=boolean(value,arg);
@@ -265,6 +292,7 @@ int main(int argc, char** argv)
         if (detailed_tail_seconds < 0) throw std::invalid_argument("--detailed-tail-seconds must be nonnegative");
         if (evaluation_workers==0 || evaluation_workers>32)
             throw std::invalid_argument("--archive-eval-workers must be 1..32");
+        cfg.set_predation(cfg.predation);
         if (habitat=="ancestor-nursery") {
             if (cfg.initial_creatures!=1) throw std::invalid_argument("The ancestor nursery requires --creatures 1");
             if (companions!=0) throw std::invalid_argument("The ancestor nursery does not accept companion founders");
@@ -315,18 +343,29 @@ int main(int argc, char** argv)
                 brain_config.hidden_count = brain.config().hidden_count;
                 auto neurons = brain.neurons();
                 auto synapses = brain.synapses();
-                if (brain.config().input_count != brain_config.input_count) {
-                    if (brain.config().input_count != neuroevo::eco_legacy_input_count
-                        || brain_config.input_count != neuroevo::eco_input_count)
-                        throw std::invalid_argument("Founder interface cannot be reduced; use --sensorimotor calibrated");
-                    const auto added = neuroevo::eco_input_count - neuroevo::eco_legacy_input_count;
-                    neurons.insert(neurons.begin()+neuroevo::eco_legacy_input_count,added,neuroevo::Brain::Neuron{});
-                    for (std::size_t input=neuroevo::eco_legacy_input_count;input<neuroevo::eco_input_count;++input)
-                        neurons[input].position={0.05,(static_cast<double>(input)+0.5)/neuroevo::eco_input_count};
-                    for (auto& edge:synapses) {
-                        if (edge.pre>=neuroevo::eco_legacy_input_count) edge.pre+=added;
-                        if (edge.post>=neuroevo::eco_legacy_input_count) edge.post+=added;
-                    }
+                if (brain.config().input_count > brain_config.input_count || brain.config().output_count > brain_config.output_count)
+                    throw std::invalid_argument("Founder interface cannot be reduced; enable calibrated senses and predation");
+                const auto old_inputs = brain.config().input_count;
+                const auto added = brain_config.input_count - old_inputs;
+                neurons.insert(neurons.begin()+old_inputs,added,neuroevo::Brain::Neuron{});
+                for (std::size_t input=old_inputs;input<brain_config.input_count;++input) {
+                    neurons[input].position={0.05,(static_cast<double>(input)+0.5)/brain_config.input_count};
+                    neurons[input].background_sensitivity=0;
+                }
+                for (auto& edge:synapses) {
+                    if (edge.pre>=old_inputs) edge.pre+=added;
+                    if (edge.post>=old_inputs) edge.post+=added;
+                }
+                for (auto output=brain.config().output_count; output<brain_config.output_count; ++output) {
+                    neuroevo::Brain::Neuron neuron;
+                    neuron.position={0.95,(static_cast<double>(output)+0.5)/brain_config.output_count};
+                    neurons.push_back(neuron); // New attack output starts disconnected and silent.
+                }
+                if (world.config.predation && source.config.predation) {
+                    world.totals.external_body_energy -= world.config.body_energy_per_mass * world.creatures[i].body.mass;
+                    world.creatures[i].body = source_creature.body;
+                    world.creatures[i].health = world.max_health(world.creatures[i]);
+                    world.totals.external_body_energy += world.config.body_energy_per_mass * world.creatures[i].body.mass;
                 }
                 world.creatures[i].brain=neuroevo::Brain::from_components(brain_config,std::move(neurons),std::move(synapses));
                 world.creatures[i].brain.reset_state();
@@ -404,7 +443,7 @@ int main(int argc, char** argv)
         std::signal(SIGINT,request_stop); std::signal(SIGTERM,request_stop);
         std::uint64_t last_recorded=world.step_index;
         std::cout << "Ecosystem: " << world.creatures.size() << " creatures, " << world.config.brain.input_count
-            << " sensory inputs, " << neuroevo::eco_output_count << " motor outputs\nOutput: " << out.string() << '\n';
+            << " sensory inputs, " << world.config.brain.output_count << " motor outputs\nOutput: " << out.string() << '\n';
         if (!resume.empty()) std::cout << "Founder genomes and controllers were restored from the checkpoint.\n";
         else if (founder_brain=="sparse-ancestor") std::cout
             << "Founders use the seven-hidden-neuron sparse ancestral spiking brain.\n";
@@ -424,7 +463,7 @@ int main(int argc, char** argv)
             step_wall_seconds+=step_seconds;
             slowest_step_seconds=std::max(slowest_step_seconds,step_seconds);
             for (const auto& e:world.events) {
-                const bool routine=e.type=="ingestion" || e.type=="digestion" || e.type=="pod_work";
+                const bool routine=e.type=="ingestion" || e.type=="digestion" || e.type=="pod_work" || e.type=="attack_hit";
                 if (record_routine_events || !routine) {
                     events << e.time << ',' << e.type << ',' << e.creature << ',' << e.other << ',' << e.resource << ',' << e.amount << '\n';
                     pending.push_back(e);
@@ -503,6 +542,16 @@ int main(int argc, char** argv)
         summary << "{\n  \"status\":\"" << status << "\",\n  \"steps_run\":" << world.step_index-starting_step
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
+            << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
+            << ",\"founder_mass\":" << world.config.founder_mass << ",\"founder_carnivory\":" << world.config.founder_carnivory
+            << ",\"mass_mutation_probability\":" << world.config.mass_mutation_probability
+            << ",\"mass_mutation_sigma\":" << world.config.mass_mutation_sigma
+            << ",\"carnivory_mutation_probability\":" << world.config.carnivory_mutation_probability
+            << ",\"carnivory_mutation_sigma\":" << world.config.carnivory_mutation_sigma
+            << ",\"deaths\":" << world.totals.predation_deaths << ",\"attack_energy\":" << world.totals.attacking
+            << ",\"healing_energy\":" << world.totals.healing << ",\"body_construction\":" << world.totals.body_construction
+            << ",\"external_body_energy\":" << world.totals.external_body_energy
+            << ",\"carcass_energy\":" << world.totals.carcass_energy << "}"
             << ",\n  \"nursery\":{\"enabled\":" << (world.config.nursery_frontier?"true":"false")
             << ",\"size\":" << world.config.nursery_size << ",\"food_energy\":" << world.config.nursery_food_energy
             << ",\"exit_width\":" << world.config.nursery_exit_width
@@ -532,6 +581,7 @@ int main(int argc, char** argv)
             << ",\n  \"food_energy\":" << world.totals.energy_gained
             << ",\n  \"operating_energy\":" << world.totals.metabolism+world.totals.movement+world.totals.turning
                 +world.totals.foraging+world.totals.calling+world.totals.neural+world.totals.exposure
+                +world.totals.attacking+world.totals.healing
             << ",\n  \"archive_entries\":" << world.archive.size()
             << ",\n  \"newborn_evaluated_genomes\":" << world.newborn_evaluations.size()
             << ",\n  \"performance\":{\"evaluation_workers\":" << evaluation_workers

@@ -249,11 +249,12 @@ class EcosystemCliTests(unittest.TestCase):
 
     def test_nursery_decay_checkpoint_compatibility(self):
         first = self.run_world("nursery_decay", "--habitat", "nursery-frontier", "--creatures", 1,
-                               "--steps", 1, "--nursery-food-decay", 0.007)
+                               "--steps", 1, "--nursery-food-decay", 0.007, "--predation", 0)
         resumed = self.run_world("nursery_decay_resumed", "--resume", first / "checkpoint.eco", "--steps", 1)
         metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["nursery"]["food_decay"], 0.007)
         lines = (first / "checkpoint.eco").read_text().splitlines()
+        self.strip_predation(lines)
         lines[0] = "NEUROEVO_ECOSYSTEM_14"
         del lines[15]
         historical = first / "v14.eco"
@@ -263,7 +264,26 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(metadata["nursery"]["food_decay"], 0)
 
     @staticmethod
+    def strip_predation(lines):
+        # Fixtures use predation-disabled worlds, so no neural interface migration.
+        assert lines[0].strip() == "NEUROEVO_ECOSYSTEM_16"
+        del lines[16:19]  # config, resource counter, totals
+        resource_count = int(lines[27])
+        cursor = 29 + resource_count
+        creature_count = int(lines[28 + resource_count])
+        for _ in range(creature_count):
+            lines[cursor + 2] = " ".join(lines[cursor + 2].split()[:5])
+            del lines[cursor + 3]  # body genes and injury
+            lines[cursor + 3] = " ".join(lines[cursor + 3].split()[:4])
+            brain = next(i for i in range(cursor, len(lines)) if lines[i].strip() == "NEUROEVO_BRAIN_2")
+            neurons, edges, _ = map(int, lines[brain + 3].split())
+            delay = int(lines[brain + 1].split()[-1])
+            cursor = brain + 4 + neurons + edges + delay + 1 + 1
+        lines[0] = "NEUROEVO_ECOSYSTEM_15"
+
+    @staticmethod
     def strip_dynamic_food(lines):
+        EcosystemCliTests.strip_predation(lines)
         # v15 adds nursery decay after the v14 food config.
         del lines[15]
         # v14 appends a shelter subtype flag to each resource and a config line.
@@ -297,7 +317,7 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_15")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_16")
         self.strip_dynamic_food(lines)
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
         del lines[8:14]
@@ -309,6 +329,41 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertTrue(json.loads((switched / "summary.json").read_text())["mutation"]["stable"])
         again = self.run_world("persisted_policy", "--resume", switched / "checkpoint.eco", "--steps", 1)
         self.assertTrue(json.loads((again / "summary.json").read_text())["mutation"]["stable"])
+
+    def test_predation_inheritance_resume_and_founder_migration(self):
+        args = ("--habitat", "nursery-frontier", "--creatures", 2, "--founder-energy", 250,
+                "--maturity-age", 0.1, "--reproduction-cooldown", 0.2,
+                "--founder-mass", 1.7, "--founder-carnivory", 0.4,
+                "--mass-mutation-probability", 1, "--carnivory-mutation-probability", 1,
+                "--record-every", 1)
+        first = self.run_world("predation_first", *args, "--steps", 3)
+        continued = self.run_world("predation_continued", "--resume", first / "checkpoint.eco", "--steps", 7)
+        whole = self.run_world("predation_whole", *args, "--steps", 10)
+        self.assertEqual((continued / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        records = [json.loads(line) for line in (whole / "ecosystem.jsonl").read_text().splitlines()]
+        self.assertTrue(records[0]["predation"])
+        self.assertEqual(len(records[0]["input_labels"]), 124)
+        self.assertEqual(records[0]["brains"][0]["outputs"], 6)
+        self.assertGreater(records[-1]["totals"]["body_construction"], 0)
+        self.assertTrue(all(c["mass"] == 1.7 and c["carnivory"] == 0.4 for c in records[1]["creatures"]))
+
+        old = self.run_world("pre_predation", "--creatures", 1, "--steps", 1, "--founder-brain", "sparse-ancestor")
+        migrated = self.run_world("predation_migrated", "--habitat", "nursery-frontier", "--creatures", 1,
+                                  "--founders", old / "checkpoint.eco", "--steps", 1)
+        old_meta = json.loads((old / "ecosystem.jsonl").read_text().splitlines()[0])
+        new_meta = json.loads((migrated / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(old_meta["input_labels"], new_meta["input_labels"][:97])
+        old_brain, new_brain = old_meta["brains"][0], new_meta["brains"][0]
+        self.assertEqual(new_brain["outputs"], 6)
+        self.assertEqual(len(old_brain["synapses"]), len(new_brain["synapses"]))
+        for before, after in zip(old_brain["synapses"], new_brain["synapses"]):
+            for endpoint in ("pre", "post"):
+                self.assertEqual(after[endpoint], before[endpoint] + (27 if before[endpoint] >= 97 else 0))
+        copied = self.run_world("body_genes_copied", "--habitat", "nursery-frontier", "--creatures", 1,
+                               "--founders", first / "checkpoint.eco", "--steps", 1)
+        frame = json.loads((copied / "ecosystem.jsonl").read_text().splitlines()[1])
+        self.assertEqual(frame["creatures"][0]["mass"], 1.7)
+        self.assertEqual(frame["creatures"][0]["carnivory"], 0.4)
 
     def test_newborn_evaluation_output_and_resume(self):
         args = ("--creatures", 1, "--founder-brain", "sparse-ancestor", "--establishment", 1,

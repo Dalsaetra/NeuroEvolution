@@ -12,7 +12,7 @@
 namespace neuroevo {
 
 enum class Terrain { Ground, Rough, Wall, Shelter };
-enum class FoodKind { Graze, FruitA, FruitB, Pod };
+enum class FoodKind { Graze, FruitA, FruitB, Pod, Meat };
 enum class PodState { Closed, Open, Refilling };
 enum class ControllerKind { Spiking, Reactive, Random };
 enum class WeatherPhase { Calm, Warning, Storm };
@@ -25,8 +25,29 @@ constexpr std::size_t eco_depleted_offset = eco_legacy_input_count;
 constexpr std::size_t eco_shelter_offset = eco_depleted_offset + eco_sectors;
 constexpr std::size_t eco_input_count = eco_shelter_offset + eco_sectors;
 constexpr std::size_t eco_output_count = 5;
+// Append sensory groups; all pre-predation input/output indices stay stable.
+constexpr std::size_t eco_meat_offset = eco_input_count;
+constexpr std::size_t eco_other_mass_offset = eco_meat_offset + 3 * eco_sectors;
+constexpr std::size_t eco_other_health_offset = eco_other_mass_offset + eco_sectors;
+constexpr std::size_t eco_health_offset = eco_other_health_offset + eco_sectors;
+constexpr std::size_t eco_predation_input_count = eco_health_offset + 2;
+constexpr std::size_t eco_predation_output_count = 6;
+constexpr double eco_min_mass = 0.5, eco_max_mass = 2.0;
+
+// Together with Brain these are the inherited genome. Health/actions are state.
+struct BodyGenes {
+    double mass = 1.0, carnivory = 0.0;
+};
 
 struct EcosystemConfig {
+    bool predation = false; // Enabled by default in new nursery-frontier runs.
+    double founder_mass = 1.0, founder_carnivory = 0.0;
+    double health_per_mass = 20, body_energy_per_mass = 30;
+    double attack_range = 0.8, attack_degrees = 60, attack_damage = 5, attack_cost = 2;
+    double healing_rate = 0.1, healing_cost = 2;
+    double meat_energy = 20, meat_decay = 0.0025, carcass_recovery = 0.5;
+    double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.12;
+    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.08;
     bool nursery_frontier = false;
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 4;
@@ -75,11 +96,12 @@ struct EcosystemConfig {
     BrainConfig brain;
     MutationConfig mutation;
     EcosystemConfig();
+    void set_predation(bool enabled);
     void validate() const;
 };
 
 struct EcoAction {
-    double forward = 0, left = 0, right = 0, forage = 0, call = 0;
+    double forward = 0, left = 0, right = 0, forage = 0, call = 0, attack = 0;
 };
 struct DigestivePacket { double due = 0, energy = 0; FoodKind kind = FoodKind::Graze; };
 struct EcoResource {
@@ -92,6 +114,8 @@ struct EcoResource {
     double progress = 0, opened_at = 0;
 };
 struct EcoCreature {
+    BodyGenes body;
+    double health = 20, damage_pulse = 0;
     std::uint64_t id = 0, parent_id = 0, generation = 0;
     Vec2 position;
     double heading = 0, energy = 0, age = 0, last_birth = -1e9;
@@ -101,7 +125,7 @@ struct EcoCreature {
     Random neural_rng;
     ControllerKind controller = ControllerKind::Spiking;
     std::vector<DigestivePacket> digestion;
-    std::array<double, 4> eaten{};
+    std::array<double, 5> eaten{};
     std::uint64_t spikes = 0, step_spikes = 0, offspring = 0;
     double energy_gained = 0, energy_spent = 0, pod_work = 0, exposed_time = 0;
     bool matured = false;
@@ -138,6 +162,9 @@ struct EcoEvent {
     double amount = 0;
 };
 struct EcoTotals {
+    double attacking = 0, healing = 0, body_construction = 0, external_body_energy = 0;
+    double carcass_energy = 0, meat_spoiled_energy = 0, damage = 0;
+    std::uint64_t predation_deaths = 0;
     std::uint64_t births = 0, deaths = 0, maturations = 0, spikes = 0, pods_opened = 0;
     double consumed_biomass = 0, regrown_biomass = 0, spoiled_biomass = 0;
     double energy_gained = 0, metabolism = 0, movement = 0, turning = 0;
@@ -164,6 +191,7 @@ public:
     EcoTotals totals;
     Random map_rng, mutation_rng, conflict_rng;
     std::uint64_t step_index = 0, next_creature_id = 1;
+    std::uint64_t next_resource_id = 1;
     // capacity_limited reports currently blocked births, not a simulation stop.
     bool fruit_a_rich = true, capacity_limited = false;
     std::vector<GenomeArchiveEntry> archive;
@@ -192,6 +220,12 @@ public:
     bool traversable(Vec2 position) const;
     bool line_of_sight(Vec2 from, Vec2 to) const;
     void generate_world();
+    void initialize_body(EcoCreature& creature);
+    double max_health(const EcoCreature& creature) const;
+    double maximum_speed(const EcoCreature& creature) const;
+    double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;
+    BodyGenes inherit_body(const BodyGenes& parent, bool strong, Random& rng) const;
+    void remove_dead(double end);
     // Empty actions means each living creature runs its own controller/brain.
     // Supplied actions must match the population at the beginning of the step.
     void step(const std::vector<EcoAction>& actions = {});
@@ -206,8 +240,8 @@ public:
     static EcosystemWorld load_checkpoint(std::istream& stream);
 };
 
-std::vector<std::string> ecosystem_input_labels(bool extended = true);
-const Brain::InputGroups& ecosystem_input_groups(bool extended = true);
+std::vector<std::string> ecosystem_input_labels(bool extended = true, bool predation = false);
+const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false);
 // A deliberately small, deterministic founder genome. It uses seven hidden
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary
 // spiking Brain and offspring can mutate it through the normal birth path.

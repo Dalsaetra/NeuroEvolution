@@ -108,8 +108,10 @@ class EcosystemReplayTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node is optional; needed to exercise replay JavaScript")
     def test_playback_handles_births_deaths_and_missing_brain_activity(self) -> None:
-        metadata = {**self.metadata(), "terrain": [0] * 6, "resources": [], "brains": [], "input_labels": []}
-        creature = {"id": 1, "x": 1, "y": 1, "energy": 50, "age": 0}
+        metadata = {**self.metadata(), "terrain": [0] * 6, "resources": [], "brains": [], "input_labels": [],
+                    "predation": True, "attack_range": 0.8, "attack_degrees": 60}
+        creature = {"id": 1, "x": 1, "y": 1, "energy": 50, "age": 0,
+                    "mass": 1.5, "carnivory": 0.3, "health": 20, "max_health": 30, "attack": 0.5}
         child = {**creature, "id": 2, "parent": 0, "generation": 0,
                  "origin": "archive-clone", "source_id": 1, "genome_id": 1, "brain": {
             "inputs": 1, "outputs": 1,
@@ -119,6 +121,7 @@ class EcosystemReplayTests(unittest.TestCase):
         }, "observation": [0.25]}
         frames = [{"time": i, "creatures": creatures, "resources": [], "events": [], "totals": {}}
                   for i, creatures in enumerate(([creature], [child], []))]
+        frames[1]["resources"] = [{"id": 99, "kind": "meat", "x": 1.5, "y": 1, "stock": 1, "capacity": 2, "value": 20}]
         frames[1]["totals"] = {"immigrants": 1, "immigrant_clones": 1, "immigrant_energy": 90}
         frames[1]["establishment"] = {"enabled": True, "active": True, "floor": 2, "next_check": 5,
                                       "archive": [{"genome_id": 1, "niche": "fruit-a", "score": 3.5,
@@ -142,6 +145,10 @@ document.getElementById('replay-data').textContent=PAYLOAD;
 document.getElementById('speed').value='5';
 const scope={document,Option:function(text,value){return {...element('option'),textContent:text,value}},window:{devicePixelRatio:1,innerWidth:1200,innerHeight:900,addEventListener(){}},performance:{now:()=>0},requestAnimationFrame(){}};
 vm.runInNewContext(SOURCE,scope);
+assert.equal(nodes.get('bodyTraits').hidden,false);
+assert.match(nodes.get('bodyTraits').textContent,/Mass 1.5/);
+assert.equal(nodes.get('actions').children.length,6);
+assert.equal(nodes.get('dietLabels').children.length,5);
 assert.equal(nodes.get('statSelect').children.length,2);
 nodes.get('statSelect').value='net_energy';
 nodes.get('statSelect').listeners.change();

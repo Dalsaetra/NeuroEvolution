@@ -1,5 +1,8 @@
 # Ecosystem v1
 
+New nursery-frontier runs include [predation, inherited body mass, and diet](predation.md).
+That guide supersedes the historical body, death, and neural-interface descriptions below for those runs.
+
 Current ecosystem runs use the [calibrated interface and newborn archive evaluation](sensorimotor-calibration.md). That guide specifies the 97-input schema, motor dynamics, evaluation score, and legacy checkpoint behavior; historical descriptions below are superseded where noted.
 
 The ecosystem is a shared world for one or many creatures, each with its own spiking neural network, neural state, energy reserve, and random-number stream. Creatures can compete for food, help open pods, call to others, retreat to shelter, and reproduce when they accumulate enough energy.

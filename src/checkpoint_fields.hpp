@@ -75,6 +75,16 @@ template<class T> auto world_config_fields(T& c) {
 template<class T> auto food_energy_config_fields(T& c) {
     return std::tie(c.graze_energy,c.poor_fruit_energy,c.rich_fruit_energy,c.pod_energy);
 }
+template<class T> auto predation_config_fields(T& c) {
+    return std::tie(c.predation,c.founder_mass,c.founder_carnivory,c.health_per_mass,c.body_energy_per_mass,
+        c.attack_range,c.attack_degrees,c.attack_damage,c.attack_cost,c.healing_rate,c.healing_cost,
+        c.meat_energy,c.meat_decay,c.carcass_recovery,c.mass_mutation_probability,c.mass_mutation_sigma,
+        c.carnivory_mutation_probability,c.carnivory_mutation_sigma);
+}
+template<class T> auto predation_total_fields(T& t) {
+    return std::tie(t.attacking,t.healing,t.body_construction,t.external_body_energy,t.carcass_energy,
+        t.meat_spoiled_energy,t.damage,t.predation_deaths);
+}
 template<class T> auto total_fields(T& t) {
     return std::tie(t.births,t.deaths,t.maturations,t.spikes,t.pods_opened,t.consumed_biomass,
         t.regrown_biomass,t.spoiled_biomass,t.energy_gained,t.metabolism,t.movement,t.turning,t.foraging,

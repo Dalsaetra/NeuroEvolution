@@ -1,4 +1,11 @@
 param(
+    [switch]$NoPredation,
+    [ValidateRange(0.5, 2)][double]$FounderMass = 1,
+    [ValidateRange(0, 1)][double]$FounderCarnivory = 0,
+    [ValidateRange(0, 1)][double]$MassMutationProbability = 0.2,
+    [ValidateRange(0, 10)][double]$MassMutationSigma = 0.12,
+    [ValidateRange(0, 1)][double]$CarnivoryMutationProbability = 0.2,
+    [ValidateRange(0, 10)][double]$CarnivoryMutationSigma = 0.08,
     [ValidateRange(1, 100000)][int]$Creatures = 24,
     [ValidateRange(1, 100000000)][int]$Steps = 4800,
     [ValidateRange(0, 2147483647)][int]$Seed = 7,
@@ -56,7 +63,7 @@ if ($OpenTail -and $DetailedTailSeconds -le 0) {
     throw "-OpenTail requires -DetailedTailSeconds greater than zero."
 }
 if (-not [string]::IsNullOrWhiteSpace($Resume)) {
-    foreach ($Parameter in @("Creatures", "Seed", "Controller", "FounderBrain", "SoloAncestorTrial", "NoReproduction", "NoStorms", "Establishment",
+    foreach ($Parameter in @("NoPredation", "FounderMass", "FounderCarnivory", "MassMutationProbability", "MassMutationSigma", "CarnivoryMutationProbability", "CarnivoryMutationSigma", "Creatures", "Seed", "Controller", "FounderBrain", "SoloAncestorTrial", "NoReproduction", "NoStorms", "Establishment",
         "ImmigrationFloor", "ImmigrationBatch", "ImmigrationInterval", "ArchiveCapacity", "ArchiveTournamentSize", "ArchiveMinAge",
         "ArchiveMinEnergy", "ArchiveMinFeedingBouts", "ArchiveMinEfficiency", "GrazeEnergy", "PoorFruitEnergy",
         "RichFruitEnergy", "PodEnergy", "KeepImmigration",
@@ -130,6 +137,17 @@ if (-not [string]::IsNullOrWhiteSpace($Resume)) {
     $EffectiveCreatures = if ($SoloAncestorTrial) { 1 } else { $Creatures }
     if ($SoloAncestorTrial -and $Habitat -ne "generated") { throw "-SoloAncestorTrial cannot be combined with -Habitat nursery-frontier" }
     $SimulationArguments += @("--habitat", $Habitat)
+    if ($NoPredation) { $SimulationArguments += @("--predation", 0) }
+    foreach ($TraitSetting in @(@("FounderMass", "--founder-mass", $FounderMass),
+        @("FounderCarnivory", "--founder-carnivory", $FounderCarnivory),
+        @("MassMutationProbability", "--mass-mutation-probability", $MassMutationProbability),
+        @("MassMutationSigma", "--mass-mutation-sigma", $MassMutationSigma),
+        @("CarnivoryMutationProbability", "--carnivory-mutation-probability", $CarnivoryMutationProbability),
+        @("CarnivoryMutationSigma", "--carnivory-mutation-sigma", $CarnivoryMutationSigma))) {
+        if ($PSBoundParameters.ContainsKey($TraitSetting[0])) {
+            $SimulationArguments += @($TraitSetting[1], $TraitSetting[2].ToString([System.Globalization.CultureInfo]::InvariantCulture))
+        }
+    }
     if ($PSBoundParameters.ContainsKey("NurseryFoodPatches")) { $SimulationArguments += @("--nursery-food-patches", $NurseryFoodPatches) }
     if ($PSBoundParameters.ContainsKey("NurseryFoodEnergy")) { $SimulationArguments += @("--nursery-food-energy", $NurseryFoodEnergy.ToString([System.Globalization.CultureInfo]::InvariantCulture)) }
     if ($PSBoundParameters.ContainsKey("ShelterSize")) {
