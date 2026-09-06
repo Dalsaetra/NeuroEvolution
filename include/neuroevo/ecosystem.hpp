@@ -43,7 +43,7 @@ struct EcosystemConfig {
     bool predation = false; // Enabled by default in new nursery-frontier runs.
     double founder_mass = 1.0, founder_carnivory = 0.0;
     double health_per_mass = 20, body_energy_per_mass = 30;
-    double attack_range = 0.8, attack_degrees = 60, attack_damage = 5, attack_cost = 2;
+    double attack_range = 0.8, attack_degrees = 60, attack_damage = 15, attack_cost = 2;
     double healing_rate = 0.1, healing_cost = 2;
     double meat_energy = 20, meat_decay = 0.0025, carcass_recovery = 0.8;
     double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.12;
