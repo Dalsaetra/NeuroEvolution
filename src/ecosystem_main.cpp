@@ -508,10 +508,12 @@ int main(int argc, char** argv)
             if ((i+1)%record_every==0) { record(); last_recorded=world.step_index; }
             if ((i+1)%tail_record_every==0) record_tail();
             if (world.evaluation_calls!=previous_evaluations || (i+1)%1000==0) record_performance();
-            if ((i+1)%1000==0) std::cout << "t=" << world.time() << "s population=" << world.creatures.size()
-                << " births=" << world.totals.births << " deaths=" << world.totals.deaths
-                << " immigrants=" << world.totals.immigrants << " archive=" << world.archive.size()
-                << " evaluations=" << world.evaluation_calls << " evaluation_wall_s=" << world.evaluation_wall_seconds << std::endl;
+            if ((i+1)%1000==0) {
+                const auto frontier_population=std::count_if(world.creatures.begin(),world.creatures.end(),
+                    [&](const auto& creature) { return !world.in_nursery(creature.position); });
+                std::cout << "t=" << world.time() << "s population=" << world.creatures.size()
+                    << " births=" << world.totals.births << " frontier_population=" << frontier_population << std::endl;
+            }
         }
         if (last_recorded!=world.step_index || !pending.empty()) record();
         if (tail_frame_limit && (!tail_pending.empty() || world.step_index%tail_record_every!=0)) record_tail();
