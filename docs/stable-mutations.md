@@ -4,6 +4,19 @@ Natural reproduction uses 50% exact genome copies, 45% slight mutations and 5%
 strong mutations. Each mutated child receives either one structural operation
 or a bounded batch of local parameter edits. The parent is never modified.
 
+After inheritance, every newborn independently has a 25% chance to remove one
+hidden neuron with no incoming or no outgoing synapses, if any exist. This also
+applies to the exact-copy case; a changed copy receives a new genome ID. Cleanup
+is additional to the ordinary structural edit budget and never removes sensors
+or motors. Eligible hidden neurons are sampled uniformly, without cascading removal.
+
+Add-synapse mutations prioritize hidden sources without outgoing edges and hidden
+targets without incoming edges. They repair both endpoints when legal, otherwise
+one endpoint, then fall back to normal sampling when no repair is possible.
+Self-loops and duplicate edges remain forbidden, and sensory category balancing
+is preserved. Remove-neuron mutations likewise sample disconnected hidden neurons
+first, falling back to all hidden neurons only when none are disconnected.
+
 | Preset | Structural attempt | Otherwise | Weight-change cap |
 | --- | --- | --- | --- |
 | Slight | 25% | Up to 2 local edits | `0.1 * abs(weight) + 0.01` |

@@ -190,10 +190,47 @@ void budget_contract()
     }
 }
 
+void disconnected_contract()
+{
+    BrainConfig config;
+    config.input_count = config.sensory_input_count = 1;
+    config.hidden_count = 3;
+    config.output_count = 1;
+    std::vector<Brain::Neuron> neurons(5);
+    // Hidden 1 lacks output, hidden 2 lacks input; hidden 3 is connected.
+    const auto parent = Brain::from_components(config, neurons, {{0,1,1,1},{2,4,2,1},{0,3,3,1},{3,4,4,1}});
+    for (bool stable : {false, true}) for (unsigned seed=0; seed<128; ++seed) {
+        Random rng(seed);
+        auto growth = exact_inheritance(); growth.stable = stable; growth.add_synapse_probability = 1;
+        auto child = parent; child.mutate(growth,rng);
+        require(child.synapses().size()==5 && child.synapses().back().pre==1 && child.synapses().back().post==2,
+            "Growth must repair both disconnected hidden endpoints first");
+        require(!child.remove_disconnected_hidden_neuron(rng),"Cleanup removed a connected neuron");
+        auto prune = exact_inheritance(); prune.stable = stable; prune.remove_neuron_probability = 1;
+        child = parent; child.mutate(prune,rng);
+        require(child.config().hidden_count==2 && child.synapses().size()==3,
+            "Pruning must prefer a disconnected hidden neuron");
+        child = parent;
+        require(child.remove_disconnected_hidden_neuron(rng) && child.config().hidden_count==2
+            && child.synapses().size()==3,"Cleanup must remove exactly one eligible neuron");
+    }
+    // A sole isolated neuron cannot connect to itself: repair one side first.
+    config.hidden_count = 1;
+    const auto isolated = Brain::from_components(config, std::vector<Brain::Neuron>(3), {});
+    for (bool stable : {false,true}) {
+        Random rng(17); auto child = isolated;
+        auto growth = exact_inheritance(); growth.stable=stable; growth.add_synapse_probability=1;
+        child.mutate(growth,rng); child.mutate(growth,rng);
+        require(child.synapses().size()==2 && !child.remove_disconnected_hidden_neuron(rng),
+            "Successive growth must repair both sides of an isolated neuron without self-loops");
+    }
+}
+
 int main()
 {
     try {
         pruning_contract();
+        disconnected_contract();
         budget_contract();
         std::cout << "pruning contracts passed\n";
     } catch (const std::exception& error) {

@@ -509,7 +509,34 @@ void Brain::insert_sensory_input(std::size_t index)
 void Brain::remove_random_neuron(Random& rng)
 {
     if (config_.hidden_count == 0) return;
-    const auto index = first_hidden_index() + rng.uniform_index(config_.hidden_count);
+    const auto candidates = disconnected_hidden_neurons();
+    const auto index = candidates.empty() ? first_hidden_index() + rng.uniform_index(config_.hidden_count)
+        : candidates[rng.uniform_index(candidates.size())];
+    remove_hidden_neuron(index);
+}
+
+std::vector<std::size_t> Brain::disconnected_hidden_neurons() const
+{
+    std::vector<bool> incoming(total_neurons(), false), outgoing(total_neurons(), false);
+    for (const auto& edge : synapses_) { outgoing[edge.pre] = true; incoming[edge.post] = true; }
+    std::vector<std::size_t> candidates;
+    for (auto i = first_hidden_index(); i < first_output_index(); ++i)
+        if (!incoming[i] || !outgoing[i]) candidates.push_back(i);
+    return candidates;
+}
+
+bool Brain::remove_disconnected_hidden_neuron(Random& rng)
+{
+    const auto candidates = disconnected_hidden_neurons();
+    if (candidates.empty()) return false;
+    remove_hidden_neuron(candidates[rng.uniform_index(candidates.size())]);
+    rebuild_runtime_state();
+    reset_state();
+    return true;
+}
+
+void Brain::remove_hidden_neuron(std::size_t index)
+{
     synapses_.erase(std::remove_if(synapses_.begin(), synapses_.end(), [index](const Synapse& edge) {
         return edge.pre == index || edge.post == index;
     }), synapses_.end());
@@ -569,6 +596,53 @@ void Brain::rebuild_runtime_state()
 void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_groups)
 {
     if (config_.hidden_count + config_.output_count == 0) return;
+    std::vector<bool> incoming(total_neurons(), false), outgoing(total_neurons(), false);
+    for (const auto& edge : synapses_) { outgoing[edge.pre] = true; incoming[edge.post] = true; }
+    // Prefer repairing both ends. If that would require a self-loop, repair
+    // either end with equal priority, using only legal, unoccupied connections.
+    if (!disconnected_hidden_neurons().empty()) {
+        InputGroups repair_targets(first_output_index());
+        std::vector<std::vector<bool>> connected(first_output_index(), std::vector<bool>(total_neurons(), false));
+        for (const auto& edge : synapses_)
+            if (edge.pre < connected.size()) connected[edge.pre][edge.post] = true;
+        int best = 0;
+        for (std::size_t pre = 0; pre < first_output_index(); ++pre) {
+            for (auto post = first_hidden_index(); post < total_neurons(); ++post) {
+                if (pre == post || (is_auxiliary_input(config_, pre) && is_output(post))
+                    || connected[pre][post]) continue;
+                const int priority = int(!is_input(pre) && !outgoing[pre])
+                    + int(!is_output(post) && !incoming[post]);
+                if (priority > best) {
+                    for (auto& targets : repair_targets) targets.clear();
+                    best = priority;
+                }
+                if (priority == best && priority > 0) repair_targets[pre].push_back(post);
+            }
+        }
+        if (best > 0) {
+            std::vector<std::size_t> sources;
+            for (std::size_t pre = 0; pre < repair_targets.size(); ++pre)
+                if (!repair_targets[pre].empty()) sources.push_back(pre);
+            auto pre = sources[rng.uniform_index(sources.size())];
+            if (is_input(pre) && !input_groups.empty()) {
+                InputGroups available;
+                for (const auto& group : input_groups) {
+                    std::vector<std::size_t> members;
+                    for (const auto input : group) if (!repair_targets[input].empty()) members.push_back(input);
+                    if (!members.empty()) available.push_back(std::move(members));
+                }
+                const auto& group = available[rng.uniform_index(available.size())];
+                pre = group[rng.uniform_index(group.size())];
+            }
+            const auto& targets = repair_targets[pre];
+            const auto post = targets[rng.uniform_index(targets.size())];
+            double weight = random_synapse_weight(rng);
+            if (weak) weight = std::copysign(std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain), weight);
+            synapses_.push_back({pre, post, weight,
+                compute_delay_steps(neurons_[pre].position, neurons_[post].position)});
+            return;
+        }
+    }
     // Precompute legal sensory targets so rejection does not overweight groups
     // with more sector/direction variants or more unoccupied edges.
     InputGroups targets(config_.input_count), available_groups;

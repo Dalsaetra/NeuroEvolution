@@ -1002,6 +1002,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (!exact_inheritance) child.brain.mutate(inheritance < 0.95
                 ? detail::slight_mutation(config.mutation)
                 : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation));
+            // Independent birth cleanup also applies to the copy inheritance case.
+            if (mutation_rng.uniform(0.0, 1.0) < 0.25
+                && child.brain.remove_disconnected_hidden_neuron(mutation_rng))
+                child.genome_id = child.id;
             child.brain.reset_state();
             child.neural_rng = Random(mix(config.seed ^ mix(child.id) ^ 0x6e657572616cULL));
             parent.energy -= birth_cost;

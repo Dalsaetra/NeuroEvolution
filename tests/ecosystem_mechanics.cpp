@@ -431,11 +431,13 @@ void reproduction_and_capacity()
                 ? detail::slight_mutation(inheritance_config.mutation)
                 : detail::strong_mutation(inheritance_config.mutation), expected_rng,
                 ecosystem_input_groups(inheritance_config.extended_senses));
+            const bool cleaned = expected_rng.uniform(0, 1) < 0.25
+                && expected_brain.remove_disconnected_hidden_neuron(expected_rng);
             expected_brain.reset_state();
             inheritance.step({{}});
             const auto& child = by_id(inheritance, 2);
             if (choice < 0.50) {
-                require(child.genome_id == 1, "Exact offspring lost the parent genome ID");
+                require(child.genome_id == (cleaned ? child.id : 1), "Copy offspring has the wrong genome ID after cleanup");
                 ++exact;
             }
             else {
@@ -450,6 +452,38 @@ void reproduction_and_capacity()
         require(exact >= 96 && exact <= 160 && slight >= 83 && slight <= 147 && strong >= 3 && strong <= 26,
             "Birth inheritance is not approximately 50% copy / 45% slight / 5% strong across deterministic seeds");
     }
+}
+
+void birth_cleanup()
+{
+    auto config = fixture_config();
+    config.reproduction = true; config.maturity_age = 0; config.max_population = 2;
+    config.brain.hidden_count = 2;
+    auto& m = config.mutation;
+    m.mutate_weight_probability = m.mutate_neuron_probability = m.mutate_clock_threshold_probability = 0;
+    m.add_synapse_probability = m.add_neuron_probability = m.add_reciprocal_motif_probability = 0;
+    m.remove_synapse_probability = m.remove_neuron_probability = m.rewire_synapse_probability = 0;
+    std::size_t cleaned = 0, cleaned_copies = 0;
+    for (unsigned seed = 0; seed < 1000; ++seed) {
+        config.seed = seed;
+        EcosystemWorld world(config, false);
+        auto parent = creature(config, 1, {5,5}); parent.energy = 150; parent.genome_id = 1;
+        world.creatures = {parent}; world.next_creature_id = 2;
+        auto draw = world.mutation_rng;
+        const bool copy = draw.uniform(0.0,1.0) < 0.50;
+        world.step({{}});
+        require(world.creatures.size()==2,"Cleanup fixture failed to produce a child");
+        const auto& child = by_id(world,2);
+        require(by_id(world,1).brain.config().hidden_count==2,"Cleanup changed the parent");
+        const auto hidden = child.brain.config().hidden_count;
+        require(hidden==1 || hidden==2,"Birth cleanup removed more than one hidden neuron");
+        if (hidden==1) {
+            ++cleaned; cleaned_copies += copy;
+            require(child.genome_id==child.id,"Cleaned copies must have their own genome identity");
+        }
+    }
+    require(cleaned>190 && cleaned<310,"Birth cleanup is not approximately 25 percent");
+    require(cleaned_copies>70 && cleaned_copies<180,"Birth cleanup must also apply to exact copies");
 }
 
 void rejects_invalid_configuration()
@@ -578,6 +612,7 @@ int main()
         weather_shelter_and_costs();
         swept_collisions_and_visibility();
         reproduction_and_capacity();
+        birth_cleanup();
         rejects_invalid_configuration();
         seeded_maps_and_brains();
         long_running_accounts();

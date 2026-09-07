@@ -127,6 +127,8 @@ public:
     BrainStepResult step(const std::vector<double>& inputs, Random* rng = nullptr);
     // Optional partition of all inputs for category-balanced connection growth.
     void mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups = {});
+    // Remove at most one hidden neuron missing an incoming or outgoing edge.
+    bool remove_disconnected_hidden_neuron(Random& rng);
 
     const BrainConfig& config() const noexcept { return config_; }
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
@@ -160,6 +162,8 @@ private:
     void rewire_random_synapse(Random& rng, const InputGroups& input_groups);
     void add_random_neuron(Random& rng, bool weak = false);
     void remove_random_neuron(Random& rng);
+    std::vector<std::size_t> disconnected_hidden_neurons() const;
+    void remove_hidden_neuron(std::size_t index);
     void add_reciprocal_motif(Random& rng, bool weak = false);
     void ensure_io_connectivity(Random& rng);
 };
