@@ -21,6 +21,7 @@ MutationConfig exact_inheritance()
     mutation.add_neuron_probability = 0;
     mutation.add_reciprocal_motif_probability = 0;
     mutation.remove_synapse_probability = 0;
+    mutation.rewire_synapse_probability = 0;
     mutation.remove_neuron_probability = 0;
     mutation.mutate_clock_threshold_probability = 0;
     mutation.hidden_bias_jump_probability = 0;
@@ -128,7 +129,7 @@ void budget_contract()
         require(mutation.add_synapse_probability == mutation.remove_synapse_probability
             && mutation.add_neuron_probability == mutation.remove_neuron_probability,
             "Structural add/remove probabilities are asymmetric");
-        std::size_t add_edges=0, remove_edges=0, add_nodes=0, remove_nodes=0, weight_only=0;
+        std::size_t add_edges=0, remove_edges=0, add_nodes=0, remove_nodes=0, weight_only=0, rewires=0;
         Random rng(932);
         for (int trial=0; trial<10000; ++trial) {
             auto child=parent;
@@ -141,9 +142,12 @@ void budget_contract()
             } else if (child.synapses().size()<parent.synapses().size()) {
                 require(child.synapses().size()+1==parent.synapses().size(),"More than one edge removed"); ++remove_edges;
             } else {
-                std::size_t weights=0, neurons=0;
-                for (std::size_t i=0;i<child.synapses().size();++i)
+                std::size_t weights=0, neurons=0, routes=0;
+                for (std::size_t i=0;i<child.synapses().size();++i) {
                     weights += child.synapses()[i].weight != parent.synapses()[i].weight;
+                    routes += child.synapses()[i].pre != parent.synapses()[i].pre
+                        || child.synapses()[i].post != parent.synapses()[i].post;
+                }
                 for (std::size_t i=0;i<child.neurons().size();++i) {
                     const auto& a=parent.neurons()[i]; const auto& b=child.neurons()[i];
                     neurons += a.threshold!=b.threshold || a.bias!=b.bias || a.background_sensitivity!=b.background_sensitivity
@@ -151,17 +155,30 @@ void budget_contract()
                 }
                 require(weights+neurons <= (strong?4u:2u),"Local edit count exceeded preset limit");
                 require(weights==0 || neurons==0,"Budgeted offspring mixed parameter families");
+                if (routes) {
+                    require(routes==1 && weights==0 && neurons==0,"Rewiring exceeded the structural edit budget");
+                    ++rewires;
+                }
                 weight_only += weights>0 && neurons==0;
             }
         }
-        const auto structural=add_edges+remove_edges+add_nodes+remove_nodes;
-        require(structural>(strong?3300u:2300u) && structural<(strong?3700u:2700u),"Wrong structural budget");
-        require(weight_only>5000,"Weight-only changes must be the most frequent offspring mutation");
+        const auto structural=add_edges+remove_edges+add_nodes+remove_nodes+rewires;
+        require(structural>(strong?4800u:2800u) && structural<(strong?5200u:3200u),"Wrong structural budget");
+        const double structural_weight = mutation.add_synapse_probability + mutation.remove_synapse_probability
+            + mutation.add_neuron_probability + mutation.remove_neuron_probability
+            + mutation.add_reciprocal_motif_probability + mutation.rewire_synapse_probability;
+        const double rewire_probability = mutation.structural_edit_probability
+            * mutation.rewire_synapse_probability / structural_weight;
+        const double expected_rewires = 10000 * rewire_probability;
+        const double tolerance = 5 * std::sqrt(10000 * rewire_probability * (1 - rewire_probability));
+        require(std::abs(double(rewires) - expected_rewires) < tolerance,"Wrong rewiring share within structural budget");
+        require(weight_only>(strong?3900u:5500u),"Parameter batches did not favor weight edits");
         require(std::abs(double(add_edges)-double(remove_edges))<180
             && std::abs(double(add_nodes)-double(remove_nodes))<100,"Observed structural choices are asymmetric");
 
         mutation.structural_edit_probability=1;
         mutation.add_synapse_probability=mutation.remove_synapse_probability=0;
+        mutation.rewire_synapse_probability=0;
         mutation.add_neuron_probability=mutation.remove_neuron_probability=1;
         mutation.max_hidden_neurons=config.hidden_count;
         std::size_t unchanged=0;

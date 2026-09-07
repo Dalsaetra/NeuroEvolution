@@ -29,6 +29,20 @@ Or:
 
 ## Shared Ecosystem
 
+Rebuild saved replay HTMLs after cancelling a run (or refresh them with the latest viewer):
+
+```powershell
+.\scripts\rebuild-ecosystem.ps1 -RunDir "runs/ecosystem_20260907_085351471" -OpenTail
+```
+
+This rebuilds both `ecosystem.html` and `ecosystem_tail.html` from their saved
+`.jsonl` or `.jsonl.gz` recordings, without rerunning the simulation or changing
+the recordings. Existing HTMLs are replaced only after successful rendering.
+An incomplete final JSON line is skipped with a warning; earlier corrupt records
+still cause an error. Use `-Open` for the main viewer or `-OpenTail` for the tail.
+If a hard termination prevented the detailed-tail recording from being saved,
+its history cannot be reconstructed from `checkpoint.eco` or `summary.json` alone.
+
 New runs use calibrated sensory spike rates, smoothed motor output, 66 local inputs including depleted-food and shelter cues, and repeated newborn trials for archive selection. See [interface calibration and newborn evaluation](docs/sensorimotor-calibration.md) for controls, scoring, and checkpoint compatibility.
 
 Run the first ecosystem with independent spiking brains:

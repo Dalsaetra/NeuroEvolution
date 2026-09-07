@@ -37,6 +37,7 @@ inline MutationConfig slight_mutation(MutationConfig mutation)
     mutation.add_neuron_probability *= 0.9;
     mutation.add_reciprocal_motif_probability *= 0.9;
     mutation.remove_synapse_probability *= 0.9;
+    mutation.rewire_synapse_probability *= 0.9;
     mutation.remove_neuron_probability *= 0.9;
     return budgeted_mutation(mutation, 0.3, 2, 1.0);
 }

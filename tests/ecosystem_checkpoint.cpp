@@ -126,6 +126,7 @@ int main()
         // Storm toggling did not exist in v1, whose implicit behavior was on.
         // Construct a genuinely historical 87-input world for the v1 fixture.
         auto legacy_config = config;
+        legacy_config.mutation.rewire_synapse_probability=0;
         legacy_config.typed_food_proximity = false;
         legacy_config.outdoor_food_relocates = false;
         legacy_config.shelters = 0;

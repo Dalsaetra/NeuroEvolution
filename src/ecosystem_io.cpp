@@ -73,7 +73,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_18");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_20");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
@@ -94,6 +94,8 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write_tuple(s,checkpoint::predation_config_fields(config));
     checkpoint::write(s,config.shelter_food_decay);
     checkpoint::write(s,config.typed_food_proximity);
+    checkpoint::write(s,config.mutation.rewire_synapse_probability);
+    checkpoint::write(s,config.attack_base_fraction);
     checkpoint::write(s,next_resource_id);
     checkpoint::write_tuple(s,checkpoint::predation_total_fields(totals));
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
@@ -146,7 +148,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool typed_food_state = version == "NEUROEVO_ECOSYSTEM_18";
+    const bool diet_attack_state = version == "NEUROEVO_ECOSYSTEM_20";
+    const bool rewire_state = diet_attack_state || version == "NEUROEVO_ECOSYSTEM_19";
+    const bool typed_food_state = rewire_state || version == "NEUROEVO_ECOSYSTEM_18";
     const bool shelter_decay_state = typed_food_state || version == "NEUROEVO_ECOSYSTEM_17";
     const bool predation_state = shelter_decay_state || version == "NEUROEVO_ECOSYSTEM_16";
     const bool nursery_decay_state = predation_state || version == "NEUROEVO_ECOSYSTEM_15";
@@ -224,6 +228,10 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if(shelter_decay_state)checkpoint::read(s,cfg.shelter_food_decay);
     cfg.typed_food_proximity = false;
     if (typed_food_state) checkpoint::read(s,cfg.typed_food_proximity);
+    cfg.mutation.rewire_synapse_probability=0;
+    if (rewire_state) checkpoint::read(s,cfg.mutation.rewire_synapse_probability);
+    cfg.attack_base_fraction=1.0; // Preserve historical, diet-independent combat.
+    if (diet_attack_state) checkpoint::read(s,cfg.attack_base_fraction);
     EcosystemWorld w(cfg,false);
     if (predation_state) {
         checkpoint::read(s,w.next_resource_id);
@@ -404,6 +412,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"attack_range\":" << w.config.attack_range
       << ",\"attack_degrees\":" << w.config.attack_degrees
       << ",\"attack_damage\":" << w.config.attack_damage
+      << ",\"attack_base_fraction\":" << w.config.attack_base_fraction
       << ",\"attack_cost\":" << w.config.attack_cost
       << ",\"healing_rate\":" << w.config.healing_rate
       << ",\"healing_cost\":" << w.config.healing_cost

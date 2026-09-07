@@ -190,6 +190,7 @@ EcosystemConfig::EcosystemConfig()
     mutation.add_neuron_probability = 0.12;
     mutation.add_reciprocal_motif_probability = 0.12;
     mutation.remove_synapse_probability = 0.40;
+    mutation.rewire_synapse_probability = 0.40;
     mutation.remove_neuron_probability = 0.12;
 }
 
@@ -295,6 +296,8 @@ void EcosystemConfig::validate() const
     positive(founder_mass, "Founder mass");
     if (founder_mass < eco_min_mass || founder_mass > eco_max_mass || attack_degrees > 360)
         throw std::invalid_argument("Mass must be 0.5..2; attack arc must be <=360 degrees");
+    positive(attack_base_fraction, "Base attack fraction");
+    if (attack_base_fraction > 1) throw std::invalid_argument("Base attack fraction must be in (0,1]");
     positive(carcass_recovery, "Carcass recovery");
     if (carcass_recovery >= 1) throw std::invalid_argument("Carcass recovery must be strictly less than one");
     if (predation && (!extended_senses || establishment))
@@ -326,7 +329,7 @@ void EcosystemConfig::validate() const
              mutation.background_sensitivity_sigma, mutation.clock_threshold_sigma, mutation.hidden_bias_jump_min_magnitude}) positive(value, "A mutation standard deviation or jump magnitude", true);
     for (const auto value : {mutation.hidden_bias_jump_probability, mutation.add_synapse_probability, mutation.add_neuron_probability,
              mutation.add_reciprocal_motif_probability,
-             mutation.remove_synapse_probability, mutation.remove_neuron_probability,
+             mutation.remove_synapse_probability, mutation.remove_neuron_probability, mutation.rewire_synapse_probability,
              mutation.mutate_weight_probability, mutation.mutate_neuron_probability,
              mutation.mutate_clock_threshold_probability}) probability(value, "Mutation probability");
     if (mutation.max_hidden_neurons < brain.hidden_count || mutation.max_hidden_neurons > 10000)
@@ -716,8 +719,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (target != population) {
                 // Nursery protection follows the target's post-movement position,
                 // including attacks across a gate. Effort still costs energy.
+                const double diet_strength = config.attack_base_fraction
+                    + (1.0 - config.attack_base_fraction) * c.body.carnivory;
                 const double hit = in_nursery(creatures[target].position) ? 0.0
-                    : config.attack_damage * paid / config.attack_cost;
+                    : config.attack_damage * diet_strength * paid / config.attack_cost;
                 damage[target] += hit;
                 events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit});
             }

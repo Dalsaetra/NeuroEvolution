@@ -17,6 +17,7 @@ EcosystemWorld empty()
     // Mechanical expectations below use a controlled fixture, not tunable defaults.
     c.dt=0.1; c.health_per_mass=20;
     c.attack_damage=5; c.attack_cost=2;
+    c.attack_base_fraction=1; // Isolate other combat rules from dietary strength.
     c.width=c.height=12; c.shelters=c.grazing_patches=c.fruit_patches=c.pods=c.initial_creatures=0;
     c.reproduction=c.storms_enabled=c.outdoor_food_relocates=false;
     c.basal_cost=c.movement_cost=c.turn_cost=c.forage_cost=c.call_cost=c.neuron_cost=c.synapse_cost=c.spike_cost=0;
@@ -118,6 +119,32 @@ void combat()
     near(w.totals.energy_gained,0,"Killed creature digested a due packet");
     near(w.totals.metabolism,0.2,"Killed creature escaped costs already incurred this step");
     near(ledger(w),funded,"Lethal damage duplicated or lost pending energy");
+}
+void dietary_attack_strength()
+{
+    struct Case { double carnivory, damage; };
+    for (const auto test : {Case{0,0.125}, Case{0.01,0.12875}, Case{0.5,0.3125}, Case{1,0.5}}) {
+        auto w=empty(); w.config.attack_base_fraction=0.25;
+        add(w,{3,3},0,{1,test.carnivory}); add(w,{3.6,3},0,{1,1});
+        const auto initial=ledger(w);
+        w.step({attack(),{}});
+        near(w.creatures[1].health,20-test.damage,"Damage must scale with the attacker's carnivory");
+        near(w.totals.damage,test.damage,"Diet-scaled damage missing from totals");
+        near(w.totals.attacking,0.2,"Carnivory must not discount attack energy cost");
+        near(ledger(w),initial,"Diet-scaled attacks created energy");
+        w.creatures[0].energy=0.1; // Only half of a full attack is affordable.
+        w.step({attack(),{}});
+        require(w.creatures.size()==1,"Energy-exhausted attacker survived");
+        near(w.creatures[0].health,20-1.5*test.damage,"Diet strength bypassed affordable attack effort");
+    }
+    auto w=empty(); w.config.attack_base_fraction=0.4;
+    add(w,{3,3}); add(w,{3.6,3});
+    w.step({attack(),{}});
+    near(w.creatures[1].health,19.8,"Configured herbivore baseline was ignored");
+    std::istringstream checkpoint(saved(w)); auto resumed=EcosystemWorld::load_checkpoint(checkpoint);
+    near(resumed.config.attack_base_fraction,0.4,"Checkpoint lost attack baseline");
+    for (int i=0;i<3;++i) { w.step({attack(),{}}); resumed.step({attack(),{}}); }
+    require(saved(w)==saved(resumed),"Diet-scaled attacks diverged after resume");
 }
 void food_and_senses()
 {
@@ -282,6 +309,6 @@ void bodies_and_births()
 }
 int main()
 {
-    try { combat(); food_and_senses(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { combat(); dietary_attack_strength(); food_and_senses(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -85,3 +85,21 @@ No fitness screening, twin births or evaluation-based offspring rejection is
 introduced by this policy. Checkpoints retain the base mutation weights and
 future mutations use the current derived presets. Older checkpoints without
 neuron pruning retain a zero neuron-removal weight until explicitly changed.
+
+## Synapse rewiring
+
+A structural rewiring attempt selects one existing synapse uniformly, then
+chooses the source or destination with equal probability. Only that endpoint
+moves; the other endpoint and signed weight are preserved exactly. The new
+endpoint must differ, must obey normal routing rules, and cannot create a
+duplicate edge or self-loop. Delay is recalculated for the new distance, and
+runtime adjacency is rebuilt. If the selected endpoint has no legal destination,
+the attempt is a no-op. Sensory source replacements use category-balanced
+sampling. Rewiring neither adds nor removes neurons or synapses.
+
+The ecosystem base operator weight is 0.20, giving rewiring 16.13% of structural
+attempts with current add/remove weights of 0.40/0.40 and 0.12/0.12. Add/remove
+pair symmetry and the total structural budget are unchanged. Generic brains
+default to zero rewiring. Checkpoint version 19 saves the weight; older runs
+load with rewiring disabled. `--mutate-rewire-synapse-prob 0.2` enables it on
+resume or configures new worlds; zero disables it.

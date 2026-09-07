@@ -119,6 +119,7 @@ int main()
         mutation.hidden_bias_jump_probability = 1.0;
         mutation.add_synapse_probability = 0.0;
         mutation.remove_synapse_probability = 0.0;
+        mutation.rewire_synapse_probability = 0.0;
         mutation.remove_neuron_probability = 0.0;
         mutation.add_reciprocal_motif_probability = 1.0;
         brain.mutate(mutation, rng);
@@ -152,6 +153,7 @@ int main()
         mutation.add_neuron_probability = 1;
         mutation.add_reciprocal_motif_probability = 0;
         mutation.remove_synapse_probability = 0;
+        mutation.rewire_synapse_probability = 0;
         mutation.remove_neuron_probability = 0;
         mutation.max_hidden_neurons = 2;
         neuroevo::Random rng(44);

@@ -90,6 +90,7 @@ int main(int argc, char** argv)
             {"--attack-range",&cfg.attack_range},
             {"--attack-degrees",&cfg.attack_degrees},
             {"--attack-damage",&cfg.attack_damage},
+            {"--attack-base-fraction",&cfg.attack_base_fraction},
             {"--attack-cost",&cfg.attack_cost},
             {"--healing-rate",&cfg.healing_rate},
             {"--healing-cost",&cfg.healing_cost},
@@ -157,6 +158,7 @@ int main(int argc, char** argv)
         int typed_food_override=-1;
         double remove_neuron_override=0;
         bool remove_neuron_explicit=false;
+        double rewire_override=-1;
         std::size_t evaluation_workers=std::max(1u,std::min(4u,std::thread::hardware_concurrency()));
         bool record_brains=true,record_observations=true,record_brain_graphs=true,record_routine_events=true,config_changed=false;
         auto companion_controller=neuroevo::ControllerKind::Reactive;
@@ -177,6 +179,7 @@ int main(int argc, char** argv)
                     "  --record-observations 0|1 Record sensory values per creature, default 1\n"
                     "  --sensorimotor X          calibrated (66 inputs, default) or legacy (60 inputs); three vision sectors\n"
                     "  --typed-food-proximity 0|1  Per-food-type distance signals; default 1, also overrides resume\n"
+                    "  --mutate-rewire-synapse-prob N  Rewiring operator weight (default 0.20; also overrides resume)\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
                     "  --stable-mutations 0|1    Local edits and weak growth; new-world default 1, explicit resume override\n"
                     "  --mutate-remove-neuron-prob N  Hidden-neuron pruning (default 0.01; also overrides resume)\n"
@@ -210,6 +213,7 @@ int main(int argc, char** argv)
                     "  --founder-carnivory X     Initial meat efficiency, 0..1 (default 0)\n"
                     "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
                     "  --carnivory-mutation-probability X / --carnivory-mutation-sigma X\n"
+                    "  --attack-base-fraction X  Damage fraction at zero carnivory (0<X<=1, default 0.25)\n"
                     "  --attack-range X / --attack-degrees X / --attack-damage X / --attack-cost X\n"
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
@@ -232,6 +236,11 @@ int main(int argc, char** argv)
             else if (arg == "--archive-eval-workers") evaluation_workers=integer(value,arg);
             else if (arg == "--stable-mutations") stable_mutations_override=boolean(value,arg);
             else if (arg == "--typed-food-proximity") typed_food_override=boolean(value,arg);
+            else if (arg == "--mutate-rewire-synapse-prob") {
+                rewire_override=number(value,arg);
+                if (rewire_override<0 || rewire_override>1)
+                    throw std::invalid_argument("Synapse rewiring probability must be 0..1");
+            }
             else if (arg == "--mutate-remove-neuron-prob") {
                 remove_neuron_override=number(value,arg);
                 if (remove_neuron_override<0 || remove_neuron_override>1)
@@ -343,6 +352,7 @@ int main(int argc, char** argv)
         if (stable_mutations_override>=0) world.config.mutation.stable=stable_mutations_override!=0;
         if (typed_food_override>=0) world.config.typed_food_proximity=typed_food_override!=0;
         if (remove_neuron_explicit) world.config.mutation.remove_neuron_probability=remove_neuron_override;
+        if (rewire_override>=0) world.config.mutation.rewire_synapse_probability=rewire_override;
         if (resume.empty() && founder_brain=="sparse-ancestor") {
             const auto ancestor=neuroevo::make_sparse_ancestral_brain(world.config);
             const auto ancestral_genome_id=world.creatures.empty()?0:world.creatures.front().id;
@@ -590,6 +600,7 @@ int main(int argc, char** argv)
             << ",\"mass_mutation_sigma\":" << world.config.mass_mutation_sigma
             << ",\"carnivory_mutation_probability\":" << world.config.carnivory_mutation_probability
             << ",\"carnivory_mutation_sigma\":" << world.config.carnivory_mutation_sigma
+            << ",\"attack_base_fraction\":" << world.config.attack_base_fraction
             << ",\"deaths\":" << world.totals.predation_deaths << ",\"attack_energy\":" << world.totals.attacking
             << ",\"healing_energy\":" << world.totals.healing << ",\"body_construction\":" << world.totals.body_construction
             << ",\"external_body_energy\":" << world.totals.external_body_energy
@@ -677,6 +688,7 @@ int main(int argc, char** argv)
             << ",\"add_synapse_probability\":" << world.config.mutation.add_synapse_probability
             << ",\"add_neuron_probability\":" << world.config.mutation.add_neuron_probability
             << ",\"max_hidden_neurons\":" << world.config.mutation.max_hidden_neurons
+            << ",\"rewire_synapse_probability\":" << world.config.mutation.rewire_synapse_probability
             << ",\"remove_synapse_probability\":" << world.config.mutation.remove_synapse_probability
             << ",\"remove_neuron_probability\":" << world.config.mutation.remove_neuron_probability << "}"
             << ",\n  \"wall_seconds\":" << wall_seconds << "\n}\n";

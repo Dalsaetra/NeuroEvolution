@@ -17,6 +17,7 @@ MutationConfig growth_only(bool stable)
     mutation.mutate_weight_probability = mutation.mutate_neuron_probability = 0;
     mutation.add_neuron_probability = mutation.add_reciprocal_motif_probability = 0;
     mutation.remove_neuron_probability = mutation.remove_synapse_probability = 0;
+    mutation.rewire_synapse_probability = 0;
     mutation.mutate_clock_threshold_probability = 0;
     mutation.add_synapse_probability = 1;
     return mutation;
@@ -127,10 +128,52 @@ void sensory_thresholds()
     require(fast_spikes>slow_spikes && slow_spikes>0,"Sensory threshold failed to modulate firing rate");
 }
 
+void rewiring_contract()
+{
+    BrainConfig config;
+    config.input_count=3; config.hidden_count=4; config.output_count=2;
+    Random initial(51);
+    const auto parent=Brain::random(config,initial);
+    for(bool stable:{false,true}) {
+        auto mutation=growth_only(stable);
+        mutation.add_synapse_probability=0;
+        mutation.rewire_synapse_probability=1;
+        std::size_t source=0,destination=0;
+        for(std::uint64_t seed=0;seed<512;++seed) {
+            auto child=parent; Random rng(seed); child.mutate(mutation,rng);
+            require(child.synapses().size()==parent.synapses().size()
+                && child.neurons().size()==parent.neurons().size(),"Rewiring changed graph size");
+            std::size_t changes=0;
+            for(std::size_t i=0;i<child.synapses().size();++i) {
+                const auto& a=parent.synapses()[i];const auto& b=child.synapses()[i];
+                require(a.weight==b.weight,"Rewiring changed a weight");
+                if(a.pre!=b.pre || a.post!=b.post) {
+                    ++changes; require((a.pre==b.pre)!=(a.post==b.post),"Rewiring moved both ends");
+                    source+=a.pre!=b.pre; destination+=a.post!=b.post;
+                    const auto expected=std::clamp<std::size_t>(std::max<std::size_t>(1,
+                        static_cast<std::size_t>(std::ceil(length(child.neurons()[b.pre].position-child.neurons()[b.post].position)
+                            /config.conduction_speed/config.dt))),1,config.max_delay_steps);
+                    require(b.delay_steps==expected,"Rewiring failed to recalculate delay");
+                }
+                require(b.pre<config.input_count+config.hidden_count && b.post>=config.input_count
+                    && b.pre!=b.post,"Rewiring created invalid routing");
+                for(std::size_t j=0;j<i;++j)require(child.synapses()[j].pre!=b.pre
+                    || child.synapses()[j].post!=b.post,"Rewiring created duplicate edges");
+            }
+            require(changes==1,"Rewiring failed to move exactly one endpoint on an open graph");
+            child.step({0.5,0.5,0.5});
+        }
+        require(source>190 && source<322 && destination==512-source,"Endpoint selection is biased");
+        Brain empty(config); Random rng(9); empty.mutate(mutation,rng);
+        require(empty.synapses().empty(),"Rewiring added a synapse to an empty graph");
+    }
+}
+
 int main()
 {
     try {
         sensory_thresholds();
+        rewiring_contract();
         for (bool stable : {false, true}) {
             for (bool extended : {false, true}) category_distribution(stable, extended);
             saturated_categories(stable);

@@ -20,6 +20,55 @@ SPEC.loader.exec_module(VIEWER)
 
 
 class EcosystemReplayTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell required for rebuild wrapper")
+    def test_rebuild_wrapper_preserves_sources_and_handles_both_recordings(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rebuild ecosystem ") as temp:
+            directory = Path(temp)
+            source = self.write_recording(directory, [self.metadata(), {"type": "frame", "time": 0}])
+            original = source.read_bytes()
+            tail = directory / "ecosystem_tail.jsonl.gz"
+            with gzip.open(tail, "wb") as f:
+                f.write(original)
+            tail_original = tail.read_bytes()
+            command = [shutil.which("pwsh"), "-NoProfile", "-File",
+                       str(ROOT / "scripts" / "rebuild-ecosystem.ps1"), "-RunDir", str(directory)]
+            subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+            main_html = (directory / "ecosystem.html").read_bytes()
+            self.assertIn(b'replay-data', main_html)
+            self.assertIn(b'replay-data', (directory / "ecosystem_tail.html").read_bytes())
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(tail.read_bytes(), tail_original)
+            source.write_bytes(b'broken\n')
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((directory / "ecosystem.html").read_bytes(), main_html)
+            self.assertFalse(list(directory.glob('*.tmp.html')))
+
+    def test_recovery_only_skips_incomplete_final_json_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            source = self.write_recording(directory, [self.metadata(), {"type": "frame", "time": 0}])
+            complete = source.read_bytes()
+            broken = complete + b'\n{"type":"frame","time":1,"creatures":['
+            source.write_bytes(broken)
+            with self.assertRaises(ValueError):
+                VIEWER.read_replay(source)
+            with self.assertWarnsRegex(UserWarning, "incomplete final"):
+                recovered = VIEWER.read_replay(source, recover_truncated=True)
+            self.assertEqual(len(recovered["frames"]), 1)
+            self.assertEqual(source.read_bytes(), broken)
+            compressed = directory / "ecosystem_tail.jsonl.gz"
+            with gzip.open(compressed, "wb") as f:
+                f.write(broken)
+            with self.assertWarns(UserWarning):
+                self.assertEqual(len(VIEWER.read_replay(compressed, recover_truncated=True)["frames"]), 1)
+            source.write_bytes(broken + b'\n{"type":"frame","time":2}\n')
+            with self.assertRaises(ValueError):
+                VIEWER.read_replay(source, recover_truncated=True)
+            source.write_bytes(complete + b'\n{"type":"frame","time":NaN}')
+            with self.assertRaisesRegex(ValueError, "non-finite"):
+                VIEWER.read_replay(source, recover_truncated=True)
+
     def test_statistics_csv_numeric_columns_and_missing_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)

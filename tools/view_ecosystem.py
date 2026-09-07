@@ -12,6 +12,7 @@ import html
 import json
 import math
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ def _reject_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON number: {value}")
 
 
-def read_replay(path: Path) -> dict[str, Any]:
+def read_replay(path: Path, *, recover_truncated: bool = False) -> dict[str, Any]:
     """Read and validate the recording envelope; optional diagnostics stay optional."""
     if path.is_dir():
         plain = path / "ecosystem.jsonl"
@@ -37,7 +38,12 @@ def read_replay(path: Path) -> dict[str, Any]:
                 continue
             try:
                 record = json.loads(line, parse_constant=_reject_constant)
-            except (ValueError, json.JSONDecodeError) as error:
+            except json.JSONDecodeError as error:
+                if recover_truncated and not line.endswith("\n") and not handle.read(1):
+                    warnings.warn(f"{source.name}: skipped incomplete final JSON record on line {line_number}; using complete saved frames")
+                    break
+                raise ValueError(f"{source.name}, line {line_number}: {error}") from error
+            except ValueError as error:
                 raise ValueError(f"{source.name}, line {line_number}: {error}") from error
             if not isinstance(record, dict):
                 raise ValueError(f"{source.name}, line {line_number}: expected an object")
@@ -368,9 +374,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="HTML destination (default: RUN_DIR/ecosystem.html)")
     parser.add_argument("--gzip-source", action="store_true",
                         help="After generating HTML, replace an uncompressed JSONL source with ecosystem.jsonl.gz")
+    parser.add_argument("--recover-truncated", action="store_true",
+                        help="Ignore an incomplete final JSON line after interruption; leave other validation strict")
     arguments = parser.parse_args()
     try:
-        payload = read_replay(arguments.run_dir)
+        payload = read_replay(arguments.run_dir, recover_truncated=arguments.recover_truncated)
         directory = arguments.run_dir if arguments.run_dir.is_dir() else arguments.run_dir.parent
         destination = arguments.output or directory / "ecosystem.html"
         destination.parent.mkdir(parents=True, exist_ok=True)

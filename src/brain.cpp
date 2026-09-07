@@ -367,6 +367,8 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
         synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(index));
     }
 
+    if (!synapses_.empty() && config.rewire_synapse_probability > 0 && rng.chance(config.rewire_synapse_probability))
+        rewire_random_synapse(rng, input_groups);
     if (config_.hidden_count > 0 && config.remove_neuron_probability > 0
         && rng.chance(config.remove_neuron_probability)) {
         remove_random_neuron(rng);
@@ -412,7 +414,8 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng, const Input
     const double motif = config_.hidden_count >= 2 ? config.add_reciprocal_motif_probability : 0.0;
     const double remove = budgeted || !synapses_.empty() ? config.remove_synapse_probability : 0.0;
     const double prune = budgeted || config_.hidden_count > 0 ? config.remove_neuron_probability : 0.0;
-    const double structural = add + grow + motif + remove + prune;
+    const double rewire = budgeted || !synapses_.empty() ? config.rewire_synapse_probability : 0.0;
+    const double structural = add + grow + motif + remove + prune + rewire;
     bool moved = false;
     if (structural > 0 && rng.chance(budgeted ? config.structural_edit_probability : std::min(1.0, structural))) {
         const double choice = rng.uniform(0.0, structural);
@@ -425,7 +428,8 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng, const Input
             if (!synapses_.empty())
                 synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
         }
-        else remove_random_neuron(rng);
+        else if (choice < add + grow + motif + remove + prune) remove_random_neuron(rng);
+        else rewire_random_synapse(rng, input_groups);
     } else {
         const double weights = synapses_.empty() ? 0.0 : config.mutate_weight_probability * (budgeted ? 4.0 : 1.0);
         const bool sensory_edits = budgeted && !input_groups.empty();
@@ -607,6 +611,38 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
         synapses_.push_back(synapse);
         return;
     }
+}
+
+void Brain::rewire_random_synapse(Random& rng, const InputGroups& input_groups)
+{
+    if (synapses_.empty()) return;
+    auto& edge = synapses_[rng.uniform_index(synapses_.size())];
+    const bool source = rng.chance(0.5);
+    std::vector<std::size_t> candidates;
+    for (std::size_t node=0; node<total_neurons(); ++node) {
+        if (node == (source ? edge.pre : edge.post)) continue;
+        const auto pre = source ? node : edge.pre;
+        const auto post = source ? edge.post : node;
+        if (pre == post || is_input(post) || is_output(pre)
+            || (is_auxiliary_input(config_, pre) && is_output(post)) || synapse_exists(pre,post)) continue;
+        candidates.push_back(node);
+    }
+    if (candidates.empty()) return; // Keep the chosen endpoint's 50/50 attempt probability.
+    auto node = candidates[rng.uniform_index(candidates.size())];
+    if (source && is_input(node) && !input_groups.empty()) {
+        InputGroups available;
+        for (const auto& group : input_groups) {
+            std::vector<std::size_t> inputs;
+            for (auto input : group)
+                if (std::binary_search(candidates.begin(),candidates.end(),input)) inputs.push_back(input);
+            if (!inputs.empty()) available.push_back(std::move(inputs));
+        }
+        const auto& group=available[rng.uniform_index(available.size())];
+        node=group[rng.uniform_index(group.size())];
+    }
+    if (source) edge.pre=node;
+    else edge.post=node;
+    edge.delay_steps=compute_delay_steps(neurons_[edge.pre].position,neurons_[edge.post].position);
 }
 
 void Brain::add_random_neuron(Random& rng, bool weak)

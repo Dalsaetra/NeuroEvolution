@@ -59,7 +59,19 @@ trade higher basal metabolism and lower speed for greater storm resistance.
 Worlds with body/predation mechanics disabled retain the original fixed storm cost.
 
 Attack effort `a` is a smoothed motor intensity in [0,1]. At full effort it costs
-2 energy/second and deals 5 health damage/second to one target. The target is the
+`attack_cost` energy/second (currently 2). Damage scales linearly with the
+attacker's carnivory `c`:
+
+```text
+strength = attack_base_fraction + (1 - attack_base_fraction) * c
+damage = attack_damage * strength * attack_effort * dt
+```
+
+The baseline fraction defaults to 0.25 and is configurable with
+`--attack-base-fraction` in (0,1]. At the current `attack_damage=15`, full-effort
+rates are 3.75, 9.375, and 15 damage/second at 0%, 50%, and 100% carnivory.
+This multiplier changes damage only; herbivores still pay the same attack costs.
+The target is the
 nearest creature within 0.8 center-to-center units, a forward 60-degree cone,
 and line of sight. Exact distance ties use a seeded ID hash. Misses still cost
 energy; insufficient reserve scales effort and damage to what was actually paid.
@@ -159,3 +171,8 @@ damage, timestep scaling, funded births with mutated mass, corpse recovery and
 decay, dietary loss, sharing, healing, sensing, neural interface migration, and
 exact checkpoint continuation. These establish mechanical correctness, not that
 a stable predator–prey ecology will evolve at the initial parameter values.
+
+Checkpoint version 20 persists `attack_base_fraction`. Older checkpoints load
+with a fraction of 1 to preserve their diet-independent attack damage. New worlds
+use the current default; importing old founders into a new world uses that world's
+combat settings.

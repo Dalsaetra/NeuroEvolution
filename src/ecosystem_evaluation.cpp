@@ -40,6 +40,7 @@ NewbornEvaluation EcosystemWorld::evaluate_newborn(const Brain& genome) const
         settings.mutation.add_neuron_probability = 0;
         settings.mutation.add_reciprocal_motif_probability = 0;
         settings.mutation.remove_synapse_probability = 0;
+        settings.mutation.rewire_synapse_probability = 0;
         settings.mutation.remove_neuron_probability = 0;
         settings.mutation.mutate_clock_threshold_probability = 0;
         EcosystemWorld world(settings);

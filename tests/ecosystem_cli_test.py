@@ -63,6 +63,8 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertIn("vision_1_food_fruit_a_proximity", metadata["input_labels"])
         lines = (first / "checkpoint.eco").read_text().splitlines()
         lines[0] = "NEUROEVO_ECOSYSTEM_17"
+        del lines[20]  # carnivory attack baseline
+        del lines[19]  # rewiring configuration
         del lines[18]
         old = first / "v17.eco"
         old.write_text("\n".join(lines) + "\n")
@@ -74,6 +76,38 @@ class EcosystemCliTests(unittest.TestCase):
         again = self.run_world("typed_again", "--resume", upgraded / "checkpoint.eco", "--steps", 1)
         metadata = json.loads((again / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertTrue(metadata["typed_food_proximity"])
+
+    def test_rewiring_configuration(self):
+        first=self.run_world("rewire", "--creatures", 1, "--steps", 1)
+        self.assertEqual(json.loads((first/"summary.json").read_text())["mutation"]["rewire_synapse_probability"],0.4)
+        lines=(first/"checkpoint.eco").read_text().splitlines()
+        lines[0]="NEUROEVO_ECOSYSTEM_18"
+        del lines[20]  # carnivory attack baseline
+        del lines[19]
+        historical=first/"v18.eco"
+        historical.write_text("\n".join(lines)+"\n")
+        old=self.run_world("rewire_old", "--resume", historical, "--steps", 1)
+        self.assertEqual(json.loads((old/"summary.json").read_text())["mutation"]["rewire_synapse_probability"],0)
+        enabled=self.run_world("rewire_enabled", "--resume", historical, "--steps", 1,
+                              "--mutate-rewire-synapse-prob",0.3)
+        again=self.run_world("rewire_again", "--resume", enabled/"checkpoint.eco", "--steps", 1)
+        self.assertEqual(json.loads((again/"summary.json").read_text())["mutation"]["rewire_synapse_probability"],0.3)
+
+    def test_attack_baseline_configuration_and_migration(self):
+        first=self.run_world("attack_baseline", "--habitat", "nursery-frontier", "--creatures", 1,
+                             "--steps", 1, "--attack-base-fraction", 0.4)
+        resumed=self.run_world("attack_baseline_resumed", "--resume", first/"checkpoint.eco", "--steps", 1)
+        metadata=json.loads((resumed/"ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["attack_base_fraction"],0.4)
+        lines=(first/"checkpoint.eco").read_text().splitlines()
+        self.assertEqual(lines[0].strip(),"NEUROEVO_ECOSYSTEM_20")
+        lines[0]="NEUROEVO_ECOSYSTEM_19"
+        del lines[20]
+        historical=first/"v19.eco"
+        historical.write_text("\n".join(lines)+"\n")
+        old=self.run_world("attack_baseline_old", "--resume", historical, "--steps", 1)
+        metadata=json.loads((old/"ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["attack_base_fraction"],1)
 
     def test_population_and_brain_recording(self):
         worlds = []
@@ -371,7 +405,9 @@ class EcosystemCliTests(unittest.TestCase):
     @staticmethod
     def strip_predation(lines):
         # Fixtures use predation-disabled worlds, so no neural interface migration.
-        assert lines[0].strip() == "NEUROEVO_ECOSYSTEM_18"
+        assert lines[0].strip() == "NEUROEVO_ECOSYSTEM_20"
+        del lines[20]  # carnivory attack baseline
+        del lines[19]  # rewiring configuration
         del lines[18]  # typed food proximity configuration
         del lines[17]  # shelter decay configuration
         resource_count = int(lines[30])
@@ -428,7 +464,7 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_18")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_20")
         self.strip_dynamic_food(lines)
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
         del lines[8:14]
