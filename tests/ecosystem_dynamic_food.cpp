@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -9,7 +9,7 @@ void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 std::string save(const EcosystemWorld& w){std::ostringstream s;w.save_checkpoint(s);return s.str();}
 int main(){try{
     for(bool frontier:{false,true}) {
-        auto cfg=frontier?nursery_frontier_config():EcosystemConfig{};
+        auto cfg=frontier?EcosystemConfig{}:controlled_config();
         cfg.initial_creatures=0;cfg.reproduction=false;
         EcosystemWorld w(cfg);
         std::array<std::size_t,4> counts{};std::size_t shelter_count=0;

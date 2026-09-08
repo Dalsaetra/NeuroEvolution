@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -27,8 +27,6 @@ MutationConfig exact_inheritance()
     mutation.remove_synapse_probability = 0;
     mutation.rewire_synapse_probability = 0;
     mutation.remove_neuron_probability = 0;
-    mutation.mutate_clock_threshold_probability = 0;
-    mutation.hidden_bias_jump_probability = 0;
     return mutation;
 }
 
@@ -57,12 +55,11 @@ bool same_genome(const Brain& a, const Brain& b)
 
 EcosystemConfig nursery_config()
 {
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     config.width = config.height = 24;
     config.initial_creatures = 0;
     config.max_population = 32;
     config.shelters = config.grazing_patches = config.fruit_patches = config.pods = 0;
-    config.establishment = false;
     // Isolate feeding and lineage continuity before asking the ancestor to
     // evolve a shelter strategy in the full shared environment.
     config.calm_duration = 100000;
@@ -72,7 +69,7 @@ EcosystemConfig nursery_config()
 
 void sparse_genome_contract()
 {
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     const Brain ancestor = make_sparse_ancestral_brain(config);
     require(ancestor.config().input_count == eco_input_count
         && ancestor.config().hidden_count == 2 + eco_sectors
@@ -105,7 +102,7 @@ void sparse_genome_contract()
     }
     auto legacy = config;
     legacy.extended_senses = false;
-    legacy.brain.input_count = legacy.brain.sensory_input_count = eco_legacy_input_count;
+    legacy.brain.input_count = eco_legacy_input_count;
     const auto legacy_ancestor = make_sparse_ancestral_brain(legacy);
     require(legacy_ancestor.synapses().size() == 29,
         "Legacy ancestor must seed all three available environmental cues");
@@ -186,10 +183,9 @@ void solo_lineage_trial()
 
 void stable_mutation_contract()
 {
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     const auto parent = make_sparse_ancestral_brain(config);
     auto parameters = exact_inheritance();
-    parameters.stable = true;
     parameters.mutate_weight_probability = 1;
     for (std::uint64_t seed = 0; seed < 32; ++seed) {
         auto child = parent;
@@ -222,7 +218,7 @@ void stable_mutation_contract()
     require(std::abs(child.synapses().back().weight) <= 0.5,
         "New branch must initially have weak influence");
     auto exact = parent;
-    auto disabled = exact_inheritance(); disabled.stable = true;
+    auto disabled = exact_inheritance();
     exact.mutate(disabled, rng);
     require(same_genome(parent, exact), "Disabled stable mutations changed the genome");
 }

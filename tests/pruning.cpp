@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 #include "../src/ecosystem_mutation.hpp"
 #include <iostream>
 #include <sstream>
@@ -23,8 +23,6 @@ MutationConfig exact_inheritance()
     mutation.remove_synapse_probability = 0;
     mutation.rewire_synapse_probability = 0;
     mutation.remove_neuron_probability = 0;
-    mutation.mutate_clock_threshold_probability = 0;
-    mutation.hidden_bias_jump_probability = 0;
     return mutation;
 }
 
@@ -67,8 +65,8 @@ void pruning_contract()
     Random disabled_rng(42);
     disabled.mutate(detail::strong_mutation(exact_inheritance()), disabled_rng);
     require(same_genome(parent, disabled), "Strong mutation re-enabled explicitly disabled operators");
-    for (bool stable : {false, true}) for (std::uint64_t seed = 0; seed < 32; ++seed) {
-        auto mutation = exact_inheritance(); mutation.stable = stable;
+    for (std::uint64_t seed = 0; seed < 32; ++seed) {
+        auto mutation = exact_inheritance();
         mutation.remove_neuron_probability = 1;
         auto child = parent;
         Random rng(seed);
@@ -121,10 +119,10 @@ void budget_contract()
     Random initial(171);
     const auto parent = Brain::random(config, initial);
     for (bool strong : {false, true}) {
-        EcosystemConfig ecosystem;
+        EcosystemConfig ecosystem = neuroevo::controlled_config();
         auto mutation = strong ? detail::strong_mutation(ecosystem.mutation)
             : detail::slight_mutation(ecosystem.mutation);
-        require(mutation.stable && mutation.add_reciprocal_motif_probability == 0,
+        require(mutation.add_reciprocal_motif_probability == 0,
             "Budgeted presets must use local edits without unpaired motif growth");
         require(mutation.add_synapse_probability == mutation.remove_synapse_probability
             && mutation.add_neuron_probability == mutation.remove_neuron_probability,
@@ -193,20 +191,20 @@ void budget_contract()
 void disconnected_contract()
 {
     BrainConfig config;
-    config.input_count = config.sensory_input_count = 1;
+    config.input_count = 1;
     config.hidden_count = 3;
     config.output_count = 1;
     std::vector<Brain::Neuron> neurons(5);
     // Hidden 1 lacks output, hidden 2 lacks input; hidden 3 is connected.
     const auto parent = Brain::from_components(config, neurons, {{0,1,1,1},{2,4,2,1},{0,3,3,1},{3,4,4,1}});
-    for (bool stable : {false, true}) for (unsigned seed=0; seed<128; ++seed) {
+    for (unsigned seed=0; seed<128; ++seed) {
         Random rng(seed);
-        auto growth = exact_inheritance(); growth.stable = stable; growth.add_synapse_probability = 1;
+        auto growth = exact_inheritance(); growth.add_synapse_probability = 1;
         auto child = parent; child.mutate(growth,rng);
         require(child.synapses().size()==5 && child.synapses().back().pre==1 && child.synapses().back().post==2,
             "Growth must repair both disconnected hidden endpoints first");
         require(!child.remove_disconnected_hidden_neuron(rng),"Cleanup removed a connected neuron");
-        auto prune = exact_inheritance(); prune.stable = stable; prune.remove_neuron_probability = 1;
+        auto prune = exact_inheritance(); prune.remove_neuron_probability = 1;
         child = parent; child.mutate(prune,rng);
         require(child.config().hidden_count==2 && child.synapses().size()==3,
             "Pruning must prefer a disconnected hidden neuron");
@@ -217,9 +215,9 @@ void disconnected_contract()
     // A sole isolated neuron cannot connect to itself: repair one side first.
     config.hidden_count = 1;
     const auto isolated = Brain::from_components(config, std::vector<Brain::Neuron>(3), {});
-    for (bool stable : {false,true}) {
+    {
         Random rng(17); auto child = isolated;
-        auto growth = exact_inheritance(); growth.stable=stable; growth.add_synapse_probability=1;
+        auto growth = exact_inheritance(); growth.add_synapse_probability=1;
         child.mutate(growth,rng); child.mutate(growth,rng);
         require(child.synapses().size()==2 && !child.remove_disconnected_hidden_neuron(rng),
             "Successive growth must repair both sides of an isolated neuron without self-loops");

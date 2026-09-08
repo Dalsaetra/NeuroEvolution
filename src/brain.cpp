@@ -8,50 +8,6 @@
 namespace neuroevo {
 namespace {
 
-bool is_directional_fov_shape(const BrainConfig& config)
-{
-    const std::size_t auxiliary_count = (config.has_clock_input ? 1 : 0)
-        + (config.has_episode_start_input ? 1 : 0);
-    const std::size_t sensory_count = config.sensory_input_count > 0
-        ? config.sensory_input_count
-        : config.input_count - std::min(config.input_count, auxiliary_count);
-    return sensory_count == 4 && config.output_count == 3;
-}
-
-bool is_clock_input(const BrainConfig& config, std::size_t node_id)
-{
-    return config.has_clock_input
-        && node_id == config.clock_input_index
-        && node_id < config.input_count;
-}
-
-bool is_episode_start_input(const BrainConfig& config, std::size_t node_id)
-{
-    return config.has_episode_start_input
-        && node_id == config.episode_start_input_index
-        && node_id < config.input_count;
-}
-
-bool is_auxiliary_input(const BrainConfig& config, std::size_t node_id)
-{
-    return is_clock_input(config, node_id) || is_episode_start_input(config, node_id);
-}
-
-bool is_directional_fov_seed_pair(const Brain& brain, std::size_t pre, std::size_t post)
-{
-    const std::size_t output = post - brain.config().input_count - brain.config().hidden_count;
-    return (pre == 0 && output == 0)
-        || (pre == 3 && output == 0)
-        || (pre == 1 && output == 1)
-        || (pre == 2 && output == 2);
-}
-
-double directional_fov_seed_weight(const Brain& brain, std::size_t, std::size_t post)
-{
-    const std::size_t output = post - brain.config().input_count - brain.config().hidden_count;
-    return brain.config().seed_input_output_weight * (output == 1 || output == 2 ? 2.0 : 1.0);
-}
-
 double random_synapse_weight(Random& rng)
 {
     const double sign = rng.chance(0.82) ? 1.0 : -1.0;
@@ -121,7 +77,6 @@ Brain Brain::random(BrainConfig config, Random& rng)
         }
         for (std::size_t post = config.input_count; post < total; ++post) {
             if (pre == post
-                || (is_auxiliary_input(config, pre) && brain.is_output(post))
                 || rng.chance(1.0 - config.initial_connection_probability)) {
                 continue;
             }
@@ -131,31 +86,6 @@ Brain Brain::random(BrainConfig config, Random& rng)
             synapse.weight = random_synapse_weight(rng);
             synapse.delay_steps = brain.compute_delay_steps(brain.neurons_[pre].position, brain.neurons_[post].position);
             brain.synapses_.push_back(synapse);
-        }
-    }
-
-    if (config.seed_input_output_synapses) {
-        const bool structured_directional_seed = is_directional_fov_shape(config);
-        for (std::size_t pre = 0; pre < config.input_count; ++pre) {
-            if (is_auxiliary_input(config, pre)) {
-                continue;
-            }
-            for (std::size_t post = brain.first_output_index(); post < total; ++post) {
-                if (structured_directional_seed && !is_directional_fov_seed_pair(brain, pre, post)) {
-                    continue;
-                }
-                if (brain.synapse_exists(pre, post)) {
-                    continue;
-                }
-                Brain::Synapse synapse;
-                synapse.pre = pre;
-                synapse.post = post;
-                synapse.weight = structured_directional_seed
-                    ? directional_fov_seed_weight(brain, pre, post)
-                    : config.seed_input_output_weight;
-                synapse.delay_steps = brain.compute_delay_steps(brain.neurons_[pre].position, brain.neurons_[post].position);
-                brain.synapses_.push_back(synapse);
-            }
         }
     }
 
@@ -313,99 +243,6 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
         if (std::find(seen.begin(), seen.end(), false) != seen.end())
             throw std::invalid_argument("Input groups must cover every brain input");
     }
-    if (config.stable) {
-        mutate_stable(config, rng, input_groups);
-        return;
-    }
-    for (auto& synapse : synapses_) {
-        if (rng.chance(config.mutate_weight_probability)) {
-            synapse.weight += rng.normal(0.0, config.weight_sigma);
-            synapse.weight = std::clamp(synapse.weight, -6.0, 6.0);
-        }
-    }
-
-    for (std::size_t i = config_.input_count; i < neurons_.size(); ++i) {
-        auto& neuron = neurons_[i];
-        if (rng.chance(config.mutate_neuron_probability)) {
-            if (!is_output(i)) {
-                if (rng.chance(config.hidden_bias_jump_probability)) {
-                    const double magnitude = rng.uniform(
-                        std::min(config.hidden_bias_jump_min_magnitude, config.hidden_bias_max),
-                        config.hidden_bias_max);
-                    neuron.bias = rng.chance(0.5) ? magnitude : -magnitude;
-                } else {
-                    neuron.bias += rng.normal(0.0, config.bias_sigma);
-                }
-            } else {
-                neuron.bias = 0.0;
-            }
-            neuron.threshold = std::clamp(neuron.threshold + rng.normal(0.0, config.threshold_sigma), 0.2, 3.0);
-            if (!is_output(i)) {
-                neuron.bias = clamp_subthreshold_bias(
-                    neuron.bias,
-                    neuron.threshold,
-                    config_.membrane_tau,
-                    config_.max_bias_fraction_of_threshold,
-                    config.hidden_bias_min);
-                neuron.position.x = std::clamp(neuron.position.x + rng.normal(0.0, config.position_sigma), 0.05, 0.95);
-                neuron.position.y = std::clamp(neuron.position.y + rng.normal(0.0, config.position_sigma), 0.05, 0.95);
-            }
-        }
-    }
-
-    for (auto& neuron : neurons_) {
-        if (rng.chance(config.mutate_neuron_probability)) {
-            neuron.background_sensitivity = std::clamp(
-                neuron.background_sensitivity + rng.normal(0.0, config.background_sensitivity_sigma),
-                config.background_sensitivity_min,
-                config.background_sensitivity_max);
-        }
-    }
-
-    if (!synapses_.empty() && rng.chance(config.remove_synapse_probability)) {
-        const std::size_t index = rng.uniform_index(synapses_.size());
-        synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(index));
-    }
-
-    if (!synapses_.empty() && config.rewire_synapse_probability > 0 && rng.chance(config.rewire_synapse_probability))
-        rewire_random_synapse(rng, input_groups);
-    if (config_.hidden_count > 0 && config.remove_neuron_probability > 0
-        && rng.chance(config.remove_neuron_probability)) {
-        remove_random_neuron(rng);
-    }
-    if (config_.hidden_count < config.max_hidden_neurons && rng.chance(config.add_neuron_probability)) {
-        add_random_neuron(rng);
-    }
-    if (rng.chance(config.add_synapse_probability)) {
-        add_random_synapse(rng, false, input_groups);
-    }
-    if (rng.chance(config.add_reciprocal_motif_probability)) {
-        add_reciprocal_motif(rng);
-    }
-
-    if (config_.has_clock_input
-        && config_.clock_input_index < config_.input_count
-        && rng.chance(config.mutate_clock_threshold_probability)) {
-        auto& clock = neurons_[config_.clock_input_index];
-        clock.threshold = std::clamp(
-            clock.threshold + rng.normal(0.0, config.clock_threshold_sigma),
-            config.clock_threshold_min,
-            config.clock_threshold_max);
-    }
-
-    // Disconnected inputs and outputs are valid inherited topology. In the
-    // ecosystem they allow unused sensory channels to remain dormant until a
-    // structural mutation connects them; random initialization is repaired in
-    // Brain::random before the first lifetime.
-    for (auto& synapse : synapses_) {
-        synapse.delay_steps = compute_delay_steps(neurons_[synapse.pre].position, neurons_[synapse.post].position);
-    }
-
-    rebuild_runtime_state();
-}
-
-void Brain::mutate_stable(const MutationConfig& config, Random& rng, const InputGroups& input_groups)
-{
     // One structural operation OR a bounded number of local parameter edits. Probabilities
     // select operators, rather than multiplying the edit count by genome size.
     const double add = config.add_synapse_probability;
@@ -483,27 +320,6 @@ void Brain::mutate_stable(const MutationConfig& config, Random& rng, const Input
     if (moved) for (auto& edge : synapses_)
         edge.delay_steps = compute_delay_steps(neurons_[edge.pre].position, neurons_[edge.post].position);
     rebuild_runtime_state();
-}
-
-void Brain::insert_sensory_input(std::size_t index)
-{
-    if (index > config_.input_count) throw std::invalid_argument("Invalid sensory insertion index");
-    Neuron sensor;
-    sensor.position = {0.05, 0.5};
-    neurons_.insert(neurons_.begin() + index, sensor);
-    current_buffers_.insert(current_buffers_.begin() + index,
-        std::vector<double>(config_.max_delay_steps + 1, 0.0));
-    ++config_.input_count;
-    if (config_.sensory_input_count > 0) ++config_.sensory_input_count;
-    if (config_.has_clock_input && config_.clock_input_index >= index) ++config_.clock_input_index;
-    if (config_.has_episode_start_input && config_.episode_start_input_index >= index) ++config_.episode_start_input_index;
-    outgoing_.assign(total_neurons(), {});
-    for (std::size_t i=0;i<synapses_.size();++i) {
-        auto& edge=synapses_[i];
-        if (edge.pre>=index) ++edge.pre;
-        if (edge.post>=index) ++edge.post;
-        outgoing_[edge.pre].push_back(i);
-    }
 }
 
 void Brain::remove_random_neuron(Random& rng)
@@ -608,7 +424,7 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
         int best = 0;
         for (std::size_t pre = 0; pre < first_output_index(); ++pre) {
             for (auto post = first_hidden_index(); post < total_neurons(); ++post) {
-                if (pre == post || (is_auxiliary_input(config_, pre) && is_output(post))
+                if (pre == post
                     || connected[pre][post]) continue;
                 const int priority = int(!is_input(pre) && !outgoing[pre])
                     + int(!is_output(post) && !incoming[post]);
@@ -651,7 +467,7 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
         for (const auto& edge : synapses_) if (is_input(edge.pre)) connected[edge.pre][edge.post] = true;
         for (std::size_t pre = 0; pre < config_.input_count; ++pre)
             for (std::size_t post = config_.input_count; post < total_neurons(); ++post)
-                if (!(is_auxiliary_input(config_, pre) && is_output(post)) && !connected[pre][post])
+                if (!connected[pre][post])
                     targets[pre].push_back(post);
         for (const auto& group : input_groups) {
             std::vector<std::size_t> available;
@@ -671,7 +487,6 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
         } else post = config_.input_count + rng.uniform_index(total_neurons() - config_.input_count);
         if (pre == post
             || is_output(pre)
-            || (is_auxiliary_input(config_, pre) && is_output(post))
             || synapse_exists(pre, post)) {
             continue;
         }
@@ -697,8 +512,7 @@ void Brain::rewire_random_synapse(Random& rng, const InputGroups& input_groups)
         if (node == (source ? edge.pre : edge.post)) continue;
         const auto pre = source ? node : edge.pre;
         const auto post = source ? edge.post : node;
-        if (pre == post || is_input(post) || is_output(pre)
-            || (is_auxiliary_input(config_, pre) && is_output(post)) || synapse_exists(pre,post)) continue;
+        if (pre == post || is_input(post) || is_output(pre) || synapse_exists(pre,post)) continue;
         candidates.push_back(node);
     }
     if (candidates.empty()) return; // Keep the chosen endpoint's 50/50 attempt probability.
@@ -813,17 +627,11 @@ void Brain::ensure_io_connectivity(Random& rng)
         synapse.pre = pre;
         synapse.post = post;
         synapse.weight = random_synapse_weight(rng);
-        if (is_directional_fov_shape(config_) && is_directional_fov_seed_pair(*this, pre, post)) {
-            synapse.weight = directional_fov_seed_weight(*this, pre, post);
-        }
         synapse.delay_steps = compute_delay_steps(neurons_[pre].position, neurons_[post].position);
         synapses_.push_back(synapse);
     };
 
     for (std::size_t input = 0; input < config_.input_count; ++input) {
-        if (is_auxiliary_input(config_, input)) {
-            continue;
-        }
         const bool has_outgoing = std::any_of(synapses_.begin(), synapses_.end(), [&](const Synapse& synapse) {
             return synapse.pre == input;
         });
@@ -846,9 +654,7 @@ void Brain::ensure_io_connectivity(Random& rng)
         std::vector<std::size_t> sensory_inputs;
         sensory_inputs.reserve(config_.input_count);
         for (std::size_t input = 0; input < config_.input_count; ++input) {
-            if (!is_auxiliary_input(config_, input)) {
-                sensory_inputs.push_back(input);
-            }
+            sensory_inputs.push_back(input);
         }
         if (sensory_inputs.empty()) {
             continue;

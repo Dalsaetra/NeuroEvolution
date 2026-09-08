@@ -5,28 +5,6 @@
 #include <stdexcept>
 
 namespace neuroevo {
-EcosystemConfig nursery_frontier_config()
-{
-    EcosystemConfig c;
-    c.nursery_frontier = true;
-    c.set_predation(true);
-    c.width = c.height = 80;
-    c.max_population = 200;
-    c.shelters = 20; c.shelter_size = 8;
-    c.nursery_food_energy = 20; c.nursery_food_capacity = 2; c.nursery_food_regrowth = 0.02;
-    c.nursery_food_patches = 16;
-    c.grazing_patches = 300; c.fruit_patches = 80; c.pods = 120;
-    c.graze_energy = 60; c.poor_fruit_energy = 45; c.rich_fruit_energy = 90; c.pod_energy = 120;
-    c.graze_capacity = 3; c.fruit_capacity = 5; c.pod_capacity = 10;
-    c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 40; c.storm_duration = 60; c.storm_cost = 7.0;
-    c.energy_capacity = 200;
-    c.maturity_age = 30; c.reproduction_threshold = 150;
-    c.reproduction_cost = 60; c.offspring_energy = 60; c.reproduction_cooldown = 30;
-    c.establishment = false; c.archive_eval_trials = 0;
-    return c;
-}
-
 void EcosystemWorld::generate_nursery_frontier()
 {
     const auto x0 = (config.width - config.nursery_size) / 2;
@@ -186,7 +164,9 @@ void EcosystemWorld::generate_nursery_frontier()
         c.heading=spawn_rng.uniform(-3.141592653589793,3.141592653589793);
         c.energy=config.founder_energy; c.controller=config.controller;
         Random genome_rng(config.seed ^ (c.id*104729ULL));
-        c.brain=Brain::random(config.brain,genome_rng);
+        c.brain=config.sparse_ancestor && config.controller == ControllerKind::Spiking
+            ? make_sparse_ancestral_brain(config) : Brain::random(config.brain,genome_rng);
+        if (config.sparse_ancestor && config.controller == ControllerKind::Spiking) c.genome_id=1;
         c.neural_rng=Random(config.seed ^ (c.id*13007ULL));
         initialize_body(c);
         creatures.push_back(std::move(c));

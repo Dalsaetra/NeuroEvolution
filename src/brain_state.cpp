@@ -8,7 +8,7 @@ namespace neuroevo {
 void Brain::save_state(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_BRAIN_2");
+    checkpoint::write(s,"NEUROEVO_BRAIN_3");
     checkpoint::write_tuple(s,checkpoint::brain_fields(config_));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config_));
     checkpoint::write(s,neurons_.size(),synapses_.size(),buffer_cursor_);
@@ -29,11 +29,11 @@ Brain Brain::load_state(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    if (version != "NEUROEVO_BRAIN_1" && version != "NEUROEVO_BRAIN_2")
+    if (version != "NEUROEVO_BRAIN_3")
         throw std::runtime_error("Unknown brain checkpoint version");
     BrainConfig c;
     checkpoint::read_tuple(s,checkpoint::brain_fields(c));
-    if (version == "NEUROEVO_BRAIN_2") checkpoint::read_tuple(s,checkpoint::calibrated_brain_fields(c));
+    checkpoint::read_tuple(s,checkpoint::calibrated_brain_fields(c));
     if (c.input_count > 10000 || c.output_count > 10000 || c.hidden_count > 10000
         || c.max_delay_steps < 1 || c.max_delay_steps > 4096 || c.dt <= 0
         || c.membrane_tau <= 0 || c.threshold <= 0 || c.conduction_speed <= 0

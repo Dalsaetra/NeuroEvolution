@@ -3,14 +3,6 @@
 #include <cmath>
 
 namespace neuroevo {
-void EcosystemConfig::set_predation(bool enabled)
-{
-    predation = enabled;
-    brain.input_count = brain.sensory_input_count = enabled ? eco_predation_input_count
-        : extended_senses ? eco_input_count : eco_legacy_input_count;
-    brain.output_count = enabled ? eco_predation_output_count : eco_output_count;
-}
-
 void EcosystemWorld::initialize_body(EcoCreature& c)
 {
     c.body = config.predation ? BodyGenes{config.founder_mass, config.founder_carnivory} : BodyGenes{};
@@ -39,15 +31,16 @@ BodyGenes EcosystemWorld::inherit_body(const BodyGenes& parent, bool strong, Ran
 {
     BodyGenes child = parent;
     if (!config.predation) return child;
-    const double scale = strong ? 1.75 : 0.45;
-    const double probability_scale = strong ? 2.0 : 0.65;
-    if (config.mass_mutation_probability > 0 && config.mass_mutation_sigma > 0
-        && rng.chance(std::min(1.0, probability_scale * config.mass_mutation_probability)))
-        child.mass = std::exp(std::clamp(std::log(parent.mass) + rng.normal(0, scale * config.mass_mutation_sigma),
+    const auto& profile = strong ? config.mutation.strong : config.mutation.slight;
+    const double scale = profile.body_sigma_scale;
+    const double probability_scale = profile.body_probability_scale;
+    if (config.mutation.mass_mutation_probability > 0 && config.mutation.mass_mutation_sigma > 0
+        && rng.chance(std::min(1.0, probability_scale * config.mutation.mass_mutation_probability)))
+        child.mass = std::exp(std::clamp(std::log(parent.mass) + rng.normal(0, scale * config.mutation.mass_mutation_sigma),
             std::log(eco_min_mass), std::log(eco_max_mass)));
-    if (config.carnivory_mutation_probability > 0 && config.carnivory_mutation_sigma > 0
-        && rng.chance(std::min(1.0, probability_scale * config.carnivory_mutation_probability)))
-        child.carnivory = std::clamp(parent.carnivory + rng.normal(0, scale * config.carnivory_mutation_sigma), 0.0, 1.0);
+    if (config.mutation.carnivory_mutation_probability > 0 && config.mutation.carnivory_mutation_sigma > 0
+        && rng.chance(std::min(1.0, probability_scale * config.mutation.carnivory_mutation_probability)))
+        child.carnivory = std::clamp(parent.carnivory + rng.normal(0, scale * config.mutation.carnivory_mutation_sigma), 0.0, 1.0);
     return child;
 }
 
@@ -60,7 +53,6 @@ void EcosystemWorld::remove_dead(double end)
     std::sort(dead.begin(), dead.end(), [](auto a, auto b) { return a->id < b->id; });
     for (const auto* pointer : dead) {
         const auto& c = *pointer;
-        consider_archive(c, true, end);
         double discarded = 0;
         for (const auto& packet : c.digestion) discarded += packet.energy;
         if (config.predation) {

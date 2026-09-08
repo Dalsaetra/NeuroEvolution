@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -27,7 +27,7 @@ bool near(double a, double b)
 
 EcosystemWorld empty_world()
 {
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     config.width = config.height = 16;
     // The geometric expectations below use a six-cell vision radius.
     config.vision_range = 6;

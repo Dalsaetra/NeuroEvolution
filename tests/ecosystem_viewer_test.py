@@ -161,8 +161,8 @@ class EcosystemReplayTests(unittest.TestCase):
                     "predation": True, "attack_range": 0.8, "attack_degrees": 60}
         creature = {"id": 1, "x": 1, "y": 1, "energy": 50, "age": 0,
                     "mass": 1.5, "carnivory": 0.3, "health": 20, "max_health": 30, "attack": 0.5}
-        child = {**creature, "id": 2, "parent": 0, "generation": 0,
-                 "origin": "archive-clone", "source_id": 1, "genome_id": 1, "brain": {
+        child = {**creature, "id": 2, "parent": 1, "generation": 1,
+                 "origin": "birth", "genome_id": 1, "brain": {
             "inputs": 1, "outputs": 1,
             "neurons": [{"x": 0, "y": 0, "threshold": 1}, {"x": 1, "y": 1, "threshold": 1}],
             "synapses": [{"pre": 0, "post": 1, "weight": 1}],
@@ -171,11 +171,6 @@ class EcosystemReplayTests(unittest.TestCase):
         frames = [{"time": i, "creatures": creatures, "resources": [], "events": [], "totals": {}}
                   for i, creatures in enumerate(([creature], [child], []))]
         frames[1]["resources"] = [{"id": 99, "kind": "meat", "x": 1.5, "y": 1, "stock": 1, "capacity": 2, "value": 20}]
-        frames[1]["totals"] = {"immigrants": 1, "immigrant_clones": 1, "immigrant_energy": 90}
-        frames[1]["establishment"] = {"enabled": True, "active": True, "floor": 2, "next_check": 5,
-                                      "archive": [{"genome_id": 1, "niche": "fruit-a", "score": 3.5,
-                                                   "trials": 2, "mean_food_energy": 10}]}
-        frames[2]["establishment"] = {"enabled": True, "active": True, "floor": 2, "next_check": 5, "archive": []}
         payload = {"name": "lifecycle test", "metadata": metadata, "frames": frames,
                    "stats": [{"time": 0, "population": 1, "net_energy": -3},
                              {"time": 2, "population": 0, "net_energy": 2}]}
@@ -212,17 +207,12 @@ assert.equal(nodes.get('sensors').children.length,1);
 vm.runInNewContext('render()',scope);
 assert.equal(String(nodes.get('population').textContent),'1');
 assert.equal(nodes.get('brainEmpty').style.display,'block');
-assert.equal(nodes.get('establishmentPanel').hidden,true);
 assert.equal(nodes.get('neuronDetails').children.length,0);
 nodes.get('stepForward').listeners.click();
 assert.equal(nodes.get('selectedContent').hidden,true);
-assert.equal(nodes.get('establishmentPanel').hidden,false);
-assert.equal(String(nodes.get('immigrants').textContent),'1');
-assert.equal(nodes.get('supportState').textContent,'active');
-assert.match(nodes.get('archiveEntries').children[0].textContent,/Genome 1/);
 nodes.get('creatureSelect').listeners.change({target:{value:'2'}});
 assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
-assert.equal(nodes.get('agentParent').textContent,'archive clone · source 1');
+assert.equal(nodes.get('agentParent').textContent,'parent 1');
 assert.equal(nodes.get('brainEmpty').style.display,'none');
 vm.runInNewContext(`
  const edges=brains.get(2).synapses;
@@ -273,8 +263,7 @@ assert.equal(nodes.get('sensors').children.length,1);
 nodes.get('stepForward').listeners.click();
 assert.equal(String(nodes.get('population').textContent),'0');
 assert.equal(nodes.get('noCreature').hidden,false);
-assert.match(nodes.get('worldStatus').textContent,/immigration remains active/);
-assert.match(nodes.get('archiveEntries').children[0].textContent,/Waiting for food successes/);
+assert.match(nodes.get('worldStatus').textContent,/Extinct/);
 nodes.get('stepBack').listeners.click();
 assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
 '''

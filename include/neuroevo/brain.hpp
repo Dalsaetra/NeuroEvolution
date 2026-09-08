@@ -1,5 +1,6 @@
 #pragma once
 
+#include "neuroevo/config.hpp"
 #include "neuroevo/random.hpp"
 #include "neuroevo/vector2.hpp"
 
@@ -8,79 +9,6 @@
 #include <vector>
 
 namespace neuroevo {
-
-struct BrainConfig {
-    std::size_t input_count = 5;
-    std::size_t sensory_input_count = 0;
-    std::size_t hidden_count = 16;
-    std::size_t output_count = 4;
-    double dt = 0.02;
-    double membrane_tau = 0.10;
-    double threshold = 1.0;
-    double reset_potential = 0.0;
-    double refractory_time = 0.04;
-    double input_gain = 25.0;
-    double synaptic_gain = 8.0;
-    bool seed_input_output_synapses = true;
-    double seed_input_output_weight = 3.0;
-    bool has_clock_input = false;
-    std::size_t clock_input_index = 0;
-    bool has_episode_start_input = false;
-    std::size_t episode_start_input_index = 0;
-    bool background_activity_enabled = true;
-    double background_event_rate_hz = 2.0;
-    double background_event_current = 25.0;
-    double initial_background_sensitivity = 0.10;
-    double initial_background_sensitivity_sigma = 0.03;
-    double max_bias_fraction_of_threshold = 0.95;
-    double motor_trace_decay = 0.82;
-    double conduction_speed = 1.5;
-    double initial_connection_probability = 0.25;
-    std::size_t max_delay_steps = 24;
-    // Ecosystem v2: deterministic rate-coded sensors and normalized motor rates.
-    // Generic task brains and historical checkpoints retain the LIF interface.
-    bool calibrated_io = false;
-    double sensory_rate_hz = 20.0;
-    double motor_rate_tau = 0.20;
-    double motor_reference_hz = 10.0;
-};
-
-struct MutationConfig {
-    // Opt-in for ecological inheritance; legacy/generic mutation stays available.
-    bool stable = false;
-    // Derived offspring-preset controls, not checkpoint configuration. Negative
-    // budget retains the generic stable policy's summed operator probabilities.
-    double structural_edit_probability = -1.0;
-    std::size_t local_edit_limit = 2;
-    double local_weight_limit_multiplier = 1.0;
-    double weight_sigma = 0.20;
-    double bias_sigma = 0.35;
-    double threshold_sigma = 0.03;
-    double position_sigma = 0.03;
-    double hidden_bias_min = -15.0;
-    double hidden_bias_max = 15.0;
-    double hidden_bias_jump_min_magnitude = 8.0;
-    double hidden_bias_jump_probability = 0.0;
-    double background_sensitivity_sigma = 0.08;
-    double background_sensitivity_min = 0.0;
-    double background_sensitivity_max = 2.0;
-    double add_synapse_probability = 0.24;
-    // Adds a hidden neuron as a side branch of an existing connection. Keeping
-    // the original connection makes topology growth locally heritable.
-    double add_neuron_probability = 0.0;
-    std::size_t max_hidden_neurons = 128;
-    double add_reciprocal_motif_probability = 0.06;
-    double remove_synapse_probability = 0.04;
-    double rewire_synapse_probability = 0.04;
-    // Remove one hidden neuron and all incident edges; sensor/motor slots survive.
-    double remove_neuron_probability = 0.01;
-    double mutate_weight_probability = 0.12;
-    double mutate_neuron_probability = 0.08;
-    double mutate_clock_threshold_probability = 0.08;
-    double clock_threshold_sigma = 0.08;
-    double clock_threshold_min = 0.2;
-    double clock_threshold_max = 5.0;
-};
 
 struct BrainStepResult {
     std::vector<double> motor_outputs;
@@ -122,8 +50,6 @@ public:
         std::vector<Synapse> synapses);
 
     void reset_state();
-    // Insert a disconnected sensor while preserving the running circuit state.
-    void insert_sensory_input(std::size_t index);
     BrainStepResult step(const std::vector<double>& inputs, Random* rng = nullptr);
     // Optional partition of all inputs for category-balanced connection growth.
     void mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups = {});
@@ -157,7 +83,6 @@ private:
     bool synapse_exists(std::size_t pre, std::size_t post) const noexcept;
     std::size_t compute_delay_steps(Vec2 pre, Vec2 post) const noexcept;
     void rebuild_runtime_state();
-    void mutate_stable(const MutationConfig& config, Random& rng, const InputGroups& input_groups);
     void add_random_synapse(Random& rng, bool weak = false, const InputGroups& input_groups = {});
     void rewire_random_synapse(Random& rng, const InputGroups& input_groups);
     void add_random_neuron(Random& rng, bool weak = false);

@@ -1,8 +1,6 @@
 [project]
 name = "neuroevolution"
 version = "0.1.0"
-description = "Prototype tools for plotting NeuroEvolution simulation output."
+description = "Replay tools for a reproducing spiking-brain ecosystem."
 requires-python = ">=3.11"
-dependencies = [
-    "matplotlib>=3.8",
-]
+dependencies = []

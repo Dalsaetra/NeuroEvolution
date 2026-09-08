@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -12,7 +12,7 @@ void near(double a, double b, const char* message) { require(std::abs(a-b) < 1e-
 std::string saved(const EcosystemWorld& w) { std::ostringstream s; w.save_checkpoint(s); return s.str(); }
 EcosystemWorld empty()
 {
-    EcosystemConfig c;
+    EcosystemConfig c = neuroevo::controlled_config();
     c.set_predation(true);
     // Mechanical expectations below use a controlled fixture, not tunable defaults.
     c.dt=0.1; c.health_per_mass=20;
@@ -21,7 +21,7 @@ EcosystemWorld empty()
     c.width=c.height=12; c.shelters=c.grazing_patches=c.fruit_patches=c.pods=c.initial_creatures=0;
     c.reproduction=c.storms_enabled=c.outdoor_food_relocates=false;
     c.basal_cost=c.movement_cost=c.turn_cost=c.forage_cost=c.call_cost=c.neuron_cost=c.synapse_cost=c.spike_cost=0;
-    c.healing_rate=0; c.archive_eval_trials=0;
+    c.healing_rate=0;
     return EcosystemWorld(c,false);
 }
 void add(EcosystemWorld& w, Vec2 p, double heading=0, BodyGenes body={})
@@ -212,7 +212,7 @@ void food_and_senses()
     near(w.creatures[0].eaten[4],0.1*0.01/1.01,"Shared corpse allocation ignored low carnivory");
     near(w.creatures[1].eaten[4],0.1/1.01,"Carnivore lost meat to an oversized low-carnivory request");
     // A tiny corpse inside relocating nursery terrain must decay away permanently.
-    auto cfg=nursery_frontier_config(); cfg.initial_creatures=0; cfg.meat_decay=1;
+    auto cfg=EcosystemConfig{}; cfg.initial_creatures=0; cfg.meat_decay=1;
     EcosystemWorld nursery(cfg,false); plant.stock=plant.capacity=0.01; plant.position={40,40};
     nursery.resources.push_back(plant); nursery.step();
     require(nursery.resources.empty() && nursery.totals.regrown_biomass==0,"Corpse regrew or relocated in nursery");
@@ -280,8 +280,8 @@ void bodies_and_births()
     for (int seed=0;seed<80;++seed) {
         w=empty(); w.mutation_rng=Random(seed); add(w,{5,5},0,{1.5,0.6});
         auto& cfg=w.config; cfg.reproduction=true; cfg.maturity_age=0; cfg.reproduction_cooldown=100;
-        cfg.mass_mutation_probability=cfg.carnivory_mutation_probability=1;
-        cfg.mass_mutation_sigma=cfg.carnivory_mutation_sigma=0.7;
+        cfg.mutation.mass_mutation_probability=cfg.mutation.carnivory_mutation_probability=1;
+        cfg.mutation.mass_mutation_sigma=cfg.mutation.carnivory_mutation_sigma=0.7;
         w.creatures[0].energy=200;
         const auto before=ledger(w); w.step({{}});
         require(w.creatures.size()==2,"Funded birth failed");
@@ -305,7 +305,7 @@ void bodies_and_births()
     require(mass_changes>10 && diet_changes>10 && copies>0,"Births did not exercise body mutations and exact copies");
     w=empty(); add(w,{5,5}); w.config.reproduction=true; w.config.maturity_age=0;
     w.config.reproduction_cost=w.config.reproduction_threshold=100;
-    w.config.mass_mutation_probability=w.config.carnivory_mutation_probability=0;
+    w.config.mutation.mass_mutation_probability=w.config.mutation.carnivory_mutation_probability=0;
     w.creatures[0].energy=110; w.step({{}});
     require(w.creatures.size()==1 && w.totals.births==0,"Birth proceeded without construction energy");
     w.creatures[0].energy=130;
@@ -339,9 +339,53 @@ void bodies_and_births()
     }
     require(wired,"Structural mutation cannot connect the attack output");
 }
+void configurable_inheritance()
+{
+    // Force each branch so tuning the mixture cannot be masked by chance.
+    for (int branch=0; branch<3; ++branch) {
+        auto w=empty();
+        w.config.reproduction=true; w.config.maturity_age=0;
+        w.config.reproduction_threshold=100;
+        auto& mutation=w.config.mutation;
+        mutation.copy_probability=branch==0 ? 1 : 0;
+        mutation.slight_probability=branch==1 ? 1 : 0;
+        mutation.disconnected_neuron_prune_probability=0;
+        mutation.mass_mutation_probability=1;
+        mutation.carnivory_mutation_probability=0;
+        mutation.slight.body_probability_scale=0;
+        mutation.strong.body_probability_scale=1;
+        mutation.strong.body_sigma_scale=2;
+        mutation.strong.structural_probability=0;
+        mutation.strong.local_edits=0;
+        add(w,{5,5}); w.creatures[0].energy=200;
+        w.config.validate();
+        const auto parent=w.creatures.front().brain;
+        w.step({{}});
+        require(w.creatures.size()==2,"Configured inheritance failed to produce a child");
+        const auto& child=w.creatures.back();
+        if (branch==2) require(child.body.mass!=1,"Strong body profile was ignored");
+        else near(child.body.mass,1,"Copy or disabled slight body profile mutated mass");
+        if (branch==0) {
+            require(child.genome_id==w.creatures.front().genome_id,"Frozen inheritance changed genome identity");
+            require(child.brain.synapses().size()==parent.synapses().size(),"Frozen inheritance changed topology");
+            for (std::size_t i=0;i<parent.synapses().size();++i)
+                near(child.brain.synapses()[i].weight,parent.synapses()[i].weight,"Frozen inheritance changed a weight");
+        }
+    }
+    for (int invalid=0; invalid<4; ++invalid) {
+        auto c=empty().config;
+        if (invalid==0) c.mutation.copy_probability=0.9; // Sum exceeds one.
+        if (invalid==1) c.mutation.strong.structural_probability=1.1;
+        if (invalid==2) c.mutation.slight.body_sigma_scale=-1;
+        if (invalid==3) c.mutation.disconnected_neuron_prune_probability=-0.1;
+        bool rejected=false;
+        try { c.validate(); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected,"Invalid inheritance tuning was accepted");
+    }
+}
 }
 int main()
 {
-    try { combat(); dietary_attack_strength(); food_and_senses(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

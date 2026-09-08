@@ -1,7 +1,7 @@
 # Frontier wall layout
 
 New nursery-frontier worlds use short, randomly positioned wall lines instead
-of the old regular grid of isolated pillars. Each line has 3–7 edge-connected
+of the old regular grid of isolated pillars. Each line has 3â€“7 edge-connected
 wall tiles, one tile thick, and is either straight or has one right-angle bend.
 Separate lines cannot touch, including diagonally, preventing larger blobs or
 closed rings. The wall budget is 2% of the candidate outer area; placement may
@@ -24,8 +24,8 @@ use this layout. The older generated habitat has its existing obstacle recipe.
 ## Rough ground
 
 Both new map types group rough ground into broad, overlapping elliptical patches
-instead of independent single-tile noise. Patch radii range from 3–6 tiles on one
-axis and 2–4 on the other, with random orientation. Small fragments below eight
+instead of independent single-tile noise. Patch radii range from 3â€“6 tiles on one
+axis and 2â€“4 on the other, with random orientation. Small fragments below eight
 edge-connected tiles are removed after shelter and wall clipping. Coverage stays
 approximately 18% of outdoor floor in nursery-frontier maps and 12% in generated
 maps. Whole patches may slightly overshoot the target. The separate seeded rough
@@ -38,5 +38,5 @@ input reflects the extra expense indirectly; sensing it does not guarantee they
 learn to associate the loss with rough terrain. Viewer colors are not inputs to
 the brain. This layout change does not alter the sensory interface.
 
-Existing checkpoints retain the terrain they recorded. The updated executable is
-available in `build-layout`; generate a new map to use the clustered terrain.
+Checkpoints retain their recorded terrain. Use the default nursery configuration
+for new maps; see [config.hpp](../include/neuroevo/config.hpp) for world settings.

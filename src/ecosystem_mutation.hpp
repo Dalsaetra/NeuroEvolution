@@ -1,56 +1,36 @@
 #pragma once
-
-#include "neuroevo/brain.hpp"
-
-#include <algorithm>
+#include "neuroevo/config.hpp"
+#include <initializer_list>
 
 namespace neuroevo::detail {
-
-inline MutationConfig budgeted_mutation(MutationConfig mutation, double budget,
-    std::size_t edits, double weight_limit)
+inline MutationConfig birth_mutation(MutationConfig mutation, const BirthMutationProfile& profile)
 {
-    mutation.stable = true;
-    mutation.structural_edit_probability = budget;
-    mutation.local_edit_limit = edits;
-    mutation.local_weight_limit_multiplier = weight_limit;
-    // Respect explicit zeroes; balance each enabled add/remove pair.
-    const auto balance = [](double& add, double& remove) {
-        if (add > 0 && remove > 0) add = remove = (add + remove) * 0.5;
-    };
-    balance(mutation.add_synapse_probability, mutation.remove_synapse_probability);
-    balance(mutation.add_neuron_probability, mutation.remove_neuron_probability);
-    // Unpaired motif growth would bias the structural budget toward additions.
-    mutation.add_reciprocal_motif_probability = 0;
+    mutation.structural_edit_probability = profile.structural_probability;
+    mutation.local_edit_limit = profile.local_edits;
+    mutation.local_weight_limit_multiplier = profile.weight_limit;
+    for (auto* sigma : {&mutation.weight_sigma, &mutation.bias_sigma, &mutation.threshold_sigma,
+            &mutation.position_sigma, &mutation.background_sensitivity_sigma}) *sigma *= profile.sigma_scale;
+    for (auto* probability : {&mutation.mutate_weight_probability, &mutation.mutate_neuron_probability,
+            &mutation.add_synapse_probability, &mutation.add_neuron_probability,
+            &mutation.add_reciprocal_motif_probability, &mutation.remove_synapse_probability,
+            &mutation.rewire_synapse_probability, &mutation.remove_neuron_probability})
+        *probability *= profile.operator_scale;
+    if (mutation.balance_structural_pairs) {
+        const auto balance = [](double& add, double& remove) {
+            if (add > 0 && remove > 0) add = remove = (add + remove) * 0.5;
+        };
+        balance(mutation.add_synapse_probability, mutation.remove_synapse_probability);
+        balance(mutation.add_neuron_probability, mutation.remove_neuron_probability);
+    }
+    if (!mutation.allow_birth_motifs) mutation.add_reciprocal_motif_probability = 0;
     return mutation;
 }
-
-inline MutationConfig slight_mutation(MutationConfig mutation)
+inline MutationConfig slight_mutation(const MutationConfig& mutation)
 {
-    mutation.weight_sigma *= 0.75;
-    mutation.bias_sigma *= 0.75;
-    mutation.threshold_sigma *= 0.75;
-    mutation.position_sigma *= 0.75;
-    mutation.background_sensitivity_sigma *= 0.75;
-    mutation.mutate_weight_probability *= 0.9;
-    mutation.mutate_neuron_probability *= 0.9;
-    mutation.add_synapse_probability *= 0.9;
-    mutation.add_neuron_probability *= 0.9;
-    mutation.add_reciprocal_motif_probability *= 0.9;
-    mutation.remove_synapse_probability *= 0.9;
-    mutation.rewire_synapse_probability *= 0.9;
-    mutation.remove_neuron_probability *= 0.9;
-    return budgeted_mutation(mutation, 0.3, 2, 1.0);
+    return birth_mutation(mutation, mutation.slight);
 }
-
-inline MutationConfig strong_mutation(MutationConfig mutation)
+inline MutationConfig strong_mutation(const MutationConfig& mutation)
 {
-    // Strong offspring explore further, but their edit count is genome-size independent.
-    mutation.weight_sigma *= 1.75;
-    mutation.bias_sigma *= 1.75;
-    mutation.threshold_sigma *= 1.75;
-    mutation.position_sigma *= 1.75;
-    mutation.background_sensitivity_sigma *= 1.75;
-    return budgeted_mutation(mutation, 0.5, 4, 2.0);
+    return birth_mutation(mutation, mutation.strong);
 }
-
 } // namespace neuroevo::detail

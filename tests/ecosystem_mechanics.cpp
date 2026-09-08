@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 #include "../src/ecosystem_mutation.hpp"
 
 #include <algorithm>
@@ -28,7 +28,7 @@ void near(double actual, double expected, const char* message, double tolerance 
 
 EcosystemConfig fixture_config()
 {
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     config.outdoor_food_relocates = false;
     config.width = config.height = 12;
     config.initial_creatures = config.shelters = config.grazing_patches = config.fruit_patches = config.pods = 0;
@@ -410,7 +410,7 @@ void reproduction_and_capacity()
         require(c.brain.synapses().size() == same.brain.synapses().size(), "Mutation stream depends on creature vector order");
     }
 
-    for (bool stable : {false, true}) {
+    {
         std::size_t exact = 0, slight = 0, strong = 0;
         for (std::uint64_t seed = 1; seed <= 256; ++seed) {
             auto inheritance_config = fixture_config();
@@ -418,7 +418,6 @@ void reproduction_and_capacity()
             inheritance_config.reproduction = true;
             inheritance_config.maturity_age = 0;
             inheritance_config.max_population = 2;
-            inheritance_config.mutation.stable = stable;
             EcosystemWorld inheritance(inheritance_config, false);
             inheritance.creatures = {creature(inheritance_config, 1, {5, 5})};
             inheritance.creatures[0].genome_id = 1;
@@ -460,7 +459,7 @@ void birth_cleanup()
     config.reproduction = true; config.maturity_age = 0; config.max_population = 2;
     config.brain.hidden_count = 2;
     auto& m = config.mutation;
-    m.mutate_weight_probability = m.mutate_neuron_probability = m.mutate_clock_threshold_probability = 0;
+    m.mutate_weight_probability = m.mutate_neuron_probability = 0;
     m.add_synapse_probability = m.add_neuron_probability = m.add_reciprocal_motif_probability = 0;
     m.remove_synapse_probability = m.remove_neuron_probability = m.rewire_synapse_probability = 0;
     std::size_t cleaned = 0, cleaned_copies = 0;
@@ -492,7 +491,7 @@ void rejects_invalid_configuration()
         try { config.validate(); } catch (const std::invalid_argument&) { return true; }
         return false;
     };
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     config.brain.background_event_rate_hz = -1;
     require(rejects(config), "Negative neural noise rate accepted");
     config = EcosystemConfig{};
@@ -514,7 +513,7 @@ void rejects_invalid_configuration()
 
 void seeded_maps_and_brains()
 {
-    EcosystemConfig config;
+    EcosystemConfig config = neuroevo::controlled_config();
     config.width = 32;
     config.height = 24;
     config.shelters = 3;

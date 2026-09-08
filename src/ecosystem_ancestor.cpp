@@ -38,9 +38,7 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
 
     BrainConfig brain_config = config.brain;
     brain_config.hidden_count = 2 + eco_sectors;
-    brain_config.background_activity_enabled = true;
     brain_config.initial_connection_probability = 0.0;
-    brain_config.seed_input_output_synapses = false;
 
     const std::size_t hidden = brain_config.input_count;
     const std::size_t output = hidden + brain_config.hidden_count;
@@ -160,7 +158,8 @@ EcosystemWorld make_ancestral_nursery(EcosystemConfig config)
     config.shelters = config.grazing_patches = config.pods = 0;
     config.fruit_patches = 100;
     config.calm_duration = 100000.0;
-    config.establishment = false;
+    config.nursery_frontier = false;
+    config.shelter_size = 3;
     config.controller = ControllerKind::Spiking;
 
     EcosystemWorld world(config, false);

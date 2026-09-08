@@ -14,7 +14,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <unordered_map>
 
 namespace {
@@ -62,11 +61,7 @@ int main(int argc, char** argv)
 {
     try {
         neuroevo::EcosystemConfig cfg;
-        // Apply habitat defaults before parsing so explicit numeric flags win,
-        // regardless of their position relative to --habitat.
-        for (int i=1; i+1<argc; ++i)
-            if (std::string(argv[i])=="--habitat" && std::string(argv[i+1])=="nursery-frontier")
-                cfg=neuroevo::nursery_frontier_config();
+        const neuroevo::RunConfig run;
         std::map<std::string,std::size_t*> sizes{
             {"--nursery-size",&cfg.nursery_size},
             {"--nursery-food-patches",&cfg.nursery_food_patches},
@@ -76,11 +71,6 @@ int main(int argc, char** argv)
             {"--width",&cfg.width},{"--height",&cfg.height},{"--shelters",&cfg.shelters},
             {"--grazing-patches",&cfg.grazing_patches},{"--fruit-patches",&cfg.fruit_patches},
             {"--pods",&cfg.pods},{"--hidden",&cfg.brain.hidden_count},
-            {"--immigration-floor",&cfg.immigration_floor},{"--immigration-batch",&cfg.immigration_batch},
-            {"--archive-capacity",&cfg.archive_capacity},{"--withdrawal-cycles",&cfg.withdrawal_cycles},
-            {"--archive-tournament-size",&cfg.archive_tournament_size},
-            {"--archive-eval-trials",&cfg.archive_eval_trials},{"--archive-eval-seed",&cfg.archive_eval_seed},
-            {"--archive-min-feeding-bouts",&cfg.archive_min_feeding_bouts},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
             {"--founder-mass",&cfg.founder_mass},
@@ -98,19 +88,16 @@ int main(int argc, char** argv)
             {"--meat-energy",&cfg.meat_energy},
             {"--meat-decay",&cfg.meat_decay},
             {"--carcass-recovery",&cfg.carcass_recovery},
-            {"--mass-mutation-probability",&cfg.mass_mutation_probability},
-            {"--mass-mutation-sigma",&cfg.mass_mutation_sigma},
-            {"--carnivory-mutation-probability",&cfg.carnivory_mutation_probability},
-            {"--carnivory-mutation-sigma",&cfg.carnivory_mutation_sigma},
+            {"--mass-mutation-probability",&cfg.mutation.mass_mutation_probability},
+            {"--mass-mutation-sigma",&cfg.mutation.mass_mutation_sigma},
+            {"--carnivory-mutation-probability",&cfg.mutation.carnivory_mutation_probability},
+            {"--carnivory-mutation-sigma",&cfg.mutation.carnivory_mutation_sigma},
 
             {"--nursery-food-decay",&cfg.nursery_food_decay},
             {"--nursery-food-energy",&cfg.nursery_food_energy},
             {"--nursery-food-capacity",&cfg.nursery_food_capacity},
             {"--nursery-food-regrowth",&cfg.nursery_food_regrowth},
             {"--dt",&cfg.dt},{"--brain-dt",&cfg.brain.dt},{"--radius",&cfg.radius},
-            {"--immigration-interval",&cfg.immigration_interval},{"--archive-min-energy",&cfg.archive_min_energy},
-            {"--archive-min-age",&cfg.archive_min_age},{"--archive-min-efficiency",&cfg.archive_min_efficiency},
-            {"--archive-eval-seconds",&cfg.archive_eval_seconds},
             {"--actuator-tau",&cfg.actuator_tau},{"--sensory-rate",&cfg.brain.sensory_rate_hz},
             {"--motor-rate-tau",&cfg.brain.motor_rate_tau},{"--motor-reference-hz",&cfg.brain.motor_reference_hz},
             {"--conduction-speed",&cfg.brain.conduction_speed},
@@ -153,17 +140,16 @@ int main(int argc, char** argv)
             {"--mutate-add-neuron-prob",&cfg.mutation.add_neuron_probability},
             {"--mutate-reciprocal-motif-prob",&cfg.mutation.add_reciprocal_motif_probability},
             {"--mutate-remove-synapse-prob",&cfg.mutation.remove_synapse_probability}};
-        std::size_t steps=4800,record_every=10,tail_record_every=10,companions=0;
-        double detailed_tail_seconds=0;
-        int stable_mutations_override=-1;
+        std::size_t steps=run.steps,record_every=run.record_every,tail_record_every=run.tail_record_every,companions=0;
+        double detailed_tail_seconds=run.detailed_tail_seconds;
         int typed_food_override=-1;
         double remove_neuron_override=0;
         bool remove_neuron_explicit=false;
         double rewire_override=-1;
-        std::size_t evaluation_workers=std::max(1u,std::min(4u,std::thread::hardware_concurrency()));
-        bool record_brains=true,record_observations=true,record_brain_graphs=true,record_routine_events=true,config_changed=false;
+        bool record_brains=run.record_brains,record_observations=run.record_observations;
+        bool record_brain_graphs=run.record_brain_graphs,record_routine_events=run.record_routine_events,config_changed=false;
         auto companion_controller=neuroevo::ControllerKind::Reactive;
-        std::string resume,founders,starting_genomes,founder_brain="random",habitat="generated";
+        std::string resume,founders,starting_genomes,founder_brain=cfg.sparse_ancestor ? "sparse-ancestor" : "random",habitat=cfg.nursery_frontier ? "nursery-frontier" : "generated";
         bool predation_explicit=false;
         bool founder_brain_explicit=false;
         const auto timestamp=std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -172,50 +158,42 @@ int main(int argc, char** argv)
         for (int i=1; i<argc; ++i) {
             const std::string arg=argv[i];
             if (arg == "--help") {
-                std::cout << "Shared 2D ecosystem with independent spiking brains\n\n"
+                std::cout << "Nursery ecosystem with independent spiking brains\nTune include/neuroevo/config.hpp and rebuild to change defaults.\n\n"
                     "Usage: neuroevo_ecosystem --creatures 24 --steps 4800 --out runs/my_ecosystem\n\n"
-                    "  --steps N                 World steps to run (additional steps with --resume), default 4800\n"
-                    "  --record-every N          Save a replay frame every N steps, default 10\n"
-                    "  --record-brains 0|1       Record neural activity, default 1\n"
-                    "  --record-observations 0|1 Record sensory values per creature, default 1\n"
-                    "  --sensorimotor X          calibrated (66 inputs, default) or legacy (60 inputs); three vision sectors\n"
-                    "  --typed-food-proximity 0|1  Per-food-type distance signals; default 1, also overrides resume\n"
-                    "  --mutate-rewire-synapse-prob N  Rewiring operator weight (default 0.20; also overrides resume)\n"
+                    "  --steps N                 World steps to run (additional steps with --resume)\n"
+                    "  --record-every N          Save a replay frame every N steps\n"
+                    "  --record-brains 0|1       Record neural activity\n"
+                    "  --record-observations 0|1 Record sensory values per creature\n"
+                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (83 total by default)\n"
+                    "  --typed-food-proximity 0|1  Per-food-type distance signals; also overrides resume\n"
+                    "  --mutate-rewire-synapse-prob N  Rewiring operator weight (also overrides resume)\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
-                    "  --stable-mutations 0|1    Local edits and weak growth; new-world default 1, explicit resume override\n"
-                    "  --mutate-remove-neuron-prob N  Hidden-neuron pruning (default 0.01; also overrides resume)\n"
-                    "  --mutate-remove-synapse-prob N Synapse pruning (default 0.04)\n"
-                    "  --archive-eval-trials N   Matched newborn family trials per genome; 0 = observed score\n"
-                    "  --archive-eval-workers N  Parallel trial workers, 1..32; default up to 4 (also on resume)\n"
-                    "  --record-brain-graphs 0|1 Save each introduced genome graph, default 1\n"
-                    "  --record-routine-events 0|1 Save ingestion/digestion/pod-work events, default 1\n"
-                    "  --detailed-tail-seconds S Also save a bounded full-detail final replay, default 0\n"
-                    "  --tail-record-every N     Detailed-tail interval in steps, default 10\n"
-                    "  --seed N                  World seed, default 7\n"
-                    "  --controller X            spiking (default), reactive, or random\n"
-                    "  --founder-brain X         random (default) or sparse-ancestor\n"
-                    "  --habitat X               generated (default), ancestor-nursery, or nursery-frontier\n"
+                    "  --mutate-remove-neuron-prob N  Hidden-neuron pruning (also overrides resume)\n"
+                    "  --mutate-remove-synapse-prob N Synapse pruning\n"
+                    "  --record-brain-graphs 0|1 Save each introduced genome graph\n"
+                    "  --record-routine-events 0|1 Save ingestion/digestion/pod-work events\n"
+                    "  --detailed-tail-seconds S Also save a bounded full-detail final replay\n"
+                    "  --tail-record-every N     Detailed-tail interval in steps\n"
+                    "  --seed N                  World seed\n"
+                    "  --controller X            spiking, reactive, or random\n"
+                    "  --founder-brain X         sparse-ancestor or random\n"
+                    "  --habitat X               nursery-frontier, generated, or ancestor-nursery\n"
                     "  --companions N            Last N creatures use --companion-controller\n"
-                    "  --companion-controller X  reactive (default), random, or spiking\n"
-                    "  --food-assignment X       random (default), a-rich, or b-rich\n"
-                    "  --reproduction 0|1        Enable automatic local reproduction, default 1\n"
+                    "  --companion-controller X  reactive, random, or spiking\n"
+                    "  --food-assignment X       random, a-rich, or b-rich\n"
+                    "  --reproduction 0|1        Enable automatic local reproduction\n"
                     "  --no-reproduction         Shortcut for --reproduction 0\n"
-                    "  --communication 0|1       Enable calling and hearing, default 1\n"
-                    "  --storms 0|1              Enable weather cycle and storm effects, default 1\n"
+                    "  --communication 0|1       Enable calling and hearing\n"
+                    "  --storms 0|1              Enable weather cycle and storm effects\n"
                     "  --no-storms               Keep storm sensor but hold it at zero and skip storms\n"
-                    "  --establishment 0|1       Support population with archive-based immigration, default 0\n"
-                    "  --immigration-auto-stop 0|1  Taper and withdraw support after sustained breeding, default 1\n"
-                    "                             Split: 40% clones, 40% slight mutations, 20% strong\n"
-                    "                             Archive parents use niche-preserving tournament selection\n"
-                    "                             Floor 0 means half the initial population (at least 1)\n"
                     "  --resume FILE             Continue full state from a checkpoint (no world overrides)\n"
                     "  --predation 0|1           Combat/body/diet mechanics (on in nursery-frontier)\n"
-                    "  --founder-mass X          Initial body mass, 0.5..2 (default 1)\n"
-                    "  --founder-carnivory X     Initial meat efficiency, 0..1 (default 0)\n"
+                    "  --founder-mass X          Initial body mass, 0.5..2\n"
+                    "  --founder-carnivory X     Initial meat efficiency, 0..1\n"
                     "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
                     "  --carnivory-mutation-probability X / --carnivory-mutation-sigma X\n"
-                    "  --attack-base-fraction X  Damage fraction at zero carnivory (0<X<=1, default 0.25)\n"
-                    "  --carnivore-basal-fraction X  Basal rate at full carnivory (0<X<=1, default 0.5)\n"
+                    "  --attack-base-fraction X  Damage fraction at zero carnivory (0<X<=1)\n"
+                    "  --carnivore-basal-fraction X  Basal rate at full carnivory (0<X<=1)\n"
                     "  --attack-range X / --attack-degrees X / --attack-damage X / --attack-cost X\n"
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
@@ -235,8 +213,6 @@ int main(int argc, char** argv)
             const std::string value=argv[++i];
             if (arg == "--out") out=value;
             else if (arg == "--steps") steps=integer(value,arg);
-            else if (arg == "--archive-eval-workers") evaluation_workers=integer(value,arg);
-            else if (arg == "--stable-mutations") stable_mutations_override=boolean(value,arg);
             else if (arg == "--typed-food-proximity") typed_food_override=boolean(value,arg);
             else if (arg == "--mutate-rewire-synapse-prob") {
                 rewire_override=number(value,arg);
@@ -267,7 +243,7 @@ int main(int argc, char** argv)
                         throw std::invalid_argument("--sensorimotor requires legacy or calibrated");
                     const bool calibrated = value == "calibrated";
                     cfg.extended_senses = cfg.brain.calibrated_io = calibrated;
-                    cfg.brain.input_count = cfg.brain.sensory_input_count = calibrated
+                    cfg.brain.input_count = calibrated
                         ? neuroevo::eco_input_count : neuroevo::eco_legacy_input_count;
                     cfg.motor_gain = calibrated ? 1.0 : 8.0;
                     cfg.actuator_tau = calibrated ? 0.30 : 0.0;
@@ -283,7 +259,7 @@ int main(int argc, char** argv)
                     founder_brain_explicit=true;
                     if (value!="random" && value!="sparse-ancestor")
                         throw std::invalid_argument("--founder-brain requires random or sparse-ancestor");
-                    founder_brain=value;
+                    founder_brain=value; cfg.sparse_ancestor=value=="sparse-ancestor";
                 }
                 else if (arg == "--habitat") {
                     if (value!="generated" && value!="ancestor-nursery" && value!="nursery-frontier")
@@ -295,8 +271,6 @@ int main(int argc, char** argv)
                 else if (arg == "--reproduction") cfg.reproduction=boolean(value,arg);
                 else if (arg == "--communication") cfg.communication=boolean(value,arg);
                 else if (arg == "--storms") cfg.storms_enabled=boolean(value,arg);
-                else if (arg == "--establishment") cfg.establishment=boolean(value,arg);
-                else if (arg == "--immigration-auto-stop") cfg.immigration_auto_stop=boolean(value,arg);
                 else if (arg == "--food-assignment") {
                     if (value=="random") cfg.food_assignment=-1;
                     else if (value=="a-rich") cfg.food_assignment=0;
@@ -310,8 +284,6 @@ int main(int argc, char** argv)
         if (steps==0 || record_every==0 || tail_record_every==0)
             throw std::invalid_argument("--steps and recording intervals must be positive");
         if (detailed_tail_seconds < 0) throw std::invalid_argument("--detailed-tail-seconds must be nonnegative");
-        if (evaluation_workers==0 || evaluation_workers>32)
-            throw std::invalid_argument("--archive-eval-workers must be 1..32");
         std::optional<neuroevo::EcosystemWorld> sampled_source;
         if (!starting_genomes.empty()) {
             if (!resume.empty() || !founders.empty() || founder_brain_explicit || habitat=="ancestor-nursery")
@@ -324,6 +296,7 @@ int main(int argc, char** argv)
             if (sampled_source->config.predation && !predation_explicit) cfg.predation=true;
             founders=checkpoint.string();
         }
+        if (!founder_brain_explicit && cfg.controller!=neuroevo::ControllerKind::Spiking) founder_brain="random";
         cfg.set_predation(cfg.predation);
         if (habitat=="ancestor-nursery") {
             if (cfg.initial_creatures!=1) throw std::invalid_argument("The ancestor nursery requires --creatures 1");
@@ -333,38 +306,22 @@ int main(int argc, char** argv)
             founder_brain="sparse-ancestor";
         }
         cfg.nursery_frontier=habitat=="nursery-frontier";
-        if (cfg.nursery_frontier) {
-            cfg.establishment=false; cfg.archive_eval_trials=0;
-            if (!founder_brain_explicit && founders.empty() && cfg.controller==neuroevo::ControllerKind::Spiking)
-                founder_brain="sparse-ancestor";
-        }
         if (!resume.empty() && (config_changed || !founders.empty()))
             throw std::invalid_argument("--resume restores the full configuration; use a new world with --founders to change it");
-        if (!founders.empty() && founder_brain!="random")
+        if (!founders.empty() && founder_brain_explicit)
             throw std::invalid_argument("--founders and --founder-brain select two different genome sources");
-        if (founder_brain=="sparse-ancestor" && cfg.controller!=neuroevo::ControllerKind::Spiking)
+        if (founder_brain_explicit && founder_brain=="sparse-ancestor" && cfg.controller!=neuroevo::ControllerKind::Spiking)
             throw std::invalid_argument("The sparse ancestor is a spiking brain and requires --controller spiking");
         if (resume.empty() && cfg.initial_creatures==0) throw std::invalid_argument("--creatures must be at least 1");
         if (companions>cfg.initial_creatures) throw std::invalid_argument("--companions cannot exceed --creatures");
-        for (const char* name : {"ecosystem.jsonl","ecosystem_tail.jsonl","ecosystem_stats.csv","events.csv","summary.json","checkpoint.eco","initial.eco","archive.csv","newborn_evaluations.csv","starting_genomes.csv"})
+        for (const char* name : {"ecosystem.jsonl","ecosystem_tail.jsonl","ecosystem_stats.csv","events.csv","summary.json","checkpoint.eco","initial.eco","starting_genomes.csv"})
             if (std::filesystem::exists(out/name)) throw std::runtime_error("Run output already exists; choose a fresh --out directory: "+out.string());
         auto world=resume.empty()?(habitat=="ancestor-nursery"
             ?neuroevo::make_ancestral_nursery(cfg):neuroevo::EcosystemWorld(cfg)):load(resume);
-        world.evaluation_workers=evaluation_workers;
-        if (stable_mutations_override>=0) world.config.mutation.stable=stable_mutations_override!=0;
         if (typed_food_override>=0) world.config.typed_food_proximity=typed_food_override!=0;
         if (remove_neuron_explicit) world.config.mutation.remove_neuron_probability=remove_neuron_override;
         if (rewire_override>=0) world.config.mutation.rewire_synapse_probability=rewire_override;
-        if (resume.empty() && founder_brain=="sparse-ancestor") {
-            const auto ancestor=neuroevo::make_sparse_ancestral_brain(world.config);
-            const auto ancestral_genome_id=world.creatures.empty()?0:world.creatures.front().id;
-            for (auto& creature:world.creatures) {
-                creature.brain=ancestor;
-                creature.brain.reset_state();
-                creature.controller=neuroevo::ControllerKind::Spiking;
-                creature.genome_id=ancestral_genome_id;
-            }
-        }
+        world.config.validate();
         std::ostringstream sampled_founders;
         if (!founders.empty()) {
             auto source=sampled_source ? std::move(*sampled_source) : load(founders);
@@ -433,7 +390,7 @@ int main(int argc, char** argv)
             throw std::runtime_error("Performance output already exists; choose a fresh --out directory");
         std::ofstream performance(out/"performance.csv");
         if (!performance) throw std::runtime_error("Cannot open performance output");
-        performance << "step,time,population,wall_seconds,step_wall_seconds,evaluation_wall_seconds,evaluation_calls,slowest_step_seconds\n"
+        performance << "step,time,population,wall_seconds,step_wall_seconds,slowest_step_seconds\n"
             << std::setprecision(12);
         std::ofstream replay(out/"ecosystem.jsonl"),stats(out/"ecosystem_stats.csv"),events(out/"events.csv");
         if (!replay || !stats || !events) throw std::runtime_error("Cannot open run output files");
@@ -487,8 +444,7 @@ int main(int argc, char** argv)
         auto record_performance=[&]() {
             performance << world.step_index << ',' << world.time() << ',' << world.creatures.size() << ','
                 << std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count() << ','
-                << step_wall_seconds << ',' << world.evaluation_wall_seconds << ','
-                << world.evaluation_calls << ',' << slowest_step_seconds << '\n';
+                << step_wall_seconds << ',' << slowest_step_seconds << '\n';
             performance.flush();
             if (!performance) throw std::runtime_error("Failed to write performance output");
         };
@@ -498,18 +454,13 @@ int main(int argc, char** argv)
             << " sensory inputs, " << world.config.brain.output_count << " motor outputs\nOutput: " << out.string() << '\n';
         if (!resume.empty()) std::cout << "Founder genomes and controllers were restored from the checkpoint.\n";
         else if (founder_brain=="sparse-ancestor") std::cout
-            << "Founders use the seven-hidden-neuron sparse ancestral spiking brain.\n";
+            << "Founders use the five-hidden-neuron sparse ancestral spiking brain.\n";
         else if (founder_brain=="checkpoint") std::cout
             << "Founder genomes were imported from a checkpoint and reset for new lifetimes.\n";
         else std::cout << "Founders use " << neuroevo::to_string(world.config.controller)
             << " controllers. Random spiking brains may not survive; survival must evolve.\n";
-        if (world.config.establishment) std::cout << "Establishment support: floor=" << world.population_floor()
-            << ", archive=" << world.archive.size() << ", 40/40/20 clone/slight/strong immigration\n";
-        std::cout << "Archive evaluation workers: " << evaluation_workers << '\n';
-        std::cout << "Mutation policy: " << (world.config.mutation.stable ? "stable (local edits, weak growth)" : "legacy") << '\n';
-        for (std::size_t i=0;i<steps && (!world.creatures.empty() || world.immigration_enabled()) && !stop_requested;++i) {
+        for (std::size_t i=0;i<steps && !world.creatures.empty() && !stop_requested;++i) {
             const auto step_started=std::chrono::steady_clock::now();
-            const auto previous_evaluations=world.evaluation_calls;
             world.step();
             const double step_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-step_started).count();
             step_wall_seconds+=step_seconds;
@@ -524,7 +475,7 @@ int main(int argc, char** argv)
             }
             if ((i+1)%record_every==0) { record(); last_recorded=world.step_index; }
             if ((i+1)%tail_record_every==0) record_tail();
-            if (world.evaluation_calls!=previous_evaluations || (i+1)%1000==0) record_performance();
+            if ((i+1)%1000==0) record_performance();
             if ((i+1)%1000==0) {
                 const auto frontier_population=std::count_if(world.creatures.begin(),world.creatures.end(),
                     [&](const auto& creature) { return !world.in_nursery(creature.position); });
@@ -551,37 +502,6 @@ int main(int argc, char** argv)
         performance.close();
         if (!performance) throw std::runtime_error("Failed to close performance output");
         const double wall_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
-        std::ofstream archive(out/"archive.csv");
-        archive << "genome_id,source_id,niche,score,trials,mean_food_energy,mean_operating_energy\n" << std::setprecision(12);
-        for (const auto& entry:world.archive) {
-            double gained=0,spent=0;
-            for (const auto& trial:entry.trials) { gained+=trial.energy_gained; spent+=trial.energy_spent; }
-            const double count=static_cast<double>(entry.trials.size());
-            archive << entry.genome_id << ',' << entry.source_id << ',' << neuroevo::to_string(entry.niche) << ','
-                << entry.score << ',' << entry.trials.size() << ',' << gained/count << ',' << spent/count << '\n';
-        }
-        archive.close();
-        if (!archive) throw std::runtime_error("Failed to write archive summary");
-        std::ofstream evaluations(out/"newborn_evaluations.csv");
-        evaluations << "genome_id,score,trial,seed,offspring,descendant_births,mature_offspring,elapsed,focal_age,"
-            "food_energy,operating_energy,first_birth,second_birth,matured,focal_alive,capacity_limited\n" << std::setprecision(12);
-        for (const auto& [id, evaluation] : world.newborn_evaluations) {
-            for (std::size_t i=0;i<evaluation.trials.size();++i) {
-                const auto& t=evaluation.trials[i];
-                evaluations << id << ',' << evaluation.score << ',' << i << ',' << t.seed << ',' << t.offspring << ','
-                    << t.descendant_births << ',' << t.mature_offspring << ',' << t.elapsed << ',' << t.focal_age << ','
-                    << t.food_energy << ',' << t.operating_energy << ',' << t.first_birth << ',' << t.second_birth << ','
-                    << t.matured << ',' << t.focal_alive << ',' << t.capacity_limited << '\n';
-            }
-        }
-        evaluations.close();
-        if (!evaluations) throw std::runtime_error("Failed to write newborn evaluations");
-        std::vector<double> archive_scores;
-        for (const auto& entry:world.archive) archive_scores.push_back(entry.score);
-        std::sort(archive_scores.begin(),archive_scores.end());
-        const double archive_best=archive_scores.empty()?0:archive_scores.back();
-        const double archive_median=archive_scores.empty()?0:
-            (archive_scores[(archive_scores.size()-1)/2]+archive_scores[archive_scores.size()/2])/2;
         std::size_t max_hidden_neurons=0;
         double mean_hidden_neurons=0;
         for (const auto& creature:world.creatures) {
@@ -591,17 +511,17 @@ int main(int argc, char** argv)
         }
         if (!world.creatures.empty()) mean_hidden_neurons/=static_cast<double>(world.creatures.size());
         const char* status=stop_requested?"interrupted":
-            world.creatures.empty()?(world.immigration_enabled()?"awaiting_immigration":"extinct"):"completed";
+            world.creatures.empty()?"extinct":"completed";
         std::ofstream summary(out/"summary.json");
         summary << "{\n  \"status\":\"" << status << "\",\n  \"steps_run\":" << world.step_index-starting_step
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
             << ",\"founder_mass\":" << world.config.founder_mass << ",\"founder_carnivory\":" << world.config.founder_carnivory
-            << ",\"mass_mutation_probability\":" << world.config.mass_mutation_probability
-            << ",\"mass_mutation_sigma\":" << world.config.mass_mutation_sigma
-            << ",\"carnivory_mutation_probability\":" << world.config.carnivory_mutation_probability
-            << ",\"carnivory_mutation_sigma\":" << world.config.carnivory_mutation_sigma
+            << ",\"mass_mutation_probability\":" << world.config.mutation.mass_mutation_probability
+            << ",\"mass_mutation_sigma\":" << world.config.mutation.mass_mutation_sigma
+            << ",\"carnivory_mutation_probability\":" << world.config.mutation.carnivory_mutation_probability
+            << ",\"carnivory_mutation_sigma\":" << world.config.mutation.carnivory_mutation_sigma
             << ",\"attack_base_fraction\":" << world.config.attack_base_fraction
             << ",\"carnivore_basal_fraction\":" << world.config.carnivore_basal_fraction
             << ",\"deaths\":" << world.totals.predation_deaths << ",\"attack_energy\":" << world.totals.attacking
@@ -620,30 +540,15 @@ int main(int argc, char** argv)
             << ",\n  \"step\":" << world.step_index << ",\n  \"time\":" << world.time()
             << ",\n  \"population\":" << world.creatures.size() << ",\n  \"births\":" << world.totals.births
             << ",\n  \"founder_births\":" << world.totals.founder_births
-            << ",\n  \"immigrant_births\":" << world.totals.immigrant_births
             << ",\n  \"descendant_births\":" << world.totals.descendant_births
             << ",\n  \"births_first_100s\":" << world.totals.births_first_100s
             << ",\n  \"births_after_100s\":" << world.totals.births-world.totals.births_first_100s
             << ",\n  \"deaths\":" << world.totals.deaths
-            << ",\n  \"immigrants\":" << world.totals.immigrants
-            << ",\n  \"immigrant_mutations\":" << world.totals.immigrant_mutations
-            << ",\n  \"immigrant_slight_mutations\":" << world.totals.immigrant_slight_mutations
-            << ",\n  \"immigrant_strong_mutations\":" << world.totals.immigrant_strong_mutations
-            << ",\n  \"immigrant_clones\":" << world.totals.immigrant_clones
-            << ",\n  \"immigrant_random\":" << world.totals.immigrant_random
-            << ",\n  \"archive_fallbacks\":" << world.totals.archive_fallbacks
-            << ",\n  \"archive_empty_checks\":" << world.totals.archive_empty_checks
-            << ",\n  \"immigrant_energy\":" << world.totals.immigrant_energy
             << ",\n  \"food_energy\":" << world.totals.energy_gained
             << ",\n  \"operating_energy\":" << world.totals.metabolism+world.totals.movement+world.totals.turning
                 +world.totals.foraging+world.totals.calling+world.totals.neural+world.totals.exposure
                 +world.totals.attacking+world.totals.healing
-            << ",\n  \"archive_entries\":" << world.archive.size()
-            << ",\n  \"newborn_evaluated_genomes\":" << world.newborn_evaluations.size()
-            << ",\n  \"performance\":{\"evaluation_workers\":" << evaluation_workers
-            << ",\"evaluation_calls\":" << world.evaluation_calls
-            << ",\"evaluation_wall_seconds\":" << world.evaluation_wall_seconds
-            << ",\"step_wall_seconds\":" << step_wall_seconds
+            << ",\n  \"performance\":{\"step_wall_seconds\":" << step_wall_seconds
             << ",\"slowest_step_seconds\":" << slowest_step_seconds << "}"
             << ",\n  \"sensorimotor\":{\"inputs\":" << world.config.brain.input_count
             << ",\"calibrated_io\":" << (world.config.brain.calibrated_io?"true":"false")
@@ -651,22 +556,10 @@ int main(int argc, char** argv)
             << ",\"motor_rate_tau\":" << world.config.brain.motor_rate_tau
             << ",\"motor_reference_hz\":" << world.config.brain.motor_reference_hz
             << ",\"actuator_tau\":" << world.config.actuator_tau << "}"
-            << ",\n  \"archive_best_score\":" << archive_best
-            << ",\n  \"archive_median_score\":" << archive_median
-            << ",\n  \"archive_policy\":{\"min_age\":" << world.config.archive_min_age
-            << ",\"min_energy\":" << world.config.archive_min_energy
-            << ",\"min_feeding_bouts\":" << world.config.archive_min_feeding_bouts
-            << ",\"min_efficiency\":" << world.config.archive_min_efficiency
-            << ",\"tournament_size\":" << world.config.archive_tournament_size
-            << ",\"evaluation_trials\":" << world.config.archive_eval_trials
-            << ",\"evaluation_seconds\":" << world.config.archive_eval_seconds
-            << ",\"evaluation_seed\":" << world.config.archive_eval_seed << "}"
             << ",\n  \"natural_spiking_breeders\":" << world.totals.natural_spiking_breeders
             << ",\n  \"mature_offspring\":" << world.totals.mature_offspring
             << ",\n  \"mean_hidden_neurons\":" << mean_hidden_neurons
             << ",\n  \"max_hidden_neurons\":" << max_hidden_neurons
-            << ",\n  \"immigration_active\":" << (world.immigration_enabled()?"true":"false")
-            << ",\n  \"immigration_withdrawn\":" << (world.immigration_withdrawn?"true":"false")
             << ",\n  \"record_every\":" << record_every
             << ",\n  \"record_brains\":" << (record_brains?"true":"false")
             << ",\n  \"record_observations\":" << (record_observations?"true":"false")
@@ -682,7 +575,8 @@ int main(int argc, char** argv)
             << ",\"poor_fruit_energy\":" << world.config.poor_fruit_energy
             << ",\"rich_fruit_energy\":" << world.config.rich_fruit_energy
             << ",\"pod_energy\":" << world.config.pod_energy << "}"
-            << ",\n  \"mutation\":{\"stable\":" << (world.config.mutation.stable?"true":"false")
+            << ",\n  \"mutation\":{\"copy_probability\":" << world.config.mutation.copy_probability
+            << ",\"slight_probability\":" << world.config.mutation.slight_probability
             << ",\"weight_sigma\":" << world.config.mutation.weight_sigma
             << ",\"bias_sigma\":" << world.config.mutation.bias_sigma
             << ",\"threshold_sigma\":" << world.config.mutation.threshold_sigma

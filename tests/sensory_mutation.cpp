@@ -1,4 +1,4 @@
-#include "neuroevo/ecosystem.hpp"
+#include "fixtures.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -10,20 +10,18 @@ void require(bool value, const char* message)
     if (!value) throw std::runtime_error(message);
 }
 
-MutationConfig growth_only(bool stable)
+MutationConfig growth_only()
 {
     MutationConfig mutation;
-    mutation.stable = stable;
     mutation.mutate_weight_probability = mutation.mutate_neuron_probability = 0;
     mutation.add_neuron_probability = mutation.add_reciprocal_motif_probability = 0;
     mutation.remove_neuron_probability = mutation.remove_synapse_probability = 0;
     mutation.rewire_synapse_probability = 0;
-    mutation.mutate_clock_threshold_probability = 0;
     mutation.add_synapse_probability = 1;
     return mutation;
 }
 
-void category_distribution(bool stable, bool extended)
+void category_distribution(bool extended)
 {
     const auto& groups = ecosystem_input_groups(extended);
     BrainConfig config;
@@ -48,13 +46,13 @@ void category_distribution(bool stable, bool extended)
     }
     std::vector<std::size_t> counts(groups.size()), inputs(config.input_count);
     Random rng(1234);
-    const auto mutation = growth_only(stable);
+    const auto mutation = growth_only();
     for (std::size_t trial = 0; trial < groups.size() * 1000; ++trial) {
         auto child = parent;
         child.mutate(mutation, rng, groups);
         require(child.synapses().size() == 1, "Growth failed on an empty sensory graph");
         const auto pre = child.synapses()[0].pre;
-        if (stable) require(std::abs(std::abs(child.synapses()[0].weight) - 0.5 * 32 / config.synaptic_gain) < 1e-12,
+        require(std::abs(std::abs(child.synapses()[0].weight) - 0.5 * 32 / config.synaptic_gain) < 1e-12,
             "New stable synapse did not use the increased magnitude");
         ++counts[membership[pre]]; ++inputs[pre];
     }
@@ -67,7 +65,7 @@ void category_distribution(bool stable, bool extended)
         }
 }
 
-void saturated_categories(bool stable)
+void saturated_categories()
 {
     BrainConfig config;
     config.input_count = 6; config.hidden_count = 0; config.output_count = 1;
@@ -79,12 +77,12 @@ void saturated_categories(bool stable)
     std::size_t singleton = 0;
     for (int trial = 0; trial < 4000; ++trial) {
         auto child = parent;
-        child.mutate(growth_only(stable), rng, groups);
+        child.mutate(growth_only(), rng, groups);
         require(child.synapses().size() == 5, "Partially saturated graph failed growth");
         singleton += child.synapses().back().pre == 0;
-        child.mutate(growth_only(stable), rng, groups);
+        child.mutate(growth_only(), rng, groups);
         require(child.synapses().size() == 6, "Fully occupied category blocked remaining category");
-        child.mutate(growth_only(stable), rng, groups);
+        child.mutate(growth_only(), rng, groups);
         require(child.synapses().size() == 6, "Saturated graph created duplicate edges");
     }
     require(singleton > 1800 && singleton < 2200, "Partial saturation biased category choice");
@@ -97,7 +95,7 @@ void sensory_thresholds()
     config.calibrated_io=true; config.background_activity_enabled=false;
     const Brain parent(config);
     const Brain::InputGroups groups{{0},{1,2,3}};
-    auto mutation=growth_only(true);
+    auto mutation=growth_only();
     mutation.structural_edit_probability=0;
     mutation.local_edit_limit=1;
     mutation.mutate_neuron_probability=1;
@@ -134,8 +132,8 @@ void rewiring_contract()
     config.input_count=3; config.hidden_count=4; config.output_count=2;
     Random initial(51);
     const auto parent=Brain::random(config,initial);
-    for(bool stable:{false,true}) {
-        auto mutation=growth_only(stable);
+    {
+        auto mutation=growth_only();
         mutation.add_synapse_probability=0;
         mutation.rewire_synapse_probability=1;
         std::size_t source=0,destination=0;
@@ -174,9 +172,9 @@ int main()
     try {
         sensory_thresholds();
         rewiring_contract();
-        for (bool stable : {false, true}) {
-            for (bool extended : {false, true}) category_distribution(stable, extended);
-            saturated_categories(stable);
+        {
+            for (bool extended : {false, true}) category_distribution(extended);
+            saturated_categories();
         }
         std::cout << "Sensory mutation sampling passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
