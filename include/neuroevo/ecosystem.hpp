@@ -41,6 +41,7 @@ struct BodyGenes {
 };
 
 struct EcosystemConfig {
+    double carnivore_basal_fraction = 0.2; // Basal-rate multiplier at full carnivory.
     bool typed_food_proximity = true;
     bool predation = false; // Enabled by default in new nursery-frontier runs.
     double founder_mass = 1.0, founder_carnivory = 0.0;
@@ -48,9 +49,9 @@ struct EcosystemConfig {
     double attack_range = 0.8, attack_degrees = 60, attack_damage = 35, attack_cost = 2;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     double healing_rate = 0.1, healing_cost = 2;
-    double meat_energy = 20, meat_decay = 0.0025, carcass_recovery = 0.95;
+    double meat_energy = 50, meat_decay = 0.0025, carcass_recovery = 0.95;
     double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.12;
-    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.16;
+    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.24;
     bool nursery_frontier = false;
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 3;

@@ -91,6 +91,7 @@ int main(int argc, char** argv)
             {"--attack-degrees",&cfg.attack_degrees},
             {"--attack-damage",&cfg.attack_damage},
             {"--attack-base-fraction",&cfg.attack_base_fraction},
+            {"--carnivore-basal-fraction",&cfg.carnivore_basal_fraction},
             {"--attack-cost",&cfg.attack_cost},
             {"--healing-rate",&cfg.healing_rate},
             {"--healing-cost",&cfg.healing_cost},
@@ -214,6 +215,7 @@ int main(int argc, char** argv)
                     "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
                     "  --carnivory-mutation-probability X / --carnivory-mutation-sigma X\n"
                     "  --attack-base-fraction X  Damage fraction at zero carnivory (0<X<=1, default 0.25)\n"
+                    "  --carnivore-basal-fraction X  Basal rate at full carnivory (0<X<=1, default 0.5)\n"
                     "  --attack-range X / --attack-degrees X / --attack-damage X / --attack-cost X\n"
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
@@ -601,6 +603,7 @@ int main(int argc, char** argv)
             << ",\"carnivory_mutation_probability\":" << world.config.carnivory_mutation_probability
             << ",\"carnivory_mutation_sigma\":" << world.config.carnivory_mutation_sigma
             << ",\"attack_base_fraction\":" << world.config.attack_base_fraction
+            << ",\"carnivore_basal_fraction\":" << world.config.carnivore_basal_fraction
             << ",\"deaths\":" << world.totals.predation_deaths << ",\"attack_energy\":" << world.totals.attacking
             << ",\"healing_energy\":" << world.totals.healing << ",\"body_construction\":" << world.totals.body_construction
             << ",\"external_body_energy\":" << world.totals.external_body_energy

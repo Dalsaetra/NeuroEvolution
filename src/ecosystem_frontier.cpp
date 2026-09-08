@@ -13,14 +13,13 @@ EcosystemConfig nursery_frontier_config()
     c.width = c.height = 80;
     c.max_population = 200;
     c.shelters = 20; c.shelter_size = 8;
-    c.shelter_food_energy = 35; c.shelter_food_capacity = 2;
-    c.nursery_food_energy = 30; c.nursery_food_capacity = 2; c.nursery_food_regrowth = 0.02;
+    c.nursery_food_energy = 20; c.nursery_food_capacity = 2; c.nursery_food_regrowth = 0.02;
     c.nursery_food_patches = 16;
     c.grazing_patches = 300; c.fruit_patches = 80; c.pods = 120;
     c.graze_energy = 60; c.poor_fruit_energy = 45; c.rich_fruit_energy = 90; c.pod_energy = 120;
-    c.graze_capacity = 4; c.fruit_capacity = 5; c.pod_capacity = 10;
+    c.graze_capacity = 3; c.fruit_capacity = 5; c.pod_capacity = 10;
     c.interaction_degrees = 80;
-    c.calm_duration = 180; c.warning_duration = 40; c.storm_duration = 60; c.storm_cost = 6.0;
+    c.calm_duration = 180; c.warning_duration = 40; c.storm_duration = 60; c.storm_cost = 7.0;
     c.energy_capacity = 200;
     c.maturity_age = 30; c.reproduction_threshold = 150;
     c.reproduction_cost = 60; c.offspring_energy = 60; c.reproduction_cooldown = 30;

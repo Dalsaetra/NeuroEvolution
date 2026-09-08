@@ -217,6 +217,39 @@ void food_and_senses()
     nursery.resources.push_back(plant); nursery.step();
     require(nursery.resources.empty() && nursery.totals.regrown_biomass==0,"Corpse regrew or relocated in nursery");
 }
+void dietary_metabolism()
+{
+    for (double mass : {0.5,1.0,2.0}) for (double carnivory : {0.0,0.5,1.0}) {
+        auto w=empty(); w.config.basal_cost=1; w.config.carnivore_basal_fraction=0.5;
+        w.config.movement_cost=0.3;
+        add(w,{3,3},0,{mass,carnivory});
+        const double before=ledger(w);
+        EcoAction move; move.forward=1;
+        w.step({move});
+        const double expected=0.1*mass*(carnivory==0 ? 1 : carnivory==0.5 ? 0.75 : 0.5);
+        near(w.totals.metabolism,expected,"Basal metabolism must decrease linearly with carnivory and scale with mass");
+        near(w.totals.movement,0.03,"Dietary basal discount changed movement cost");
+        near(w.creatures[0].energy,100-expected-0.03,"Dietary metabolism debit is incorrect");
+        near(ledger(w),before,"Dietary metabolism broke energy conservation");
+    }
+    auto w=empty(); w.config.basal_cost=1; w.config.carnivore_basal_fraction=0.2;
+    add(w,{3,3},0,{1,1});
+    w.step({{}});
+    near(w.totals.metabolism,0.02,"Custom carnivore basal fraction was ignored");
+    std::istringstream checkpoint(saved(w)); auto resumed=EcosystemWorld::load_checkpoint(checkpoint);
+    near(resumed.config.carnivore_basal_fraction,0.2,"Checkpoint lost carnivore basal fraction");
+    w.step({{}}); resumed.step({{}});
+    require(saved(w)==saved(resumed),"Dietary metabolism diverged on resume");
+    w.creatures[0].energy=0.005;
+    const double before=ledger(w), spent=w.totals.metabolism;
+    w.step({{}});
+    require(w.creatures.empty(),"Dietary discount made exhausted creature immortal");
+    near(w.totals.metabolism-spent,0.005,"Metabolic debit exceeded available reserve");
+    near(ledger(w),before,"Discounted starvation created energy");
+    w=empty(); w.config.set_predation(false); w.config.basal_cost=1;
+    add(w,{3,3},0,{2,1}); w.step({{}});
+    near(w.totals.metabolism,0.1,"Disabled body mechanics changed historical metabolism");
+}
 void bodies_and_births()
 {
     for (double mass : {0.5,1.0,2.0}) for (bool storm : {false,true}) for (bool shelter : {false,true}) {
@@ -309,6 +342,6 @@ void bodies_and_births()
 }
 int main()
 {
-    try { combat(); dietary_attack_strength(); food_and_senses(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { combat(); dietary_attack_strength(); food_and_senses(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -47,7 +47,8 @@ This changes digestion, not the ancestral brain's food-seeking behavior.
 
 ## Bodies, combat, and food
 
-For mass `m`, maximum health is `20*m`, basal metabolism is `basal_cost*m`, and
+For mass `m`, maximum health is `20*m`, basal metabolism is
+`basal_cost*m*(1-(1-carnivore_basal_fraction)*carnivory)`, and
 maximum speed is `max_speed/sqrt(m)`. Collision radius remains fixed. Current
 injury does not change mass, speed, or corpse yield. Energy capacity, ingestion,
 attack strength, and turning retain their configured values independently of mass.
@@ -57,6 +58,14 @@ Mass 2 takes half the baseline drain, mass 1 takes the baseline, and mass 0.5
 takes double. Shelter still prevents storm drain entirely. Larger bodies therefore
 trade higher basal metabolism and lower speed for greater storm resistance.
 Worlds with body/predation mechanics disabled retain the original fixed storm cost.
+
+`carnivore_basal_fraction` defaults to 0.5: at equal mass, 0%, 50%, and 100%
+carnivory consume 100%, 75%, and 50% of the herbivore basal rate respectively.
+Only basal maintenance receives this discount; movement, combat, healing, and
+storm costs keep their existing rules. The fraction must remain in (0,1], so
+even full carnivores have positive maintenance when `basal_cost` is positive.
+Configure it with `--carnivore-basal-fraction`. Checkpoint version 21 persists it;
+older checkpoints use 1 to preserve their previous metabolism on resume.
 
 Attack effort `a` is a smoothed motor intensity in [0,1]. At full effort it costs
 `attack_cost` energy/second (currently 2). Damage scales linearly with the

@@ -63,6 +63,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertIn("vision_1_food_fruit_a_proximity", metadata["input_labels"])
         lines = (first / "checkpoint.eco").read_text().splitlines()
         lines[0] = "NEUROEVO_ECOSYSTEM_17"
+        del lines[21]  # carnivory basal metabolism
         del lines[20]  # carnivory attack baseline
         del lines[19]  # rewiring configuration
         del lines[18]
@@ -82,6 +83,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(json.loads((first/"summary.json").read_text())["mutation"]["rewire_synapse_probability"],0.4)
         lines=(first/"checkpoint.eco").read_text().splitlines()
         lines[0]="NEUROEVO_ECOSYSTEM_18"
+        del lines[21]  # carnivory basal metabolism
         del lines[20]  # carnivory attack baseline
         del lines[19]
         historical=first/"v18.eco"
@@ -100,14 +102,31 @@ class EcosystemCliTests(unittest.TestCase):
         metadata=json.loads((resumed/"ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["attack_base_fraction"],0.4)
         lines=(first/"checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(),"NEUROEVO_ECOSYSTEM_20")
+        self.assertEqual(lines[0].strip(),"NEUROEVO_ECOSYSTEM_21")
         lines[0]="NEUROEVO_ECOSYSTEM_19"
+        del lines[21]  # carnivory basal metabolism
         del lines[20]
         historical=first/"v19.eco"
         historical.write_text("\n".join(lines)+"\n")
         old=self.run_world("attack_baseline_old", "--resume", historical, "--steps", 1)
         metadata=json.loads((old/"ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["attack_base_fraction"],1)
+
+    def test_carnivore_metabolism_configuration_and_migration(self):
+        first=self.run_world("diet_metabolism", "--habitat", "nursery-frontier", "--creatures", 1,
+                             "--steps", 1, "--carnivore-basal-fraction", 0.3)
+        resumed=self.run_world("diet_metabolism_resumed", "--resume", first/"checkpoint.eco", "--steps", 1)
+        metadata=json.loads((resumed/"ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["carnivore_basal_fraction"],0.3)
+        lines=(first/"checkpoint.eco").read_text().splitlines()
+        self.assertEqual(lines[0].strip(),"NEUROEVO_ECOSYSTEM_21")
+        lines[0]="NEUROEVO_ECOSYSTEM_20"
+        del lines[21]
+        historical=first/"v20.eco"
+        historical.write_text("\n".join(lines)+"\n")
+        old=self.run_world("diet_metabolism_old", "--resume", historical, "--steps", 1)
+        metadata=json.loads((old/"ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["carnivore_basal_fraction"],1)
 
     def test_population_and_brain_recording(self):
         worlds = []
@@ -405,7 +424,8 @@ class EcosystemCliTests(unittest.TestCase):
     @staticmethod
     def strip_predation(lines):
         # Fixtures use predation-disabled worlds, so no neural interface migration.
-        assert lines[0].strip() == "NEUROEVO_ECOSYSTEM_20"
+        assert lines[0].strip() == "NEUROEVO_ECOSYSTEM_21"
+        del lines[21]  # carnivory basal metabolism
         del lines[20]  # carnivory attack baseline
         del lines[19]  # rewiring configuration
         del lines[18]  # typed food proximity configuration
@@ -464,7 +484,7 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("legacy_mutations", "--creatures", 1, "--steps", 1, "--stable-mutations", 0)
         # v7 has the same layout without the new policy line after interface fields.
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_20")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_21")
         self.strip_dynamic_food(lines)
         lines[0] = "NEUROEVO_ECOSYSTEM_7"
         del lines[8:14]

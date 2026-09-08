@@ -189,9 +189,9 @@ EcosystemConfig::EcosystemConfig()
     mutation.add_synapse_probability = 0.40;
     mutation.add_neuron_probability = 0.12;
     mutation.add_reciprocal_motif_probability = 0.12;
-    mutation.remove_synapse_probability = 0.40;
+    mutation.remove_synapse_probability = 0.30;
     mutation.rewire_synapse_probability = 0.40;
-    mutation.remove_neuron_probability = 0.12;
+    mutation.remove_neuron_probability = 0.06;
 }
 
 void EcosystemConfig::validate() const
@@ -297,6 +297,8 @@ void EcosystemConfig::validate() const
     if (founder_mass < eco_min_mass || founder_mass > eco_max_mass || attack_degrees > 360)
         throw std::invalid_argument("Mass must be 0.5..2; attack arc must be <=360 degrees");
     positive(attack_base_fraction, "Base attack fraction");
+    positive(carnivore_basal_fraction, "Carnivore basal fraction");
+    if (carnivore_basal_fraction > 1) throw std::invalid_argument("Carnivore basal fraction must be in (0,1]");
     if (attack_base_fraction > 1) throw std::invalid_argument("Base attack fraction must be in (0,1]");
     positive(carcass_recovery, "Carcass recovery");
     if (carcass_recovery >= 1) throw std::invalid_argument("Carcass recovery must be strictly less than one");
@@ -907,7 +909,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         creature.digestion.resize(pending);
         const auto stats = creature.brain.stats();
         const double rough = terrain_at(creature.position) == Terrain::Rough ? config.rough_multiplier : 1;
-        const double metabolism = config.basal_cost * (config.predation ? creature.body.mass : 1.0) * config.dt;
+        const double diet_metabolism = config.predation
+            ? 1.0 - (1.0 - config.carnivore_basal_fraction) * creature.body.carnivory : 1.0;
+        const double metabolism = config.basal_cost * (config.predation ? creature.body.mass : 1.0)
+            * diet_metabolism * config.dt;
         const double movement = config.movement_cost * creature.action.forward * creature.action.forward * rough * config.dt;
         const double turning = config.turn_cost * std::abs(creature.action.left - creature.action.right) * config.dt;
         const double foraging = config.forage_cost * creature.action.forage * config.dt;
