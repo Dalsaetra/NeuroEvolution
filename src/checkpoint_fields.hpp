@@ -42,6 +42,15 @@ template<class T> auto brain_fields(T& c) {
 template<class T> auto calibrated_brain_fields(T& c) {
     return std::tie(c.calibrated_io,c.sensory_rate_hz,c.motor_rate_tau,c.motor_reference_hz);
 }
+template<class T> auto izhikevich_fields(T& p) { return std::tie(p.a,p.b,p.c,p.d); }
+template<class T> auto model_fields(T& c) {
+    return std::tuple_cat(std::tie(c.neuron_model),izhikevich_fields(c.izhikevich_defaults));
+}
+
+template<class T> auto filtered_fields(T& c) { return std::tie(c.synaptic_tau); }
+template<class T> auto intrinsic_mutation_fields(T& c) {
+    return std::tie(c.izhikevich_intrinsic_probability,c.izhikevich_log_sigma);
+}
 template<class T> auto world_config_fields(T& c) {
     return std::tie(
         c.carnivore_basal_fraction,c.typed_food_proximity,c.predation,c.founder_mass,c.founder_carnivory,

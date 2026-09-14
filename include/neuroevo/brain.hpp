@@ -31,6 +31,9 @@ public:
         double background_sensitivity = 0.0;
         double refractory_remaining = 0.0;
         bool spiked = false;
+        IzhikevichParameters izhikevich;
+        double recovery = -13.0; // Izhikevich u; potential holds v in mV.
+        double synaptic_current = 0.0; // Filtered LIF: signed current in potential/second.
     };
 
     struct Synapse {
@@ -44,6 +47,8 @@ public:
     explicit Brain(BrainConfig config);
 
     static Brain random(BrainConfig config, Random& rng);
+    // Non-self delays are derived from geometry; self-synapses keep their explicit
+    // delay (1..max_delay_steps). Random founders and mutation do not create them.
     static Brain from_components(
         BrainConfig config,
         std::vector<Neuron> neurons,
@@ -73,6 +78,8 @@ private:
     std::vector<std::vector<double>> current_buffers_;
     std::vector<double> motor_traces_;
     std::size_t buffer_cursor_ = 0;
+    double filtered_membrane_decay_ = 0, filtered_synaptic_decay_ = 0;
+    double filtered_bias_factor_ = 0, filtered_current_factor_ = 0;
 
     std::size_t first_hidden_index() const noexcept { return config_.input_count; }
     std::size_t first_output_index() const noexcept { return config_.input_count + config_.hidden_count; }

@@ -35,11 +35,19 @@ target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 enable_testing()
 foreach(test IN ITEMS sensory_mutation pruning ecosystem_predation ecosystem_frontier
         ecosystem_calibration ecosystem_mechanics ecosystem_sensing ecosystem_checkpoint
-        ecosystem_ancestor ecosystem_dynamic_food)
+        ecosystem_ancestor ecosystem_dynamic_food autapse izhikevich filtered_lif)
     add_executable(neuroevo_${test} tests/${test}.cpp)
     target_link_libraries(neuroevo_${test} PRIVATE neuroevo_core)
     add_test(NAME neuroevo_${test} COMMAND neuroevo_${test})
 endforeach()
+
+add_executable(neuroevo_autapse_experiment tools/autapse_experiment.cpp)
+target_link_libraries(neuroevo_autapse_experiment PRIVATE neuroevo_core)
+add_executable(neuroevo_izhikevich_experiment tools/izhikevich_experiment.cpp)
+target_link_libraries(neuroevo_izhikevich_experiment PRIVATE neuroevo_core)
+add_executable(neuroevo_cheap_neuron_experiment tools/cheap_neuron_experiment.cpp)
+target_link_libraries(neuroevo_cheap_neuron_experiment PRIVATE neuroevo_core)
+add_test(NAME neuroevo_cheap_neuron_kernels COMMAND neuroevo_cheap_neuron_experiment verify)
 
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)

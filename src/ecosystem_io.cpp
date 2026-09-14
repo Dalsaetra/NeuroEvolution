@@ -27,9 +27,16 @@ template<class Range, class Fn> void array(std::ostream& s, const Range& range, 
 void graph(std::ostream& s, const EcoCreature& c)
 {
     const auto& b = c.brain;
-    s << "\"inputs\":" << b.config().input_count << ",\"outputs\":" << b.config().output_count << ",\"neurons\":";
+    s << "\"neuron_model\":\"" << neuron_model_name(b.config().neuron_model) << "\","
+      << "\"inputs\":" << b.config().input_count << ",\"outputs\":" << b.config().output_count << ",\"neurons\":";
+    std::size_t index=0;
     array(s,b.neurons(),[&](const Brain::Neuron& n) {
-        s << "{\"x\":" << n.position.x << ",\"y\":" << n.position.y << ",\"threshold\":" << n.threshold << '}';
+        const bool izh=b.config().neuron_model==NeuronModel::Izhikevich && index>=b.config().input_count;
+        ++index;
+        s << "{\"x\":" << n.position.x << ",\"y\":" << n.position.y << ",\"threshold\":" << (izh?30:n.threshold);
+        if(izh)s<<",\"izhikevich\":{\"a\":"<<n.izhikevich.a<<",\"b\":"<<n.izhikevich.b
+            <<",\"c\":"<<n.izhikevich.c<<",\"d\":"<<n.izhikevich.d<<'}';
+        s << '}';
     });
     s << ",\"synapses\":";
     array(s,b.synapses(),[&](const Brain::Synapse& e) {
@@ -67,11 +74,14 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_22");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_24");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
+    checkpoint::write_tuple(s,checkpoint::model_fields(config.brain));
+    checkpoint::write_tuple(s,checkpoint::filtered_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::mutation_fields(config.mutation));
+    checkpoint::write_tuple(s,checkpoint::intrinsic_mutation_fields(config.mutation));
     checkpoint::write_tuple(s,checkpoint::birth_profile_fields(config.mutation.slight));
     checkpoint::write_tuple(s,checkpoint::birth_profile_fields(config.mutation.strong));
     checkpoint::write(s,next_resource_id);
@@ -111,13 +121,19 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    if (version != "NEUROEVO_ECOSYSTEM_22")
+    const bool filtered_version = version == "NEUROEVO_ECOSYSTEM_24";
+    const bool modern = filtered_version || version == "NEUROEVO_ECOSYSTEM_23";
+    if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
     checkpoint::read_tuple(s,checkpoint::calibrated_brain_fields(cfg.brain));
+    if (modern) checkpoint::read_tuple(s,checkpoint::model_fields(cfg.brain));
+    if (filtered_version) checkpoint::read_tuple(s,checkpoint::filtered_fields(cfg.brain));
+    else if (cfg.brain.neuron_model == NeuronModel::FilteredLif) throw std::runtime_error("Filtered LIF requires ecosystem checkpoint version 24");
     checkpoint::read_tuple(s,checkpoint::mutation_fields(cfg.mutation));
+    if (modern) checkpoint::read_tuple(s,checkpoint::intrinsic_mutation_fields(cfg.mutation));
     checkpoint::read_tuple(s,checkpoint::birth_profile_fields(cfg.mutation.slight));
     checkpoint::read_tuple(s,checkpoint::birth_profile_fields(cfg.mutation.strong));
     EcosystemWorld w(cfg,false);
@@ -183,6 +199,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
             || c.controller < ControllerKind::Spiking || c.controller > ControllerKind::Random
             || !w.traversable(c.position) || c.brain.config().input_count != cfg.brain.input_count
             || c.brain.config().output_count != cfg.brain.output_count
+            || c.brain.config().neuron_model != cfg.brain.neuron_model
             || std::abs(c.brain.config().dt-cfg.brain.dt) > 1e-12)
             throw std::runtime_error("Invalid creature checkpoint");
     }
@@ -245,6 +262,9 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"storms_enabled\":" << (w.config.storms_enabled ? "true" : "false")
       << ",\"sensory_interface\":" << (w.config.extended_senses ? 2 : 1)
       << ",\"calibrated_io\":" << (w.config.brain.calibrated_io ? "true" : "false")
+      << ",\"neuron_model\":\"" << neuron_model_name(w.config.brain.neuron_model) << "\""
+      << ",\"brain_dt\":" << w.config.brain.dt
+      << ",\"synaptic_tau\":" << w.config.brain.synaptic_tau
       << ",\"sensory_rate_hz\":" << w.config.brain.sensory_rate_hz
       << ",\"motor_rate_tau\":" << w.config.brain.motor_rate_tau
       << ",\"motor_reference_hz\":" << w.config.brain.motor_reference_hz

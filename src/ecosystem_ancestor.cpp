@@ -83,9 +83,10 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     neurons[turn_right].threshold = 1.4;
 
     std::vector<Brain::Synapse> synapses;
-    // Nominal weights were tuned at gain 32. Scaling keeps the circuit's
-    // delivered current stable when experiments alter --synaptic-gain.
-    const double scale = 32.0 / brain_config.synaptic_gain;
+    // Nominal weights were tuned at gain 32 for pulse models. Filtered LIF
+    // uses gain 20 (unit peak drive per unit weight). Preserve each model's
+    // nominal delivered current when experiments alter --synaptic-gain.
+    const double scale = (brain_config.neuron_model == NeuronModel::FilteredLif ? 20.0 : 32.0) / brain_config.synaptic_gain;
     const auto connect = [&](std::size_t pre, std::size_t post, double nominal_weight) {
         synapses.push_back({pre, post, nominal_weight * scale, 1});
     };
@@ -145,6 +146,7 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
         connect(near_food, forage, 2.0);
     }
 
+    for (auto& n : neurons) n.izhikevich = brain_config.izhikevich_defaults;
     return Brain::from_components(brain_config, std::move(neurons), std::move(synapses));
 }
 

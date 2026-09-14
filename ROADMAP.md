@@ -18,3 +18,5 @@ Build an ecosystem where increasingly capable behavior emerges through survival 
 4. Where does profiling show opportunities to simulate larger populations or longer histories?
 
 Keep tuning accessible in code and test mechanical invariants separately from ecological outcomes. Develop new pressures gradually and compare repeated seeds. Future population-support mechanisms should be designed from observed needs; previous fitness selection, archive, and immigration systems are retired.
+
+An experimental [developmental connectome genome proposal](docs/developmental-connectome-genome.md) explores spatial fields, shared bilateral rules, and repeated modules that compile into the existing spiking brain. Start with a fixed substrate and deterministic inheritance, then compare mutation robustness and ecological outcomes against direct encoding before adding developmental complexity or changing defaults.

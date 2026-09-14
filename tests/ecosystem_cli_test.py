@@ -41,6 +41,46 @@ class EcosystemCliTests(unittest.TestCase):
         whole = self.run_world("full_whole", "--creatures", 1, "--max-population", 1, "--steps", 15)
         self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
 
+    def test_filtered_lif_switch_and_resume(self):
+        for dt in (0.005, 0.002):
+            args = ("--creatures", 1, "--no-reproduction", "--founder-brain", "random", "--brain-dt", dt,
+                    "--neuron-model", "filtered-lif")
+            first = self.run_world(f"filtered_{dt}", *args, "--steps", 3)
+            meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
+            self.assertEqual(meta["neuron_model"], "filtered-lif")
+            self.assertEqual(meta["brain_dt"], dt)
+            self.assertEqual(meta["synaptic_tau"], 0.1)
+            self.assertEqual(meta["brains"][0]["neuron_model"], "filtered-lif")
+            resumed = self.run_world(f"filtered_resume_{dt}", "--resume", first / "checkpoint.eco", "--steps", 5)
+            whole = self.run_world(f"filtered_whole_{dt}", *args, "--steps", 8)
+            self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        default = self.run_world("filtered_default", "--neuron-model", "filtered-lif", "--creatures", 1, "--steps", 1)
+        meta = json.loads((default / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(meta["brain_dt"], .005)
+        for args in [("--brain-dt", ".02"), ("--brain-dt", ".003"), ("--calibrated-io", "false"),
+                     ("--resume", default / "checkpoint.eco")]:
+            result = subprocess.run([str(EXECUTABLE), "--neuron-model", "filtered-lif", *map(str, args)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_izhikevich_switch_and_resume(self):
+        first = self.run_world("izh", "--creatures", 1, "--steps", 3,
+                               "--neuron-model", "izhikevich", "--izh-d", 2)
+        meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(meta["neuron_model"], "izhikevich")
+        self.assertEqual(meta["brain_dt"], 0.001)
+        hidden = meta["brains"][0]["neurons"][83]
+        self.assertEqual(hidden["izhikevich"]["d"], 2)
+        self.assertEqual(hidden["threshold"], 30)
+        resumed = self.run_world("izh_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
+        whole = self.run_world("izh_whole", "--creatures", 1, "--steps", 5,
+                               "--neuron-model", "izhikevich", "--izh-d", 2)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        for args in [("--neuron-model", "wrong"),
+                     ("--neuron-model", "izhikevich", "--brain-dt", "0.02"),
+                     ("--neuron-model", "izhikevich", "--izh-a", "0")]:
+            result = subprocess.run([str(EXECUTABLE), "--steps", "1", *args], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
     def test_population_and_brain_recording(self):
         worlds = []
         for population in (1, 7):

@@ -9,7 +9,8 @@ inline MutationConfig birth_mutation(MutationConfig mutation, const BirthMutatio
     mutation.local_edit_limit = profile.local_edits;
     mutation.local_weight_limit_multiplier = profile.weight_limit;
     for (auto* sigma : {&mutation.weight_sigma, &mutation.bias_sigma, &mutation.threshold_sigma,
-            &mutation.position_sigma, &mutation.background_sensitivity_sigma}) *sigma *= profile.sigma_scale;
+            &mutation.position_sigma, &mutation.background_sensitivity_sigma,
+            &mutation.izhikevich_log_sigma}) *sigma *= profile.sigma_scale;
     for (auto* probability : {&mutation.mutate_weight_probability, &mutation.mutate_neuron_probability,
             &mutation.add_synapse_probability, &mutation.add_neuron_probability,
             &mutation.add_reciprocal_motif_probability, &mutation.remove_synapse_probability,

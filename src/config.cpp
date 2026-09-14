@@ -22,6 +22,80 @@ void probability(double value, const char* name)
 
 } // namespace
 
+void IzhikevichParameters::validate() const
+{
+    if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c) || !std::isfinite(d)
+        || a < 0.001 || a > 0.2 || b < 0 || b > 0.3 || c < -80 || c > -40 || d < 0 || d > 20)
+        throw std::invalid_argument("Izhikevich parameters require a=0.001..0.2, b=0..0.3, c=-80..-40, d=0..20");
+}
+
+void BrainConfig::select_model(NeuronModel model)
+{
+    if (model == NeuronModel::FilteredLif || neuron_model == NeuronModel::FilteredLif) {
+        membrane_tau = model == NeuronModel::FilteredLif ? 0.05 : 0.10;
+        refractory_time = model == NeuronModel::FilteredLif ? 0.01 : 0.04;
+        synaptic_gain = model == NeuronModel::FilteredLif ? 20.0 : 32.0;
+    }
+    neuron_model = model;
+    dt = model == NeuronModel::Izhikevich ? 0.001 : model == NeuronModel::FilteredLif ? 0.005 : 0.02;
+    max_delay_steps = static_cast<std::size_t>(std::lround(0.160/dt));
+    validate_model();
+}
+
+const char* neuron_model_name(NeuronModel model)
+{
+    switch(model) {
+    case NeuronModel::Lif: return "lif";
+    case NeuronModel::Izhikevich: return "izhikevich";
+    case NeuronModel::FilteredLif: return "filtered-lif";
+    }
+    throw std::invalid_argument("Unknown neuron model");
+}
+
+BrainConfig BrainConfig::filtered_lif(double timestep)
+{
+    BrainConfig result;
+    result.select_model(NeuronModel::FilteredLif);
+    result.dt=timestep;
+    result.validate_model();
+    result.max_delay_steps=static_cast<std::size_t>(std::ceil(0.160/timestep));
+    return result;
+}
+
+BrainConfig BrainConfig::izhikevich()
+{
+    BrainConfig result;
+    result.select_model(NeuronModel::Izhikevich);
+    return result;
+}
+
+void BrainConfig::validate_model() const
+{
+    if (neuron_model != NeuronModel::Lif && neuron_model != NeuronModel::Izhikevich && neuron_model != NeuronModel::FilteredLif)
+        throw std::invalid_argument("Unknown neuron model");
+    if (neuron_model == NeuronModel::FilteredLif) {
+        if (!std::isfinite(dt) || dt < 0.00005 || dt > 0.0050000001 || !calibrated_io)
+            throw std::invalid_argument("Filtered LIF requires calibrated IO and a timestep from 0.05 to 5 ms; use 5 or 2 ms");
+        positive(membrane_tau,"Filtered LIF membrane time constant");
+        positive(synaptic_tau,"Filtered LIF synaptic time constant");
+        positive(refractory_time,"Filtered LIF refractory time",true);
+        if (membrane_tau < dt || synaptic_tau < dt || std::abs(refractory_time/dt-std::round(refractory_time/dt))>1e-8)
+            throw std::invalid_argument("Filtered LIF time constants must be >= dt and refractory time must be a whole number of steps");
+    }
+    izhikevich_defaults.validate();
+    if (neuron_model == NeuronModel::Izhikevich
+        && (!std::isfinite(dt) || dt <= 0 || dt > 0.0010000001 || !calibrated_io))
+        throw std::invalid_argument("Izhikevich brains require calibrated IO and a timestep <= 1 ms; use BrainConfig::izhikevich()");
+    if (neuron_model == NeuronModel::Izhikevich
+        && (0.001/dt > 1000 || std::abs(0.001/dt-std::round(0.001/dt))>1e-8))
+        throw std::invalid_argument("Izhikevich timestep must divide the fixed 1 ms synaptic pulse (at most 1000 subdivisions)");
+}
+
+std::size_t BrainConfig::synaptic_pulse_steps() const
+{
+    return neuron_model==NeuronModel::Izhikevich ? static_cast<std::size_t>(std::lround(0.001/dt)) : 1;
+}
+
 void EcosystemConfig::set_predation(bool enabled)
 {
     predation = enabled;
@@ -32,6 +106,9 @@ void EcosystemConfig::set_predation(bool enabled)
 
 void EcosystemConfig::validate() const
 {
+    brain.validate_model();
+    probability(mutation.izhikevich_intrinsic_probability, "Izhikevich intrinsic mutation probability");
+    positive(mutation.izhikevich_log_sigma, "Izhikevich mutation log sigma", true);
     if (shelter_size < 1 || std::min(width,height) < 5 || shelter_size > std::min(width,height)-4)
         throw std::invalid_argument("Shelter size must be 1..min(width,height)-4");
     if (nursery_frontier) {
@@ -132,7 +209,7 @@ void EcosystemConfig::validate() const
     if (neural_steps < 1 - epsilon || neural_steps > 10000 || std::abs(neural_steps - std::round(neural_steps)) > 1e-8) throw std::invalid_argument("World timestep must be an integer multiple of brain timestep (at most 10000 neural updates)");
     if (brain.max_delay_steps == 0 || brain.max_delay_steps > 4096 || brain.hidden_count > 10000) throw std::invalid_argument("Invalid brain delay or hidden-neuron count");
     const auto neurons = brain.input_count + brain.hidden_count + brain.output_count;
-    if (neurons * (brain.max_delay_steps + 1) > 5000000 || neurons * (brain.hidden_count + brain.output_count) > 1000000) throw std::invalid_argument("Brain exceeds the v1 runtime buffer or synapse limits");
+    if (neurons * (brain.max_delay_steps + brain.synaptic_pulse_steps()) > 5000000 || neurons * (brain.hidden_count + brain.output_count) > 1000000) throw std::invalid_argument("Brain exceeds the v1 runtime buffer or synapse limits");
     positive(brain.membrane_tau, "Membrane time constant");
     positive(brain.threshold, "Neuron threshold");
     positive(brain.conduction_speed, "Neural conduction speed");

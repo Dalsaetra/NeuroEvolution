@@ -128,6 +128,9 @@ int main(int argc, char** argv)
             {"--reproduction-cooldown",&cfg.reproduction_cooldown},{"--motor-gain",&cfg.motor_gain},
             {"--connection-probability",&cfg.brain.initial_connection_probability},
             {"--synaptic-gain",&cfg.brain.synaptic_gain},{"--background-rate",&cfg.brain.background_event_rate_hz},
+            {"--izh-a",&cfg.brain.izhikevich_defaults.a},{"--izh-b",&cfg.brain.izhikevich_defaults.b},
+            {"--izh-c",&cfg.brain.izhikevich_defaults.c},{"--izh-d",&cfg.brain.izhikevich_defaults.d},
+            {"--izh-intrinsic-mutation",&cfg.mutation.izhikevich_intrinsic_probability},
             {"--background-current",&cfg.brain.background_event_current},
             {"--mutation-weight-sigma",&cfg.mutation.weight_sigma},
             {"--mutation-bias-sigma",&cfg.mutation.bias_sigma},
@@ -152,6 +155,9 @@ int main(int argc, char** argv)
         std::string resume,founders,starting_genomes,founder_brain=cfg.sparse_ancestor ? "sparse-ancestor" : "random",habitat=cfg.nursery_frontier ? "nursery-frontier" : "generated";
         bool predation_explicit=false;
         bool founder_brain_explicit=false;
+        std::optional<neuroevo::NeuronModel> neuron_model;
+        std::optional<double> brain_dt_override;
+        std::optional<double> synaptic_gain_override;
         const auto timestamp=std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
         std::filesystem::path out="runs/ecosystem_"+std::to_string(timestamp);
@@ -177,6 +183,8 @@ int main(int argc, char** argv)
                     "  --seed N                  World seed\n"
                     "  --controller X            spiking, reactive, or random\n"
                     "  --founder-brain X         sparse-ancestor or random\n"
+                    "  --neuron-model X          lif (20 ms), izhikevich (1 ms), filtered-lif (5 ms)\n"
+                    "  --brain-dt SECONDS        Override neural step; filtered-lif supports 0.002\n"
                     "  --habitat X               nursery-frontier, generated, or ancestor-nursery\n"
                     "  --companions N            Last N creatures use --companion-controller\n"
                     "  --companion-controller X  reactive, random, or spiking\n"
@@ -238,6 +246,14 @@ int main(int argc, char** argv)
             else {
                 config_changed=true;
                 if (arg == "--seed") cfg.seed=integer(value,arg);
+                else if (arg == "--neuron-model") {
+                    if (value!="lif" && value!="izhikevich" && value!="filtered-lif")
+                        throw std::invalid_argument("--neuron-model requires lif, izhikevich, or filtered-lif");
+                    neuron_model = value=="lif" ? neuroevo::NeuronModel::Lif : value=="izhikevich"
+                        ? neuroevo::NeuronModel::Izhikevich : neuroevo::NeuronModel::FilteredLif;
+                }
+                else if (arg == "--brain-dt") brain_dt_override=cfg.brain.dt=number(value,arg);
+                else if (arg == "--synaptic-gain") synaptic_gain_override=cfg.brain.synaptic_gain=number(value,arg);
                 else if (arg == "--sensorimotor") {
                     if (value != "legacy" && value != "calibrated")
                         throw std::invalid_argument("--sensorimotor requires legacy or calibrated");
@@ -296,6 +312,18 @@ int main(int argc, char** argv)
             if (sampled_source->config.predation && !predation_explicit) cfg.predation=true;
             founders=checkpoint.string();
         }
+        if (neuron_model) {
+            cfg.brain.select_model(*neuron_model);
+        }
+        if (synaptic_gain_override) cfg.brain.synaptic_gain=*synaptic_gain_override;
+        if (brain_dt_override) {
+            cfg.brain.dt=*brain_dt_override;
+            cfg.brain.validate_model();
+            if (cfg.brain.neuron_model!=neuroevo::NeuronModel::Lif) {
+                if (0.160/cfg.brain.dt>4096) throw std::invalid_argument("Brain timestep needs more than 4096 delay slots");
+                cfg.brain.max_delay_steps=static_cast<std::size_t>(std::ceil(0.160/cfg.brain.dt));
+            }
+        }
         if (!founder_brain_explicit && cfg.controller!=neuroevo::ControllerKind::Spiking) founder_brain="random";
         cfg.set_predation(cfg.predation);
         if (habitat=="ancestor-nursery") {
@@ -339,6 +367,8 @@ int main(int argc, char** argv)
                     ? i%source.creatures.size() : pool[sampling_rng.uniform_index(pool.size())]];
                 const auto& brain=source_creature.brain;
                 if (brain.config().dt != world.config.brain.dt) throw std::invalid_argument("Founder brains require matching --brain-dt");
+                if (brain.config().neuron_model != world.config.brain.neuron_model)
+                    throw std::invalid_argument("Founder brains require matching --neuron-model");
                 auto brain_config = world.config.brain;
                 brain_config.hidden_count = brain.config().hidden_count;
                 auto neurons = brain.neurons();

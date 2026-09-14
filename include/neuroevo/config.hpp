@@ -10,6 +10,12 @@ enum class Terrain { Ground, Rough, Wall, Shelter };
 enum class FoodKind { Graze, FruitA, FruitB, Pod, Meat };
 enum class PodState { Closed, Open, Refilling };
 enum class ControllerKind { Spiking, Reactive, Random };
+enum class NeuronModel { Lif, Izhikevich, FilteredLif };
+const char* neuron_model_name(NeuronModel model);
+struct IzhikevichParameters {
+    double a = 0.02, b = 0.2, c = -65.0, d = 8.0; // Regular spiking.
+    void validate() const;
+};
 enum class WeatherPhase { Calm, Warning, Storm };
 enum class CreatureOrigin { Founder, Birth };
 constexpr std::size_t eco_sectors = 3;
@@ -30,6 +36,17 @@ constexpr std::size_t eco_predation_output_count = 6;
 constexpr double eco_min_mass = 0.5, eco_max_mass = 2.0;
 
 struct BrainConfig {
+    NeuronModel neuron_model = NeuronModel::Lif;
+    IzhikevichParameters izhikevich_defaults;
+    // Select before constructing a brain. This also selects neural timing;
+    // it does not convert an existing genome or its active state.
+    void select_model(NeuronModel model);
+    static BrainConfig izhikevich();
+    static BrainConfig filtered_lif(double timestep = 0.005);
+    // Exponential synaptic current; global/inherited, not intrinsically mutated.
+    double synaptic_tau = 0.10;
+    void validate_model() const;
+    std::size_t synaptic_pulse_steps() const;
     std::size_t input_count = eco_predation_input_count;
     std::size_t hidden_count = 16; // Random founders only; the sparse ancestor has five.
     std::size_t output_count = eco_predation_output_count;
@@ -69,6 +86,10 @@ struct BirthMutationProfile {
 };
 
 struct MutationConfig {
+    // Opt-in probability within an Izhikevich neuron-parameter edit. Only a/d
+    // change; b/c remain inherited. Zero keeps intrinsic parameters fixed.
+    double izhikevich_intrinsic_probability = 0.0;
+    double izhikevich_log_sigma = 0.05;
     // Copy / slight / strong inheritance; strong is the remaining probability.
     double copy_probability = 0.50;
     double slight_probability = 0.45;
@@ -132,7 +153,7 @@ struct EcosystemConfig {
     double attack_range = 0.8, attack_degrees = 60, attack_damage = 35, attack_cost = 2;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     double healing_rate = 0.1, healing_cost = 2;
-    double meat_energy = 50, meat_decay = 0.0025, carcass_recovery = 0.95;
+    double meat_energy = 50, meat_decay = 0.0000001, carcass_recovery = 0.95;
 
     // Nursery and frontier layout
     bool nursery_frontier = true; // Disable only for controlled mechanics experiments.
@@ -142,7 +163,7 @@ struct EcosystemConfig {
     std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
-    double nursery_food_energy = 20, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
+    double nursery_food_energy = 70, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
 
     // World size, population and seed
     std::size_t width = 80, height = 80, initial_creatures = 24, max_population = 200;

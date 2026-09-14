@@ -31,8 +31,11 @@ double clamp_subthreshold_bias(
 
 Brain::Brain(BrainConfig config) : config_(config)
 {
+    config_.validate_model();
     neurons_.resize(total_neurons());
+    for (auto& n : neurons_) n.izhikevich = config_.izhikevich_defaults;
     rebuild_runtime_state();
+    if (config_.neuron_model == NeuronModel::Izhikevich) reset_state();
 }
 
 Brain Brain::random(BrainConfig config, Random& rng)
@@ -60,7 +63,7 @@ Brain Brain::random(BrainConfig config, Random& rng)
                 + rng.normal(0.0, config.initial_background_sensitivity_sigma),
             0.0,
             2.0);
-        if (!brain.is_input(i) && !brain.is_output(i)) {
+        if (!brain.is_input(i) && !brain.is_output(i) && config.neuron_model != NeuronModel::Izhikevich) {
             neuron.bias = clamp_subthreshold_bias(
                 neuron.bias,
                 neuron.threshold,
@@ -110,11 +113,17 @@ Brain Brain::from_components(
         if (synapse.pre >= brain.neurons_.size() || synapse.post >= brain.neurons_.size()) {
             throw std::invalid_argument("Brain::from_components synapse endpoint is out of range");
         }
-        synapse.delay_steps = brain.compute_delay_steps(
-            brain.neurons_[synapse.pre].position,
-            brain.neurons_[synapse.post].position);
+        if (synapse.pre == synapse.post) {
+            if (synapse.delay_steps < 1 || synapse.delay_steps > config.max_delay_steps)
+                throw std::invalid_argument("Self-synapse delay must be within BrainConfig::max_delay_steps");
+        } else {
+            synapse.delay_steps = brain.compute_delay_steps(
+                brain.neurons_[synapse.pre].position,
+                brain.neurons_[synapse.post].position);
+        }
     }
     for (std::size_t i = brain.first_hidden_index(); i < brain.first_output_index(); ++i) {
+        if (config.neuron_model == NeuronModel::Izhikevich) continue;
         brain.neurons_[i].bias = clamp_subthreshold_bias(
             brain.neurons_[i].bias,
             brain.neurons_[i].threshold,
@@ -123,14 +132,22 @@ Brain Brain::from_components(
             -15.0);
     }
     brain.rebuild_runtime_state();
+    if (config.neuron_model == NeuronModel::Izhikevich) {
+        for (const auto& n : brain.neurons_) n.izhikevich.validate();
+        brain.reset_state();
+    }
     return brain;
 }
 
 void Brain::reset_state()
 {
-    for (auto& neuron : neurons_) {
-        neuron.potential = 0.0;
+    for (std::size_t i=0; i<neurons_.size(); ++i) {
+        auto& neuron = neurons_[i];
+        neuron.potential = config_.neuron_model == NeuronModel::Izhikevich && !is_input(i)
+            ? neuron.izhikevich.c : 0.0;
+        neuron.recovery = neuron.izhikevich.b * neuron.izhikevich.c;
         neuron.refractory_remaining = 0.0;
+        neuron.synaptic_current = 0.0;
         neuron.spiked = false;
 
     }
@@ -149,6 +166,9 @@ BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
 
     BrainStepResult result;
     result.motor_outputs.assign(config_.output_count, 0.0);
+    const bool izh = config_.neuron_model == NeuronModel::Izhikevich;
+    const bool filtered = config_.neuron_model == NeuronModel::FilteredLif;
+    const auto pulse_steps = izh ? config_.synaptic_pulse_steps() : 1;
 
     for (std::size_t i = 0; i < neurons_.size(); ++i) {
         auto& neuron = neurons_[i];
@@ -171,17 +191,64 @@ BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
 
         double current = current_buffers_[i][buffer_cursor_];
         current_buffers_[i][buffer_cursor_] = 0.0;
-        current += neuron.bias;
+        if (!filtered) current += neuron.bias;
 
         if (rng != nullptr && config_.background_activity_enabled) {
             const double event_probability = std::clamp(config_.background_event_rate_hz * config_.dt, 0.0, 1.0);
             if (rng->chance(event_probability)) {
-                current += config_.background_event_current * neuron.background_sensitivity;
+                const double event_current=config_.background_event_current * neuron.background_sensitivity;
+                current += event_current;
+                if (izh) for(std::size_t tap=1;tap<pulse_steps;++tap)
+                    current_buffers_[i][(buffer_cursor_+tap)%current_buffers_[i].size()]+=event_current;
             }
         }
 
         if (is_input(i)) {
             current += std::clamp(inputs[i], 0.0, 1.0) * config_.input_gain;
+        }
+
+        if (filtered) {
+            neuron.synaptic_current += current;
+            if (neuron.refractory_remaining > 0) {
+                neuron.refractory_remaining = neuron.refractory_remaining <= config_.dt+1e-12
+                    ? 0 : neuron.refractory_remaining-config_.dt;
+                neuron.potential = config_.reset_potential;
+            } else {
+                neuron.potential = filtered_membrane_decay_*neuron.potential
+                    + filtered_bias_factor_*neuron.bias + filtered_current_factor_*neuron.synaptic_current;
+                if (neuron.potential >= neuron.threshold) {
+                    neuron.spiked = true;
+                    neuron.potential = config_.reset_potential;
+                    neuron.refractory_remaining = config_.refractory_time;
+                    ++result.spikes;
+                }
+            }
+            // Arrivals are retained even while the membrane is refractory.
+            neuron.synaptic_current *= filtered_synaptic_decay_;
+            if (!std::isfinite(neuron.potential) || !std::isfinite(neuron.synaptic_current))
+                throw std::runtime_error("Non-finite filtered LIF state");
+            continue;
+        }
+
+        if (izh) {
+            // Time in ms, voltage in mV. Two half voltage updates and one u
+            // update follow the published pulse-coupled integration scheme.
+            // Stop at the spike apex so numerical overshoot cannot feed v^2.
+            const double h = 1000.0*config_.dt;
+            auto& v = neuron.potential;
+            auto& u = neuron.recovery;
+            for (int half=0; half<2 && v<30.0; ++half)
+                v = std::min(30.0, v + 0.5*h*(0.04*v*v + 5*v + 140 - u + current));
+            u += h*neuron.izhikevich.a*(neuron.izhikevich.b*v-u);
+            if (!std::isfinite(v) || !std::isfinite(u))
+                throw std::runtime_error("Non-finite Izhikevich state; reduce input strength or timestep");
+            if (v >= 30.0) {
+                neuron.spiked = true;
+                ++result.spikes;
+                v = neuron.izhikevich.c;
+                u += neuron.izhikevich.d;
+            }
+            continue;
         }
 
         if (neuron.refractory_remaining > 0.0) {
@@ -209,6 +276,12 @@ BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
             const Synapse& synapse = synapses_[synapse_index];
             const std::size_t target_cursor = (buffer_cursor_ + synapse.delay_steps) % current_buffers_[synapse.post].size();
             current_buffers_[synapse.post][target_cursor] += synapse.weight * config_.synaptic_gain;
+            // Fixed 1 ms rectangular pulses for Izhikevich, including when dt
+            // is refined. Preserve waveform as well as area in convergence tests.
+            if (izh)
+                for(std::size_t tap=1;tap<pulse_steps;++tap)
+                    current_buffers_[synapse.post][(target_cursor+tap)%current_buffers_[synapse.post].size()]
+                        += synapse.weight * config_.synaptic_gain;
         }
     }
 
@@ -296,6 +369,28 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
                 }
                 const auto i = config_.input_count + rng.uniform_index(config_.hidden_count + config_.output_count);
                 auto& neuron = neurons_[i];
+                if (config_.neuron_model == NeuronModel::Izhikevich) {
+                    if (!is_output(i) && rng.chance(0.05)) {
+                        auto& axis=rng.chance(0.5) ? neuron.position.x : neuron.position.y;
+                        axis=std::clamp(axis+rng.normal(0,config.position_sigma),0.05,0.95);
+                        moved=true;
+                    } else if (config.izhikevich_intrinsic_probability > 0
+                        && rng.chance(config.izhikevich_intrinsic_probability)) {
+                        if (rng.chance(0.5)) neuron.izhikevich.a = std::clamp(
+                            neuron.izhikevich.a*std::exp(rng.normal(0,config.izhikevich_log_sigma)),0.005,0.1);
+                        else neuron.izhikevich.d = std::clamp(
+                            neuron.izhikevich.d*std::exp(rng.normal(0,config.izhikevich_log_sigma)),0.5,12.0);
+                    } else if (!is_output(i) && rng.chance(0.5)) {
+                        // Keep RS founders below tonic-firing drive. Directly
+                        // constructed research circuits may supply other biases.
+                        neuron.bias = std::clamp(neuron.bias+rng.normal(0,config.bias_sigma),config.hidden_bias_min,3.0);
+                    } else {
+                        neuron.background_sensitivity = std::clamp(
+                            neuron.background_sensitivity+rng.normal(0,config.background_sensitivity_sigma),
+                            config.background_sensitivity_min,config.background_sensitivity_max);
+                    }
+                    continue;
+                }
                 const double property = rng.uniform(0.0, 1.0);
                 if (property < 0.4 || (is_output(i) && property >= 0.95)) {
                     neuron.threshold = std::clamp(neuron.threshold + rng.normal(0.0, config.threshold_sigma), 0.2, 3.0);
@@ -318,7 +413,8 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
         }
     }
     if (moved) for (auto& edge : synapses_)
-        edge.delay_steps = compute_delay_steps(neurons_[edge.pre].position, neurons_[edge.post].position);
+        if (edge.pre != edge.post)
+            edge.delay_steps = compute_delay_steps(neurons_[edge.pre].position, neurons_[edge.post].position);
     rebuild_runtime_state();
 }
 
@@ -397,6 +493,15 @@ std::size_t Brain::compute_delay_steps(Vec2 pre, Vec2 post) const noexcept
 
 void Brain::rebuild_runtime_state()
 {
+    if (config_.neuron_model == NeuronModel::FilteredLif) {
+        filtered_membrane_decay_ = std::exp(-config_.dt/config_.membrane_tau);
+        filtered_synaptic_decay_ = std::exp(-config_.dt/config_.synaptic_tau);
+        filtered_bias_factor_ = -config_.membrane_tau*std::expm1(-config_.dt/config_.membrane_tau);
+        const double delta = config_.dt*(1/config_.membrane_tau-1/config_.synaptic_tau);
+        // expm1 avoids cancellation; the equal-time-constant limit is finite.
+        filtered_current_factor_ = filtered_membrane_decay_*config_.dt
+            * (std::abs(delta)<1e-8 ? 1+delta/2+delta*delta/6 : std::expm1(delta)/delta);
+    }
     outgoing_.assign(total_neurons(), {});
     for (std::size_t i = 0; i < synapses_.size(); ++i) {
         if (synapses_[i].pre < outgoing_.size()) {
@@ -404,7 +509,7 @@ void Brain::rebuild_runtime_state()
         }
     }
 
-    current_buffers_.assign(total_neurons(), std::vector<double>(config_.max_delay_steps + 1, 0.0));
+    current_buffers_.assign(total_neurons(), std::vector<double>(config_.max_delay_steps + config_.synaptic_pulse_steps(), 0.0));
     motor_traces_.assign(config_.output_count, 0.0);
     buffer_cursor_ = 0;
 }
@@ -553,6 +658,11 @@ void Brain::add_random_neuron(Random& rng, bool weak)
 
     const Vec2 midpoint = (neurons_[pre].position + neurons_[post].position) * 0.5;
     Neuron neuron;
+    neuron.izhikevich = config_.izhikevich_defaults;
+    if (config_.neuron_model == NeuronModel::Izhikevich) {
+        neuron.potential = neuron.izhikevich.c;
+        neuron.recovery = neuron.izhikevich.b*neuron.potential;
+    }
     neuron.position = {
         std::clamp(midpoint.x + rng.normal(0.0, 0.04), 0.05, 0.95),
         std::clamp(midpoint.y + rng.normal(0.0, 0.04), 0.05, 0.95),

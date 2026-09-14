@@ -4,7 +4,7 @@ A C++17 ecosystem in which creatures survive, feed, reproduce, and inherit mutat
 
 ## Build and run
 
-Requires CMake 3.24+, a C++17 compiler, and Python 3.11+ for replay generation. Python tools use only the standard library. Node.js is optional and enables the viewer's JavaScript test.
+Requires CMake 3.24+, a C++17 compiler, and Python 3.11+ for replay generation. Replay tools use only the standard library; optional experiment plots require NumPy and Matplotlib. Node.js is optional and enables the viewer's JavaScript test.
 
 ```powershell
 .\scripts\build.ps1
@@ -29,6 +29,21 @@ python tools/view_ecosystem.py runs/nursery
 ## Tune in code
 
 Edit **[include/neuroevo/config.hpp](include/neuroevo/config.hpp)** and rebuild. Default construction, the executable, and the PowerShell launcher use the same settings. There are no habitat preset overrides or launcher-level biological defaults.
+
+The default neuron model is LIF. Select the experimental Izhikevich alternative
+with `--neuron-model izhikevich`, or `-NeuronModel izhikevich` in the PowerShell
+launcher. It uses regular-spiking neurons and a 1 ms neural timestep. In C++, use
+`config.brain.select_model(NeuronModel::Izhikevich)` before constructing a world.
+Intrinsic parameter mutation is disabled by default. See the
+[implementation and experiments](docs/izhikevich-neurons.md) for timing, mutation,
+performance, and winner-take-all results.
+
+Filtered LIF is selectable with `--neuron-model filtered-lif` (5 ms), plus
+`--brain-dt 0.002` for 2 ms. In PowerShell use `-NeuronModel filtered-lif`
+and optionally `-BrainDt 0.002`. See [filtered LIF](docs/filtered-lif.md)
+for configuration, saved state, and validation. The
+[cheaper neuron experiments](docs/cheaper-neuron-models.md) compare its behavior
+with adaptive LIF and continuous rate units; those latter models remain research prototypes.
 
 | Configuration | What to tune |
 | --- | --- |
@@ -57,7 +72,7 @@ Runs save `ecosystem.jsonl`, `ecosystem_stats.csv`, `events.csv`, `summary.json`
 
 Resume restores saved biological settings, neural state, food, and RNG streams. Editing defaults affects new worlds; it does not rewrite a checkpoint. `-StartingGenomes` samples distinct surviving genome IDs uniformly for a fresh population, resetting lifetime state. It imports founders once at startup.
 
-Checkpoint format **22** contains consolidated settings and natural lineage state. Formats 1–21 require the previous build for continuation or founder import. Existing JSONL/gzip replays remain viewable. Fitness runners, NEAT/NSGA-II, search/dashboard tooling, archive selection, newborn scoring trials, and immigration have been removed.
+Checkpoint format **24** stores the neuron model, intrinsic parameters, recovery state, and filtered synaptic currents. Formats 22 and 23 remain readable; formats 1–21 require the previous build for continuation or founder import. Existing JSONL/gzip replays remain viewable. Fitness runners, NEAT/NSGA-II, search/dashboard tooling, archive selection, newborn scoring trials, and immigration have been removed.
 
 ## Tests and implementation notes
 

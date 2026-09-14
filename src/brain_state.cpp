@@ -8,13 +8,19 @@ namespace neuroevo {
 void Brain::save_state(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_BRAIN_3");
+    checkpoint::write(s,"NEUROEVO_BRAIN_5");
     checkpoint::write_tuple(s,checkpoint::brain_fields(config_));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config_));
+    checkpoint::write_tuple(s,checkpoint::model_fields(config_));
+    checkpoint::write_tuple(s,checkpoint::filtered_fields(config_));
     checkpoint::write(s,neurons_.size(),synapses_.size(),buffer_cursor_);
-    for (const auto& n : neurons_)
+    for (const auto& n : neurons_) {
         checkpoint::write(s,n.position.x,n.position.y,n.bias,n.potential,n.threshold,
             n.background_sensitivity,n.refractory_remaining,n.spiked);
+        checkpoint::write_tuple(s,checkpoint::izhikevich_fields(n.izhikevich));
+        checkpoint::write(s,n.recovery);
+        checkpoint::write(s,n.synaptic_current);
+    }
     for (const auto& e : synapses_) checkpoint::write(s,e.pre,e.post,e.weight,e.delay_steps);
     for (const auto& row : current_buffers_) {
         for (double v : row) checkpoint::write_value(s,v);
@@ -29,11 +35,17 @@ Brain Brain::load_state(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    if (version != "NEUROEVO_BRAIN_3")
+    const bool filtered_version = version == "NEUROEVO_BRAIN_5";
+    const bool modern = filtered_version || version == "NEUROEVO_BRAIN_4";
+    if (!modern && version != "NEUROEVO_BRAIN_3")
         throw std::runtime_error("Unknown brain checkpoint version");
     BrainConfig c;
     checkpoint::read_tuple(s,checkpoint::brain_fields(c));
     checkpoint::read_tuple(s,checkpoint::calibrated_brain_fields(c));
+    if (modern) checkpoint::read_tuple(s,checkpoint::model_fields(c));
+    if (filtered_version) checkpoint::read_tuple(s,checkpoint::filtered_fields(c));
+    else if (c.neuron_model == NeuronModel::FilteredLif) throw std::runtime_error("Filtered LIF requires brain checkpoint version 5");
+    c.validate_model();
     if (c.input_count > 10000 || c.output_count > 10000 || c.hidden_count > 10000
         || c.max_delay_steps < 1 || c.max_delay_steps > 4096 || c.dt <= 0
         || c.membrane_tau <= 0 || c.threshold <= 0 || c.conduction_speed <= 0
@@ -43,13 +55,19 @@ Brain Brain::load_state(std::istream& s)
     const auto n = checkpoint::count(s,30000);
     const auto edges = checkpoint::count(s,1000000);
     std::size_t cursor = 0; checkpoint::read(s,cursor);
-    if (n != c.input_count+c.output_count+c.hidden_count || cursor > c.max_delay_steps
-        || n*(c.max_delay_steps+1) > 5000000)
+    if (n != c.input_count+c.output_count+c.hidden_count || cursor >= c.max_delay_steps+c.synaptic_pulse_steps()
+        || n*(c.max_delay_steps+c.synaptic_pulse_steps()) > 5000000)
         throw std::runtime_error("Invalid brain checkpoint dimensions");
     Brain b(c);
     for (auto& v : b.neurons_) {
         checkpoint::read(s,v.position.x,v.position.y,v.bias,v.potential,v.threshold,
             v.background_sensitivity,v.refractory_remaining,v.spiked);
+        if (modern) {
+            checkpoint::read_tuple(s,checkpoint::izhikevich_fields(v.izhikevich));
+            checkpoint::read(s,v.recovery);
+            v.izhikevich.validate();
+        }
+        if (filtered_version) checkpoint::read(s,v.synaptic_current);
         if (v.threshold <= 0 || v.background_sensitivity < 0 || v.refractory_remaining < 0)
             throw std::runtime_error("Invalid neuron checkpoint");
     }

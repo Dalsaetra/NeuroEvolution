@@ -255,14 +255,14 @@ function potentialSamples(creatureId,neuron){
 function drawPotentialHistory(data){
  const panel=$('potentialHistory');panel.hidden=selectedNeuron===null;
  if(panel.hidden)return;
- const phase=M.calibrated_io&&selectedNeuron<(num(data?.inputs)||num(M.inputs)||87),quantity=phase?'Input phase':'Potential V';
+ const phase=M.calibrated_io&&selectedNeuron<(num(data?.inputs)||num(M.inputs)||87),quantity=phase?'Input phase':data.neuron_model==='izhikevich'?'Voltage (mV)':'Potential V';
  $('potentialTitle').textContent=`${quantity} history · ${neuronLabel(data,selectedNeuron)}`;
  if(potentialCache.creature!==neuronCreature||potentialCache.neuron!==selectedNeuron){potentialCache={creature:neuronCreature,neuron:selectedNeuron,samples:potentialSamples(neuronCreature,selectedNeuron)}}
  const samples=potentialCache.samples,valid=samples.filter(p=>p.value!==null),{w,h,c}=fit($('potentialChart'));
  c.clearRect(0,0,w,h);
  const current=samples[index]?.value,caption=$('potentialCaption');
  const thresholds=samples.filter(p=>p.threshold!==null),spikes=samples.filter(p=>p.spiked===true),spikesRecorded=samples.some(p=>p.spiked!==null);
- caption.textContent=`${valid.length?`${valid.length} recorded samples · ${current===null?'No sample at current time':`Current ${phase?'phase':'V'}: ${current}`}`:`${quantity} was not recorded for this neuron.`} · Green: ${phase?'phase':'V'} · Dashed red: ${phase?'firing phase (1; neuron threshold controls input rate)':`threshold${samples[index]?.threshold!==null?` (${samples[index].threshold})`:''}`} · Purple triangles: ${spikesRecorded?`${spikes.length} recorded spikes`:'spikes not recorded'} · Gold: current time. Time in seconds; activity between samples is not captured.`;
+ caption.textContent=`${valid.length?`${valid.length} recorded samples · ${current===null?'No sample at current time':`Current ${phase?'phase':'V'}: ${current}`}`:`${quantity} was not recorded for this neuron.`} · Green: ${phase?'phase':'V'} · Dashed red: ${phase?'firing phase (1; neuron threshold controls input rate)':`${data.neuron_model==='izhikevich'?'spike apex':'threshold'}${samples[index]?.threshold!==null?` (${samples[index].threshold})`:''}`} · Purple triangles: ${spikesRecorded?`${spikes.length} recorded spikes`:'spikes not recorded'} · Gold: current time. Time in seconds; activity between samples is not captured.`;
  let lo=Infinity,hi=-Infinity;[...valid.map(p=>p.value),...thresholds.map(p=>p.threshold)].forEach(v=>{lo=Math.min(lo,v);hi=Math.max(hi,v)});
  if(!Number.isFinite(lo)){lo=0;hi=1}
 
@@ -299,7 +299,7 @@ function drawBrain(c){
  const points=new Map(brainPoints.map(p=>[p.i,p])),spiked=new Set(data.spiked||[]),synapses=data.synapses||[];
  synapses.forEach(e=>{const a=points.get(e.pre),b=points.get(e.post);if(!a||!b)return;bctx.beginPath();bctx.moveTo(a.x,a.y);bctx.lineTo(b.x,b.y);const active=selectedNeuron!==null&&(e.pre===selectedNeuron||e.post===selectedNeuron);bctx.strokeStyle=active?(num(e.weight)<0?'#bf6559':'#277a62'):selectedNeuron!==null?'#dce4d940':num(e.weight)<0?'#b46e7170':'#668b8160';bctx.lineWidth=active?2:.7;if(e.pre===e.post){bctx.arc(a.x+9,a.y-9,12,0,Math.PI*2)}bctx.stroke()});
  brainPoints.forEach(p=>{const input=p.i<inputs,output=p.i>=neurons.length-outputs,r=input?3.5:output?4.3:3.2;
- bctx.beginPath();bctx.arc(p.x,p.y,r,0,Math.PI*2);bctx.fillStyle=spiked.has(p.i)?'#e4b43d':input?'#75a694':output?'#b37d67':`rgba(50,112,96,${.3+clamp(num(data.potentials?.[p.i])/(num(p.n.threshold)||1),0,1)*.7})`;bctx.fill();
+ bctx.beginPath();bctx.arc(p.x,p.y,r,0,Math.PI*2);bctx.fillStyle=spiked.has(p.i)?'#e4b43d':input?'#75a694':output?'#b37d67':`rgba(50,112,96,${.3+clamp((data.neuron_model==='izhikevich'?(num(data.potentials?.[p.i])+80)/110:num(data.potentials?.[p.i])/(num(p.n.threshold)||1)),0,1)*.7})`;bctx.fill();
  if(p.i===selectedNeuron){bctx.beginPath();bctx.arc(p.x,p.y,8,0,Math.PI*2);bctx.strokeStyle='#203d38';bctx.lineWidth=2;bctx.stroke()}
  if(input){bctx.font='9px Segoe UI';bctx.textAlign='right';bctx.fillStyle='#4b655b';bctx.fillText(M.input_labels[p.i]||`Input ${p.i}`,p.x-8,p.y+3,w*.43-14)}
  });
@@ -343,7 +343,7 @@ function selectNeuron(value){selectedNeuron=value;drawBrain(F[index].creatures.f
 $('neuronSelect').addEventListener('change',e=>selectNeuron(e.target.value===''?null:Number(e.target.value)));
 $('clearNeuron').addEventListener('click',()=>selectNeuron(null));
 brain.addEventListener('click',e=>{const r=brain.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let nearest=null,best=10;brainPoints.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<best){nearest=p;best=d}});selectNeuron(nearest?.i??null)});
-brain.addEventListener('mousemove',e=>{const r=brain.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let nearest=null,best=7;brainPoints.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<best){nearest=p;best=d}});if(nearest){const c=F[index].creatures.find(c=>c.id===selected),d=brainData(c),n=nearest.i,inputs=num(d.inputs)||87,outputs=num(d.outputs)||5,label=n<inputs?(M.input_labels[n]||`Input ${n}`):n>=d.neurons.length-outputs?`Action ${['move','turn left','turn right','forage','call','attack'][n-(d.neurons.length-outputs)]||n}`:`Recurrent neuron ${n}`;showTip(`${label} · ${n<inputs&&M.calibrated_io?`phase ${fmt(d.potentials?.[n],3)} / 1 · rate divisor ${fmt(nearest.n.threshold,3)}`:`V ${fmt(d.potentials?.[n],3)} / threshold ${fmt(nearest.n.threshold,3)}`}`,e.clientX,e.clientY)}else $('tooltip').hidden=true});
+brain.addEventListener('mousemove',e=>{const r=brain.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let nearest=null,best=7;brainPoints.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<best){nearest=p;best=d}});if(nearest){const c=F[index].creatures.find(c=>c.id===selected),d=brainData(c),n=nearest.i,inputs=num(d.inputs)||87,outputs=num(d.outputs)||5,label=n<inputs?(M.input_labels[n]||`Input ${n}`):n>=d.neurons.length-outputs?`Action ${['move','turn left','turn right','forage','call','attack'][n-(d.neurons.length-outputs)]||n}`:`Recurrent neuron ${n}`;showTip(`${label} · ${n<inputs&&M.calibrated_io?`phase ${fmt(d.potentials?.[n],3)} / 1 · rate divisor ${fmt(nearest.n.threshold,3)}`:`V ${fmt(d.potentials?.[n],3)} / ${d.neuron_model==='izhikevich'?'spike apex':'threshold'} ${fmt(nearest.n.threshold,3)}`}`,e.clientX,e.clientY)}else $('tooltip').hidden=true});
 [world,brain].forEach(canvas=>canvas.addEventListener('mouseleave',()=>{$('tooltip').hidden=true}));
 document.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA','BUTTON'].includes(e.target.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();pause();setIndex(index-1)}if(e.code==='ArrowRight'){e.preventDefault();pause();setIndex(index+1)}});
 function resize(){world.style.aspectRatio=`${M.width} / ${M.height}`;render()}window.addEventListener('resize',resize);resize();
