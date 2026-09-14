@@ -677,7 +677,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 
     // Existing corpses decay everywhere, independently of weather/plant policies.
     for (auto& r : resources) if (r.kind == FoodKind::Meat) {
-        const double spoiled = std::min(r.stock, config.meat_decay * config.dt);
+        const double decay = in_nursery(r.position) ? config.nursery_meat_decay : config.meat_decay;
+        const double spoiled = std::min(r.stock, decay * config.dt);
         r.stock -= spoiled;
         totals.spoiled_biomass += spoiled;
         totals.meat_spoiled_energy += spoiled * r.energy_per_unit;

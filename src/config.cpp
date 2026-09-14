@@ -179,7 +179,9 @@ void EcosystemConfig::validate() const
     positive(actuator_tau, "Actuator time constant", true);
     if (food_assignment < -1 || food_assignment > 1) throw std::invalid_argument("Food assignment must be -1 (seeded), 0 (A rich), or 1 (B rich)");
     for (const auto value : {health_per_mass, body_energy_per_mass, attack_range, attack_degrees,
-             attack_damage, attack_cost, healing_cost, meat_energy, meat_decay}) positive(value, "Predation parameter");
+             attack_damage, attack_cost, healing_cost, meat_energy}) positive(value, "Predation parameter");
+    positive(meat_decay, "Outside meat decay", true);
+    positive(nursery_meat_decay, "Nursery meat decay", true);
     for (const auto value : {healing_rate, mutation.mass_mutation_sigma, mutation.carnivory_mutation_sigma})
         positive(value, "Body mutation/healing parameter", true);
     for (const auto value : {founder_carnivory, mutation.mass_mutation_probability, mutation.carnivory_mutation_probability}) {

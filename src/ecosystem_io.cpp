@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_24");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_25");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -84,6 +84,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write_tuple(s,checkpoint::intrinsic_mutation_fields(config.mutation));
     checkpoint::write_tuple(s,checkpoint::birth_profile_fields(config.mutation.slight));
     checkpoint::write_tuple(s,checkpoint::birth_profile_fields(config.mutation.strong));
+    checkpoint::write(s,config.nursery_meat_decay);
     checkpoint::write(s,next_resource_id);
     checkpoint::write_tuple(s,checkpoint::predation_total_fields(totals));
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
@@ -121,7 +122,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool filtered_version = version == "NEUROEVO_ECOSYSTEM_24";
+    const bool regional_meat_version = version == "NEUROEVO_ECOSYSTEM_25";
+    const bool filtered_version = regional_meat_version || version == "NEUROEVO_ECOSYSTEM_24";
     const bool modern = filtered_version || version == "NEUROEVO_ECOSYSTEM_23";
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
@@ -136,6 +138,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (modern) checkpoint::read_tuple(s,checkpoint::intrinsic_mutation_fields(cfg.mutation));
     checkpoint::read_tuple(s,checkpoint::birth_profile_fields(cfg.mutation.slight));
     checkpoint::read_tuple(s,checkpoint::birth_profile_fields(cfg.mutation.strong));
+    cfg.nursery_meat_decay=cfg.meat_decay; // Older checkpoints used one rate everywhere.
+    if (regional_meat_version) checkpoint::read(s,cfg.nursery_meat_decay);
     EcosystemWorld w(cfg,false);
     checkpoint::read(s,w.next_resource_id);
     if (!w.next_resource_id) throw std::runtime_error("Invalid next resource ID");
@@ -238,6 +242,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"healing_cost\":" << w.config.healing_cost
       << ",\"meat_energy\":" << w.config.meat_energy
       << ",\"meat_decay\":" << w.config.meat_decay
+      << ",\"nursery_meat_decay\":" << w.config.nursery_meat_decay
       << ",\"carcass_recovery\":" << w.config.carcass_recovery
       << ",\"mass_mutation_probability\":" << w.config.mutation.mass_mutation_probability
       << ",\"mass_mutation_sigma\":" << w.config.mutation.mass_mutation_sigma

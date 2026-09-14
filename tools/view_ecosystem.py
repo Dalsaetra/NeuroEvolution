@@ -21,7 +21,8 @@ def _reject_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON number: {value}")
 
 
-def read_replay(path: Path, *, recover_truncated: bool = False) -> dict[str, Any]:
+def read_replay(path: Path, *, recover_truncated: bool = False,
+                overview: bool = False, max_frames: int | None = None) -> dict[str, Any]:
     """Read and validate the recording envelope; optional diagnostics stay optional."""
     if path.is_dir():
         plain = path / "ecosystem.jsonl"
@@ -31,6 +32,12 @@ def read_replay(path: Path, *, recover_truncated: bool = False) -> dict[str, Any
         source = path
     metadata: dict[str, Any] | None = None
     frames: list[dict[str, Any]] = []
+    if max_frames is not None and max_frames < 2:
+        raise ValueError("max_frames must be at least 2")
+    stride, frame_count = 1, 0
+    last_frame = None
+    previous_time = -1
+    pending_events: list[dict[str, Any]] = []
     opener = gzip.open if source.suffix == ".gz" else Path.open
     with opener(source, mode="rt", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, 1):
@@ -51,20 +58,47 @@ def read_replay(path: Path, *, recover_truncated: bool = False) -> dict[str, Any
                 if metadata is not None or frames:
                     raise ValueError("A recording must start with exactly one metadata record")
                 metadata = record
+                if overview:
+                    metadata["brains"] = []
             elif record.get("type") == "frame":
                 if metadata is None:
                     raise ValueError("A recording must start with a metadata record")
                 moment = record.get("time")
                 if isinstance(moment, bool) or not isinstance(moment, (int, float)) or not math.isfinite(moment):
                     raise ValueError(f"Frame on line {line_number} needs a finite time")
-                if moment < 0 or (frames and moment < frames[-1]["time"]):
+                if moment < 0 or moment < previous_time:
                     raise ValueError("Frame times must be nonnegative and chronological")
+                previous_time = moment
                 for key in ("creatures", "resources", "events"):
                     record.setdefault(key, [])
                     if not isinstance(record[key], list) or any(not isinstance(item, dict) for item in record[key]):
                         raise ValueError(f"Frame on line {line_number}: {key} must contain objects")
                 record.setdefault("totals", {})
-                frames.append(record)
+                if overview:
+                    for creature in record["creatures"]:
+                        creature.pop("brain", None)
+                        creature.pop("observation", None)
+                    record["events"] = [e for e in record["events"]
+                                        if e.get("type") not in ("ingestion", "digestion", "pod_work")]
+                # Bound memory while reading even a multi-GB source. Retain the
+                # first/final states and merge events into the next retained frame.
+                pending_events.extend(record["events"])
+                record["events"] = []
+                last_frame = record
+                if frame_count % stride == 0:
+                    record["events"], pending_events = pending_events, []
+                    frames.append(record)
+                    if max_frames and len(frames) > max_frames:
+                        reduced, carry = [], []
+                        for index, frame in enumerate(frames):
+                            carry.extend(frame["events"])
+                            if index % 2 == 0:
+                                frame["events"], carry = carry, []
+                                reduced.append(frame)
+                        pending_events = carry + pending_events
+                        frames = reduced
+                        stride *= 2
+                frame_count += 1
             else:
                 raise ValueError(f"{source.name}, line {line_number}: unknown record type {record.get('type')!r}")
     if metadata is None:
@@ -87,6 +121,11 @@ def read_replay(path: Path, *, recover_truncated: bool = False) -> dict[str, Any
             raise ValueError(f"Metadata {key} must be an array")
     if not frames:
         raise ValueError("The recording contains no frames")
+    if last_frame is not frames[-1]:
+        last_frame["events"] = pending_events
+        if max_frames and len(frames) >= max_frames:
+            last_frame["events"] = frames.pop()["events"] + last_frame["events"]
+        frames.append(last_frame)
     stats = []
     stats_path = source.parent / "ecosystem_stats.csv"
     if stats_path.exists():
@@ -103,12 +142,15 @@ def read_replay(path: Path, *, recover_truncated: bool = False) -> dict[str, Any
                 if "time" in numeric:
                     stats.append(numeric)
         stats.sort(key=lambda row: row["time"])
-    return {"metadata": metadata, "frames": frames, "name": source.parent.name, "stats": stats}
+    return {"metadata": metadata, "frames": frames, "name": source.parent.name, "stats": stats,
+            "overview": overview, "source_frames": frame_count}
 
 
 def render_html(payload: dict[str, Any]) -> str:
     # Escaping '<' is essential: JSON strings can contain a closing script tag.
     data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    if len(data.encode("utf-8")) > 200 * 1024 * 1024:
+        raise ValueError("Replay exceeds the 200 MiB HTML budget. Rebuild with --max-frames 100 (or fewer); original recording is preserved.")
     for character, replacement in (("&", "\\u0026"), ("<", "\\u003c"), (">", "\\u003e"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
         data = data.replace(character, replacement)
     replacements = {
@@ -197,7 +239,7 @@ F.forEach(f=>f.creatures.forEach(c=>{if(c.brain?.neurons?.length&&!brains.has(c.
 $('runName').textContent=replay.name;$('runInfo').textContent=`seed ${M.seed??'—'} · ${M.controller||'spiking'} controllers`;
 $('dimensions').textContent=`/ ${M.width} × ${M.height}`;
 $('timeline').max=F.length-1;
-$('recordingInfo').textContent=`${fmt(F.length)} recorded frames · ${fmt(M.resources.length)} resource patches · ${fmt(M.dt,3)} s simulation step`;
+$('recordingInfo').textContent=`${fmt(F.length)} replay frames of ${fmt(replay.source_frames||F.length)} recorded · ${fmt(M.resources.length)} initial resource patches · ${fmt(M.dt,3)} s simulation step${replay.overview?' · Overview: brain details are in ecosystem_tail.html':''}`;
 function fit(canvas,height){const r=canvas.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1),w=Math.max(1,r.width),h=height||Math.max(1,r.height);if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);return {w,h,c};}
 const terrain=document.createElement('canvas');terrain.width=M.width*20;terrain.height=M.height*20;
 const tctx=terrain.getContext('2d');
@@ -294,7 +336,7 @@ function drawBrain(c){
  const height=Math.max(420,24*Math.max(...groups.map(g=>g.length))+36);brain.style.height=`${height}px`;
  const {w,h}=fit(brain,height);bctx.clearRect(0,0,w,h);brainPoints=[];
  $('brainEmpty').style.display=neurons.length?'none':'block';
- if(!neurons.length){$('brainCaption').textContent='Enable brain graph recording to inspect connections.';return}
+ if(!neurons.length){$('brainCaption').textContent=replay.overview?'Neural detail is omitted from this overview. Open ecosystem_tail.html when available.':'Enable brain graph recording to inspect connections.';return}
  groups.forEach((group,layer)=>group.forEach((p,j)=>brainPoints.push({...p,x:layer===0?w*.43:layer===1?w*.69:w-22,y:20+(j+.5)/Math.max(1,group.length)*(h-40)})));
  const points=new Map(brainPoints.map(p=>[p.i,p])),spiked=new Set(data.spiked||[]),synapses=data.synapses||[];
  synapses.forEach(e=>{const a=points.get(e.pre),b=points.get(e.post);if(!a||!b)return;bctx.beginPath();bctx.moveTo(a.x,a.y);bctx.lineTo(b.x,b.y);const active=selectedNeuron!==null&&(e.pre===selectedNeuron||e.post===selectedNeuron);bctx.strokeStyle=active?(num(e.weight)<0?'#bf6559':'#277a62'):selectedNeuron!==null?'#dce4d940':num(e.weight)<0?'#b46e7170':'#668b8160';bctx.lineWidth=active?2:.7;if(e.pre===e.post){bctx.arc(a.x+9,a.y-9,12,0,Math.PI*2)}bctx.stroke()});
@@ -360,14 +402,26 @@ def main() -> None:
                         help="After generating HTML, replace an uncompressed JSONL source with ecosystem.jsonl.gz")
     parser.add_argument("--recover-truncated", action="store_true",
                         help="Ignore an incomplete final JSON line after interruption; leave other validation strict")
+    parser.add_argument("--max-frames", type=int, help="Bound embedded frames; main overview defaults to 500, tail retains all")
     arguments = parser.parse_args()
     try:
-        payload = read_replay(arguments.run_dir, recover_truncated=arguments.recover_truncated)
+        is_tail = not arguments.run_dir.is_dir() and arguments.run_dir.name.startswith("ecosystem_tail.")
+        payload = read_replay(arguments.run_dir, recover_truncated=arguments.recover_truncated,
+                              overview=not is_tail, max_frames=arguments.max_frames if arguments.max_frames is not None else (None if is_tail else 500))
         directory = arguments.run_dir if arguments.run_dir.is_dir() else arguments.run_dir.parent
-        destination = arguments.output or directory / "ecosystem.html"
+        destination = arguments.output or directory / ("ecosystem_tail.html" if is_tail else "ecosystem.html")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(render_html(payload), encoding="utf-8")
+        # Avoid replacing a working replay with a partial/failed render.
+        rendered = render_html(payload)
+        temporary = destination.with_name(destination.name + ".tmp")
+        try:
+            temporary.write_text(rendered, encoding="utf-8")
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
         source = arguments.run_dir / "ecosystem.jsonl" if arguments.run_dir.is_dir() else arguments.run_dir
+        if arguments.run_dir.is_dir() and not source.exists():
+            source = source.with_suffix(source.suffix + ".gz")
         if arguments.gzip_source and source.suffix != ".gz":
             compressed = source.with_suffix(source.suffix + ".gz")
             with source.open("rb") as incoming, gzip.open(compressed, "wb", compresslevel=6) as outgoing:

@@ -64,6 +64,22 @@ Optional CLI overrides remain available through `--help`. The launcher passes bi
 
 Runs save `ecosystem.jsonl`, `ecosystem_stats.csv`, `events.csv`, `summary.json`, `performance.csv`, and initial/final `.eco` checkpoints. Detailed tails add `ecosystem_tail.jsonl`. The viewer displays terrain, food, creatures, ancestry, diets, body traits, sensory values, and neural activity where recorded.
 
+Main recording defaults are compact: one frame every 500 world steps, without
+brain states, graphs, sensory arrays, or routine feeding events. With a detailed
+tail enabled, brain states/graphs and sensory arrays are stored only in the tail,
+even if old main-detail flags are supplied. `-Recording detailed` now selects a
+compact main history plus a 600-second detailed tail unless its duration is
+specified explicitly. `-Recording standard` records more frequent world frames
+without neural diagnostics. All recording options apply afresh on resume.
+
+The HTML generator makes `ecosystem.html` an overview with at most 500 frames,
+including the first and final frames. It omits neural/sensory arrays from old
+recordings too, retains milestone events and the full statistics CSV, and leaves
+the original recording intact. `ecosystem_tail.html` retains recorded detail and
+all tail frames. For unusually large tails use `--max-frames N` when rebuilding;
+generation rejects embedded payloads over 200 MiB instead of creating an HTML
+file too large to open. Outputs are replaced only after successful generation.
+
 ```powershell
 .\scripts\ecosystem.ps1 -Resume runs/nursery/checkpoint.eco -Steps 2400
 .\scripts\ecosystem.ps1 -StartingGenomes runs/nursery -Creatures 24 -Seed 42

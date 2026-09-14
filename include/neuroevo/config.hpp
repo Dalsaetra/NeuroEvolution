@@ -115,7 +115,7 @@ struct MutationConfig {
     bool balance_structural_pairs = true;
     bool allow_birth_motifs = false;
     double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.12;
-    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.24;
+    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.75;
 
     // Direct Brain::mutate controls. Births derive these from the profiles above.
     // A structural budget of -1 uses the sum of operator probabilities.
@@ -154,6 +154,7 @@ struct EcosystemConfig {
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     double healing_rate = 0.1, healing_cost = 2;
     double meat_energy = 50, meat_decay = 0.0000001, carcass_recovery = 0.95;
+    double nursery_meat_decay = 0.0025; // Biomass/second inside nursery; meat_decay applies outside.
 
     // Nursery and frontier layout
     bool nursery_frontier = true; // Disable only for controlled mechanics experiments.
@@ -193,7 +194,7 @@ struct EcosystemConfig {
 
     // Weather
     double calm_duration = 180, warning_duration = 40, storm_duration = 60;
-    double storm_cost = 7.0, phase_offset = 0;
+    double storm_cost = 5.0, phase_offset = 0;
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 150, reproduction_cost = 60;
@@ -220,11 +221,11 @@ struct EcosystemConfig {
 // resume; biological configuration and RNG state come from the checkpoint.
 struct RunConfig {
     std::size_t steps = 4800;
-    std::size_t record_every = 10;
-    bool record_brains = true;
-    bool record_observations = true;
-    bool record_brain_graphs = true;
-    bool record_routine_events = true;
+    std::size_t record_every = 500;
+    bool record_brains = false;
+    bool record_observations = false;
+    bool record_brain_graphs = false;
+    bool record_routine_events = false;
     double detailed_tail_seconds = 0;
     std::size_t tail_record_every = 10;
 };

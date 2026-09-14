@@ -22,4 +22,6 @@ Corpse energy is `carcass_recovery * (body_energy_per_mass * mass + max(remainin
 
 `body_construction` and `carcass_energy` track transfers; attack, healing, spoilage, and discarded energy track costs/losses. Founder bodies enter through `external_body_energy`. Reproduction and predation cannot create energy through an unfunded body.
 
-Replays include body traits, health, damage, attack effort, and carcasses. Tests exercise direction/range/occlusion, simultaneous hits, protection, paid effort, dietary sharing, healing, body-funded births, corpse recovery, and exact continuation.
+Meat loses biomass at `nursery_meat_decay` per second inside the nursery and `meat_decay` per second outside, including frontier shelters. Both default to `0.0000001`; zero disables decay in that region. CLI overrides are `--nursery-meat-decay` and `--meat-decay`. Spoilage removes the corresponding stored energy and never replenishes a corpse. Checkpoints preserve both settings; supported older checkpoints retain their original rate in both regions.
+
+Replays include body traits, health, damage, attack effort, and carcasses. Tests exercise direction/range/occlusion, simultaneous hits, protection, paid effort, dietary sharing, healing, body-funded births, corpse recovery, regional decay, and exact continuation.

@@ -62,8 +62,11 @@ if ($Resume) { $SimulationArguments += @("--resume", (Resolve-RepoPath $Resume))
 if ($StartingGenomes) { $SimulationArguments += @("--starting-genomes", (Resolve-RepoPath $StartingGenomes)) }
 switch ($Recording) {
     "compact"  { $SimulationArguments += @("--record-every", 500, "--record-brains", 0, "--record-observations", 0, "--record-brain-graphs", 0, "--record-routine-events", 0) }
-    "standard" { $SimulationArguments += @("--record-every", 10, "--record-brains", 0, "--record-observations", 1, "--record-brain-graphs", 1, "--record-routine-events", 0) }
-    "detailed" { $SimulationArguments += @("--record-every", 10, "--record-brains", 1, "--record-observations", 1, "--record-brain-graphs", 1, "--record-routine-events", 1) }
+    "standard" { $SimulationArguments += @("--record-every", 10, "--record-brains", 0, "--record-observations", 0, "--record-brain-graphs", 0, "--record-routine-events", 0) }
+    "detailed" {
+        $SimulationArguments += @("--record-every", 500, "--record-brains", 0, "--record-observations", 0, "--record-brain-graphs", 0, "--record-routine-events", 0)
+        if (-not $PSBoundParameters.ContainsKey("DetailedTailSeconds")) { $SimulationArguments += @("--detailed-tail-seconds", 600) }
+    }
 }
 & $Executable @SimulationArguments
 if ($LASTEXITCODE -ne 0) { throw "Ecosystem simulation failed with exit code $LASTEXITCODE" }

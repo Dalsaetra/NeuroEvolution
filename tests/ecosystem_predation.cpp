@@ -212,11 +212,47 @@ void food_and_senses()
     near(w.creatures[0].eaten[4],0.1*0.01/1.01,"Shared corpse allocation ignored low carnivory");
     near(w.creatures[1].eaten[4],0.1/1.01,"Carnivore lost meat to an oversized low-carnivory request");
     // A tiny corpse inside relocating nursery terrain must decay away permanently.
-    auto cfg=EcosystemConfig{}; cfg.initial_creatures=0; cfg.meat_decay=1;
+    auto cfg=EcosystemConfig{}; cfg.initial_creatures=0; cfg.nursery_meat_decay=1;
     EcosystemWorld nursery(cfg,false); plant.stock=plant.capacity=0.01; plant.position={40,40};
     nursery.resources.push_back(plant); nursery.step();
     require(nursery.resources.empty() && nursery.totals.regrown_biomass==0,"Corpse regrew or relocated in nursery");
 }
+void regional_meat_decay()
+{
+    for (bool storm : {false,true}) {
+        auto cfg=empty().config; cfg.width=cfg.height=80; cfg.nursery_frontier=true;
+        cfg.meat_decay=0.2; cfg.nursery_meat_decay=0.6;
+        cfg.storms_enabled=storm; cfg.phase_offset=cfg.calm_duration+cfg.warning_duration;
+        EcosystemWorld w(cfg,false);
+        for (double x : {40.0,31.5,30.5,32.0,48.0,41.0}) {
+            EcoResource meat; meat.id=w.next_resource_id++; meat.kind=FoodKind::Meat;
+            meat.position={x,40.5}; meat.stock=meat.capacity=x==41 ? 0.001 : 1;
+            meat.energy_per_unit=20; w.resources.push_back(meat);
+        }
+        w.terrain[40*cfg.width+30]=Terrain::Shelter;
+        const auto initial=ledger(w);
+        w.step();
+        require(w.resources.size()==5,"Regional decay did not remove depleted corpse");
+        for (std::size_t i=0;i<5;++i)
+            near(w.resources[i].stock,(i==0 || i==3) ? 0.94 : 0.98,
+                "Meat decay used wrong region, shelter rule, or nursery boundary");
+        near(ledger(w),initial,"Regional meat decay broke energy accounting");
+        near(w.totals.regrown_biomass,0,"Regional meat decay regenerated biomass");
+        std::istringstream checkpoint(saved(w)); auto resumed=EcosystemWorld::load_checkpoint(checkpoint);
+        near(resumed.config.nursery_meat_decay,0.6,"Checkpoint lost nursery meat decay");
+        near(resumed.config.meat_decay,0.2,"Checkpoint lost outside meat decay");
+        w.step(); resumed.step();
+        require(saved(w)==saved(resumed),"Regional meat decay diverged on resume");
+        w.config.nursery_meat_decay=0; w.config.meat_decay=0;
+        w.config.validate();
+        const double remaining=ledger(w), nursery_stock=w.resources[0].stock, outside_stock=w.resources[1].stock;
+        w.step();
+        near(w.resources[0].stock,nursery_stock,"Zero nursery decay did not disable spoilage");
+        near(w.resources[1].stock,outside_stock,"Zero outside decay did not disable spoilage");
+        near(ledger(w),remaining,"Disabled meat decay changed energy");
+    }
+}
+
 void dietary_metabolism()
 {
     for (double mass : {0.5,1.0,2.0}) for (double carnivory : {0.0,0.5,1.0}) {
@@ -386,6 +422,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

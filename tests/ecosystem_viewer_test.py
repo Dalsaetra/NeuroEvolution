@@ -20,6 +20,34 @@ SPEC.loader.exec_module(VIEWER)
 
 
 class EcosystemReplayTests(unittest.TestCase):
+    def test_bounded_overview_preserves_endpoints_events_and_drops_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            metadata = self.metadata()
+            metadata["brains"] = [{"id": 1, "neurons": [{"threshold": 1}]}]
+            records = [metadata] + [{"type": "frame", "time": t,
+                "creatures": [{"id": 1, "brain": {"potentials": [t]}, "observation": [1]}],
+                "resources": [{"id": t, "kind": "meat", "stock": 1}],
+                "events": [{"type": "birth", "time": t}, {"type": "ingestion", "time": t}]}
+                for t in range(103)]
+            source = self.write_recording(directory, records)
+            payload = VIEWER.read_replay(source, overview=True, max_frames=7)
+            frames = payload["frames"]
+            self.assertLessEqual(len(frames), 7)
+            self.assertEqual((frames[0]["time"], frames[-1]["time"]), (0, 102))
+            self.assertEqual(payload["source_frames"], 103)
+            self.assertEqual(payload["metadata"]["brains"], [])
+            self.assertEqual([e["time"] for f in frames for e in f["events"]], list(range(103)))
+            self.assertTrue(all("brain" not in c and "observation" not in c for f in frames for c in f["creatures"]))
+            self.assertEqual(frames[-1]["resources"][0]["id"], 102)
+            detailed = VIEWER.read_replay(source)
+            self.assertEqual(len(detailed["frames"]), 103)
+            self.assertIn("potentials", detailed["frames"][-1]["creatures"][0]["brain"])
+            records[7]["time"] = 0
+            self.write_recording(directory, records)
+            with self.assertRaisesRegex(ValueError, "chronological"):
+                VIEWER.read_replay(source, overview=True, max_frames=7)
+
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell required for rebuild wrapper")
     def test_rebuild_wrapper_preserves_sources_and_handles_both_recordings(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rebuild ecosystem ") as temp:

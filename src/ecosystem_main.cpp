@@ -87,6 +87,7 @@ int main(int argc, char** argv)
             {"--healing-cost",&cfg.healing_cost},
             {"--meat-energy",&cfg.meat_energy},
             {"--meat-decay",&cfg.meat_decay},
+            {"--nursery-meat-decay",&cfg.nursery_meat_decay},
             {"--carcass-recovery",&cfg.carcass_recovery},
             {"--mass-mutation-probability",&cfg.mutation.mass_mutation_probability},
             {"--mass-mutation-sigma",&cfg.mutation.mass_mutation_sigma},
@@ -205,6 +206,7 @@ int main(int argc, char** argv)
                     "  --attack-range X / --attack-degrees X / --attack-damage X / --attack-cost X\n"
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
+                    "  --nursery-meat-decay X    Meat biomass lost/second inside nursery; --meat-decay applies outside\n"
                     "  --founders FILE           Copy/reset living brains from a checkpoint into a new world\n"
                     "  --starting-genomes DIR    Sample surviving genome IDs uniformly, with replacement, from DIR/checkpoint.eco\n"
                     "                            Fresh population size uses --creatures; sampling uses --seed\n"
@@ -426,6 +428,11 @@ int main(int argc, char** argv)
         if (!replay || !stats || !events) throw std::runtime_error("Cannot open run output files");
         replay << std::setprecision(10); events << std::setprecision(12);
         events << "time,type,creature,other,resource,amount\n";
+        // Detailed diagnostics belong in the bounded tail, including when a
+        // caller supplied the old full-detail main recording flags.
+        if (detailed_tail_seconds > 0) {
+            record_brains = record_observations = record_brain_graphs = false;
+        }
         neuroevo::write_ecosystem_metadata(replay,world,record_brain_graphs);
         neuroevo::write_ecosystem_stats_header(stats);
         save(out/"initial.eco",world);
