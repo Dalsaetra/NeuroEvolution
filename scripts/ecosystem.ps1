@@ -9,6 +9,7 @@ param(
     [ValidateSet("random", "sparse-ancestor")][string]$FounderBrain,
     [ValidateSet("lif", "izhikevich", "filtered-lif")][string]$NeuronModel,
     [ValidateRange(0.000001, 1)][double]$BrainDt,
+    [ValidateRange(0.000001, 10000)][double]$SynapticGain,
     [ValidateSet("compact", "standard", "detailed")][string]$Recording,
     [ValidateRange(0, 1000000)][double]$DetailedTailSeconds,
     [switch]$KeepJsonl,
@@ -28,7 +29,7 @@ function Resolve-RepoPath([string]$Value) {
 if ([string]::IsNullOrWhiteSpace($RunDir)) { $RunDir = "runs/ecosystem_$(Get-Date -Format 'yyyyMMdd_HHmmssfff')" }
 $RunPath = Resolve-RepoPath $RunDir
 if ($Resume) {
-    foreach ($Parameter in @("Creatures", "Seed", "Controller", "FounderBrain", "StartingGenomes", "NeuronModel", "BrainDt")) {
+    foreach ($Parameter in @("Creatures", "Seed", "Controller", "FounderBrain", "StartingGenomes", "NeuronModel", "BrainDt", "SynapticGain")) {
         if ($PSBoundParameters.ContainsKey($Parameter)) { throw "-$Parameter cannot be combined with -Resume; the checkpoint preserves its configuration." }
     }
 }
@@ -52,7 +53,7 @@ foreach ($Candidate in @("neuroevo_ecosystem.exe", "Release/neuroevo_ecosystem.e
 if (-not $Executable) { throw "Ecosystem executable not found. Run with -Build first." }
 $SimulationArguments = @("--out", $RunPath)
 foreach ($Setting in @(@("Steps", "--steps"), @("Creatures", "--creatures"), @("Seed", "--seed"),
-    @("Controller", "--controller"), @("FounderBrain", "--founder-brain"), @("NeuronModel", "--neuron-model"), @("BrainDt", "--brain-dt"), @("DetailedTailSeconds", "--detailed-tail-seconds"))) {
+    @("Controller", "--controller"), @("FounderBrain", "--founder-brain"), @("NeuronModel", "--neuron-model"), @("BrainDt", "--brain-dt"), @("SynapticGain", "--synaptic-gain"), @("DetailedTailSeconds", "--detailed-tail-seconds"))) {
     if ($PSBoundParameters.ContainsKey($Setting[0])) {
         $Value = $PSBoundParameters[$Setting[0]]
         $SimulationArguments += @($Setting[1], [Convert]::ToString($Value, [System.Globalization.CultureInfo]::InvariantCulture))

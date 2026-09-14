@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -305,6 +306,82 @@ void test_baseline_information_boundary()
     }
 }
 
+void test_obstacle_geometry_equivalence()
+{
+    // Scalar reference keeps the original per-box/per-sector geometry. Exact
+    // equality catches changed rounding at sector edges as well as occlusion.
+    struct Box { double x0, y0, x1, y1; };
+    constexpr double epsilon = 1e-9;
+    const auto ray = [](Vec2 origin, double angle, const Box& box) {
+        const Vec2 direction{std::cos(angle), std::sin(angle)};
+        double entry = 0, exit = std::numeric_limits<double>::infinity();
+        const auto clip = [&](double position, double velocity, double low, double high) {
+            if (std::abs(velocity) < epsilon) return position >= low && position <= high;
+            const double a = (low - position) / velocity, b = (high - position) / velocity;
+            entry = std::max(entry, std::min(a, b));
+            exit = std::min(exit, std::max(a, b));
+            return entry <= exit + epsilon;
+        };
+        if (!clip(origin.x, direction.x, box.x0, box.x1)
+            || !clip(origin.y, direction.y, box.y0, box.y1) || exit < 0)
+            return std::numeric_limits<double>::infinity();
+        return entry;
+    };
+    auto world = empty_world();
+    world.creatures.push_back(creature(world, {0.5, 0.5}));
+    Random rng(789);
+    std::vector<Box> boxes{{0, 0, 0, 16}, {16, 0, 16, 16}, {0, 0, 16, 0}, {0, 16, 16, 16}};
+    for (int y = 1; y < 15; ++y) for (int x = 1; x < 15; ++x) {
+        if (!rng.chance(0.2)) continue;
+        world.terrain[y * 16 + x] = Terrain::Wall;
+        boxes.push_back({double(x), double(y), double(x + 1), double(y + 1)});
+    }
+    for (double fov : {45.0, 150.0, 270.0, 360.0}) {
+        world.config.fov_degrees = fov;
+        const double half_fov = fov * pi / 360.0;
+        const double sector_width = 2.0 * half_fov / static_cast<double>(eco_sectors);
+        for (int sample = 0; sample < 128; ++sample) {
+            auto& self = world.creatures[0];
+            do { self.position = {rng.uniform(0.25, 15.75), rng.uniform(0.25, 15.75)}; }
+            while (!world.traversable(self.position));
+            self.heading = sample < 8 ? sample * pi / 2 : rng.uniform(-pi, pi);
+            const auto actual = world.observe(0);
+            for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
+                const double low = -half_fov + static_cast<double>(sector) * sector_width;
+                const double high = low + sector_width;
+                double expected = 0;
+                for (const auto& box : boxes) {
+                    const Vec2 closest{std::clamp(self.position.x, box.x0, box.x1),
+                        std::clamp(self.position.y, box.y0, box.y1)};
+                    const Vec2 delta = closest - self.position;
+                    if (length(delta) > world.config.vision_range) continue;
+                    const double angle = std::remainder(std::atan2(delta.y, delta.x) - self.heading, 2.0 * pi);
+                    double distance = std::numeric_limits<double>::infinity();
+                    if (length(delta) < epsilon || (angle >= low - epsilon && angle <= high + epsilon))
+                        distance = length(delta);
+                    distance = std::min(distance, ray(self.position, self.heading + low, box));
+                    distance = std::min(distance, ray(self.position, self.heading + high, box));
+                    const double value = 1.0 - distance / world.config.vision_range;
+                    expected = std::max(expected, std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.0);
+                }
+                require(actual[sector * eco_sector_channels] == expected,
+                    "Optimized obstacle sensing must exactly match scalar geometry");
+            }
+        }
+    }
+}
+
+void test_contact_outside_sensory_range()
+{
+    auto world = empty_world();
+    world.config.vision_range = world.config.hearing_range = 0.1;
+    world.creatures.push_back(creature(world, {4.5, 5.5}));
+    world.creatures.push_back(creature(world, {5.02, 5.5}, 2));
+    const auto inputs = world.observe(0);
+    require(inputs[contact] == 1.0,
+        "Distance culling must retain contact outside both vision and hearing range");
+}
+
 } // namespace
 
 int main()
@@ -317,6 +394,8 @@ int main()
         test_feedback();
         test_independent_spiking_brains();
         test_baseline_information_boundary();
+        test_obstacle_geometry_equivalence();
+        test_contact_outside_sensory_range();
         std::cout << "Ecosystem sensing and brain-controller tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

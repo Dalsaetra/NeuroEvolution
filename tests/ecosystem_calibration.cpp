@@ -2,11 +2,48 @@
 
 #include <cmath>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 
 using namespace neuroevo;
 namespace {
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
+
+void reusable_brain_outputs()
+{
+    BrainStepResult reused;
+    for (const auto model : {NeuronModel::Lif, NeuronModel::FilteredLif, NeuronModel::Izhikevich}) {
+        for (bool calibrated : {false, true}) {
+            if (model != NeuronModel::Lif && !calibrated) continue;
+            for (const std::size_t outputs : {3u, 1u, 0u, 5u}) {
+                BrainConfig config;
+                config.select_model(model);
+                config.calibrated_io = calibrated;
+                config.input_count = 2;
+                config.hidden_count = 3;
+                config.output_count = outputs;
+                Random topology(123), noise(456), expected_noise(456);
+                Brain brain = Brain::random(config, topology), expected = brain;
+                for (int i = 0; i < 300; ++i) {
+                    const std::vector<double> inputs{(i % 13) / 12.0, (i % 7) / 6.0};
+                    reused.spikes = 99999;
+                    brain.step(inputs, reused, &noise);
+                    const auto result = expected.step(inputs, &expected_noise);
+                    require(reused.spikes == result.spikes && reused.motor_outputs == result.motor_outputs,
+                        "Reused output storage must overwrite all results, including after resizing");
+                }
+                std::ostringstream actual_state, expected_state;
+                brain.save_state(actual_state);
+                expected.save_state(expected_state);
+                require(actual_state.str() == expected_state.str(),
+                    "Reusing outputs must preserve the full delayed neural state");
+                require(noise.next_u64() == expected_noise.next_u64(),
+                    "Reusing outputs must preserve the noise stream");
+            }
+        }
+    }
+}
+
 void sensory_rates_and_motor_impulse()
 {
     for (double dt : {0.01, 0.02}) {
@@ -81,7 +118,7 @@ void shelter_and_nutrition()
 
 int main()
 {
-    try { sensory_rates_and_motor_impulse(); shelter_and_nutrition();
+    try { sensory_rates_and_motor_impulse(); shelter_and_nutrition(); reusable_brain_outputs();
         std::cout << "Calibrated sensorimotor interface passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

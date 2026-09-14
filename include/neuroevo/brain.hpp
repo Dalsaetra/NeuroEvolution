@@ -56,6 +56,8 @@ public:
 
     void reset_state();
     BrainStepResult step(const std::vector<double>& inputs, Random* rng = nullptr);
+    // Reuse the output storage across neural substeps; overwrites both fields.
+    void step(const std::vector<double>& inputs, BrainStepResult& result, Random* rng = nullptr);
     // Optional partition of all inputs for category-balanced connection growth.
     void mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups = {});
     // Remove at most one hidden neuron missing an incoming or outgoing edge.
@@ -78,6 +80,7 @@ private:
     std::vector<std::vector<double>> current_buffers_;
     std::vector<double> motor_traces_;
     std::size_t buffer_cursor_ = 0;
+    double motor_decay_ = 0, motor_spike_increment_ = 0;
     double filtered_membrane_decay_ = 0, filtered_synaptic_decay_ = 0;
     double filtered_bias_factor_ = 0, filtered_current_factor_ = 0;
 

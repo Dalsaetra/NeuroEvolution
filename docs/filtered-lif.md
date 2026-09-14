@@ -79,10 +79,61 @@ is still capped below the tonic firing threshold; test circuits supply strong
 drive through sensory events or output-neuron DC inputs instead.
 
 An event adds the same peak current at 5 ms and 2 ms; it is not rescaled by dt.
-The synaptic decay determines its physical duration. The sparse ancestor uses
-nominal gain 20 for filtered LIF, preserving its nominal weights at the default.
+The synaptic decay determines its physical duration. The sparse ancestor keeps
+its nominal filtered-LIF weights when gain changes, so the gain controls actual
+delivered current. The previous compensation that cancelled gain changes for
+filtered-LIF ancestors has been removed; pulse-model calibration is unchanged.
 Its topology is retained, but its ecological behavior has not been retuned to
 match the original pulse-driven ancestor.
+
+## Reducing excessive firing
+
+For a fresh, lower-activity trial:
+
+```powershell
+.\scripts\ecosystem.ps1 -NeuronModel filtered-lif -SynapticGain 8
+# Optional: -BrainDt 0.002
+# Executable equivalent: --neuron-model filtered-lif --synaptic-gain 8
+```
+
+The default remains 20. At gain 20, a unit-weight filtered event has integrated
+current `20 * 0.1 = 2`, versus `32 * 0.02 = 0.64` for old LIF. Gain 6.4 matches
+that event integral, but does not equate firing: membrane decay, refractory
+duration, and retained refractory inputs differ. Gain 8 is a moderate starting
+trial, not a validated ecological optimum. It scales both excitatory and inhibitory
+connections, preserving their relative weights; bias and background-current
+amplitude are separate controls. Lower gain can eliminate persistent activity.
+
+Raising hidden/output thresholds also lowers rates, but do not indiscriminately
+scale sensory thresholds: those control the sensory spike encoder. In the
+zero-reset linear dynamics, threshold scaling resembles reducing all input
+currents; it affects bias and background drive too, unlike synaptic gain alone.
+
+`neuroevo_filtered_gain_experiment` compares the same ancestral weights under
+three constant sensory levels (0.1, 0.3, 0.6), with background activity on/off.
+It runs 12 seconds and measures the final 10 seconds, excluding sensory spikes.
+At level 0.3 with background enabled (seed 731):
+
+| Setting | Mean hidden Hz | Mean motor Hz |
+| --- | ---: | ---: |
+| Old LIF | 3.44 | 3.53 |
+| Filtered, gain 20 | 25.48 | 15.45 |
+| Filtered, gain 8 | 11.90 | 4.88 |
+| Filtered, gain 6.4 | 5.14 | 0.95 |
+| Filtered, gain 20, hidden/output thresholds ×2.5 | 11.24 | 4.70 |
+
+These synthetic inputs are diagnostic, not ecological trajectories. At weak
+input without background, gains 8 and 6.4 silenced this circuit. Revalidate
+memory, switching, and behavior before choosing a permanent gain. The earlier
+two-neuron memory/WTA parameters were validated at gain 20, not at gain 8.
+Run `cmake --build build --target neuroevo_filtered_gain_experiment` then
+`.\build\neuroevo_filtered_gain_experiment.exe` to reproduce the CSV output.
+
+Resume keeps the saved gain; this launcher override is for new runs. To retain
+evolved weights while trying a new gain, use `-StartingGenomes runs/YOUR_RUN`
+alongside the model and gain options. Founder import copies the weights into
+the new world's brain configuration and resets transient state; the source
+model and timestep must match. It is a new world, not a continuation.
 
 ## Evolution and persistence
 

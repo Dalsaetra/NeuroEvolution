@@ -48,9 +48,8 @@ Vec2 closest_point(Vec2 point, const Box& box)
 }
 
 // Exact ray/rectangle entry distance, including zero-width world boundaries.
-double ray_entry(Vec2 origin, double angle, const Box& box)
+double ray_entry(Vec2 origin, Vec2 direction, const Box& box)
 {
-    const Vec2 direction{std::cos(angle), std::sin(angle)};
     double entry = 0.0;
     double exit = std::numeric_limits<double>::infinity();
     const auto clip = [&](double position, double velocity, double low, double high) {
@@ -66,18 +65,6 @@ double ray_entry(Vec2 origin, double angle, const Box& box)
         return std::numeric_limits<double>::infinity();
     }
     return exit >= 0.0 ? entry : std::numeric_limits<double>::infinity();
-}
-
-double obstacle_distance(Vec2 origin, double heading, double low_angle, double high_angle, const Box& box)
-{
-    const Vec2 delta = closest_point(origin, box) - origin;
-    const double angle = bearing(delta, heading);
-    double result = std::numeric_limits<double>::infinity();
-    if (length(delta) < epsilon || (angle >= low_angle - epsilon && angle <= high_angle + epsilon)) {
-        result = length(delta);
-    }
-    result = std::min(result, ray_entry(origin, heading + low_angle, box));
-    return std::min(result, ray_entry(origin, heading + high_angle, box));
 }
 
 EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConfig& config,
@@ -162,6 +149,18 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     std::vector<double> inputs(config.brain.input_count, 0.0);
     const double half_fov = config.fov_degrees * pi / 360.0;
     const double sector_width = 2.0 * half_fov / static_cast<double>(eco_sectors);
+    // Keep each endpoint's original arithmetic: adjacent sector boundaries can
+    // differ by a rounding bit. Directions are shared by all visible obstacles.
+    std::array<double, eco_sectors> low_angles, high_angles;
+    std::array<Vec2, eco_sectors> low_directions, high_directions;
+    for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
+        low_angles[sector] = -half_fov + static_cast<double>(sector) * sector_width;
+        high_angles[sector] = low_angles[sector] + sector_width;
+        const double low = self.heading + low_angles[sector];
+        const double high = self.heading + high_angles[sector];
+        low_directions[sector] = {std::cos(low), std::sin(low)};
+        high_directions[sector] = {std::cos(high), std::sin(high)};
+    }
     std::array<double, eco_sectors> food_distances, creature_distances;
     std::array<double, eco_sectors> food_angles, creature_angles, meat_distances, meat_angles;
     meat_distances.fill(std::numeric_limits<double>::infinity());
@@ -179,10 +178,15 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
             inputs[contact_offset + quadrant_at(bearing(closest_delta, self.heading))] = 1.0;
         }
         if (distance > config.vision_range) return;
+        const double angle = bearing(closest_delta, self.heading);
         for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
-            const double low = -half_fov + static_cast<double>(sector) * sector_width;
-            const double visible_distance = obstacle_distance(
-                self.position, self.heading, low, low + sector_width, box);
+            double visible_distance = std::numeric_limits<double>::infinity();
+            if (distance < epsilon || (angle >= low_angles[sector] - epsilon
+                && angle <= high_angles[sector] + epsilon)) visible_distance = distance;
+            visible_distance = std::min(visible_distance,
+                ray_entry(self.position, low_directions[sector], box));
+            visible_distance = std::min(visible_distance,
+                ray_entry(self.position, high_directions[sector], box));
             inputs[sector * eco_sector_channels] = std::max(inputs[sector * eco_sector_channels],
                 unit(1.0 - visible_distance / config.vision_range));
         }
@@ -207,8 +211,10 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
                 && terrain[static_cast<std::size_t>(y) * config.width + static_cast<std::size_t>(x)] == Terrain::Shelter) {
                 const Vec2 target{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
                 const Vec2 delta = target - self.position;
-                const double distance = length(delta), angle = bearing(delta, self.heading);
-                if (distance <= config.vision_range && std::abs(angle) <= half_fov + epsilon
+                const double distance = length(delta);
+                if (distance > config.vision_range) continue;
+                const double angle = bearing(delta, self.heading);
+                if (std::abs(angle) <= half_fov + epsilon
                     && line_of_sight(self.position, target)) {
                     auto& cue = inputs[eco_shelter_offset + sector_at(angle, half_fov)];
                     cue = std::max(cue, unit(1.0 - distance / config.vision_range));
@@ -226,8 +232,9 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     for (const EcoResource& resource : resources) {
         const Vec2 delta = resource.position - self.position;
         const double distance = length(delta);
+        if (distance > config.vision_range) continue;
         const double angle = bearing(delta, self.heading);
-        if (distance > config.vision_range || std::abs(angle) > half_fov + epsilon
+        if (std::abs(angle) > half_fov + epsilon
             || !line_of_sight(self.position, resource.position)) continue;
         const std::size_t sector = sector_at(angle, half_fov);
         if (resource.kind == FoodKind::Meat) {
@@ -277,8 +284,10 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
         const EcoCreature& other = creatures[index];
         const Vec2 delta = other.position - self.position;
         const double distance = length(delta);
-        const double angle = bearing(delta, self.heading);
         const double contact_margin = std::max(1e-5, 0.2 * config.radius);
+        if (distance > std::max({config.vision_range, config.hearing_range,
+                2.0 * config.radius + contact_margin})) continue;
+        const double angle = bearing(delta, self.heading);
         if (distance <= 2.0 * config.radius + contact_margin) {
             inputs[contact_offset + quadrant_at(angle)] = 1.0;
         }
@@ -328,7 +337,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
 EcoAction EcosystemWorld::control(std::size_t creature_index)
 {
     EcoCreature& creature = creatures.at(creature_index);
-    const std::vector<double> inputs = observe(creature_index);
+    std::vector<double> inputs = observe(creature_index);
     creature.step_spikes = 0;
     if (creature.controller != ControllerKind::Spiking) {
         return baseline_action(inputs, config, creature.controller, creature.neural_rng, creature.body.carnivory);
@@ -343,10 +352,9 @@ EcoAction EcosystemWorld::control(std::size_t creature_index)
     }
     const std::size_t substeps = static_cast<std::size_t>(std::llround(ratio));
     BrainStepResult result;
-    std::vector<double> neural_inputs = inputs;
     for (std::size_t step = 0; step < substeps; ++step) {
-        neural_inputs[body_offset + 8] = creature.age + static_cast<double>(step) * brain_config.dt < 0.2 - epsilon ? 1.0 : 0.0;
-        result = creature.brain.step(neural_inputs, &creature.neural_rng);
+        inputs[body_offset + 8] = creature.age + static_cast<double>(step) * brain_config.dt < 0.2 - epsilon ? 1.0 : 0.0;
+        creature.brain.step(inputs, result, &creature.neural_rng);
         creature.step_spikes += result.spikes;
     }
     creature.spikes += creature.step_spikes;

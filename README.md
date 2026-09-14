@@ -101,5 +101,6 @@ Checkpoint format **24** stores the neuron model, intrinsic parameters, recovery
 - [Moving nursery food](docs/moving-nursery-food.md)
 - [Outdoor food](docs/dynamic-food.md)
 - [Frontier layout](docs/frontier-layout.md)
+- [Performance and exact-output benchmarking](docs/performance.md)
 
 [ROADMAP.md](ROADMAP.md) describes the development direction; [EXPLORATION.md](EXPLORATION.md) contains ongoing experiment notes.

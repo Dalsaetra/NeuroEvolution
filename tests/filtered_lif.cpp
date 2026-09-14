@@ -15,6 +15,12 @@ Brain single(double dt,double drive=0,double current=0,double self=0) {
     return Brain::from_components(c,n,edges);
 }
 int main() try {
+    EcosystemConfig high;high.brain.select_model(NeuronModel::FilteredLif);
+    auto low=high;low.brain.synaptic_gain=8;
+    const auto strong=make_sparse_ancestral_brain(high),weak=make_sparse_ancestral_brain(low);
+    require(strong.synapses().size()==weak.synapses().size(),"Gain altered ancestor topology");
+    for(std::size_t i=0;i<strong.synapses().size();++i)
+        require(strong.synapses()[i].weight==weak.synapses()[i].weight,"Ancestor weights cancelled filtered gain change");
     for(double dt:{.005,.002}) {
         auto cfg=BrainConfig::filtered_lif(dt);
         require(cfg.max_delay_steps==static_cast<std::size_t>(std::lround(.160/dt)),"Physical maximum delay changed");

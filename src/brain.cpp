@@ -160,12 +160,19 @@ void Brain::reset_state()
 
 BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
 {
+    BrainStepResult result;
+    step(inputs, result, rng);
+    return result;
+}
+
+void Brain::step(const std::vector<double>& inputs, BrainStepResult& result, Random* rng)
+{
     if (inputs.size() != config_.input_count) {
         throw std::invalid_argument("Brain::step input count does not match BrainConfig::input_count");
     }
 
-    BrainStepResult result;
-    result.motor_outputs.assign(config_.output_count, 0.0);
+    result.spikes = 0;
+    result.motor_outputs.resize(config_.output_count);
     const bool izh = config_.neuron_model == NeuronModel::Izhikevich;
     const bool filtered = config_.neuron_model == NeuronModel::FilteredLif;
     const auto pulse_steps = izh ? config_.synaptic_pulse_steps() : 1;
@@ -287,18 +294,15 @@ BrainStepResult Brain::step(const std::vector<double>& inputs, Random* rng)
 
     for (std::size_t i = 0; i < config_.output_count; ++i) {
         const std::size_t neuron_index = first_output_index() + i;
-        const double decay = config_.calibrated_io
-            ? std::exp(-config_.dt / config_.motor_rate_tau) : config_.motor_trace_decay;
-        motor_traces_[i] *= decay;
+        motor_traces_[i] *= motor_decay_;
         if (neurons_[neuron_index].spiked) {
-            motor_traces_[i] += config_.calibrated_io ? (1.0 - decay) / config_.dt : 1.0;
+            motor_traces_[i] += motor_spike_increment_;
         }
         result.motor_outputs[i] = motor_traces_[i]
             / (config_.calibrated_io ? config_.motor_reference_hz : 1.0);
     }
 
     buffer_cursor_ = (buffer_cursor_ + 1) % current_buffers_.front().size();
-    return result;
 }
 
 void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups& input_groups)
@@ -493,6 +497,9 @@ std::size_t Brain::compute_delay_steps(Vec2 pre, Vec2 post) const noexcept
 
 void Brain::rebuild_runtime_state()
 {
+    motor_decay_ = config_.calibrated_io
+        ? std::exp(-config_.dt / config_.motor_rate_tau) : config_.motor_trace_decay;
+    motor_spike_increment_ = config_.calibrated_io ? (1.0 - motor_decay_) / config_.dt : 1.0;
     if (config_.neuron_model == NeuronModel::FilteredLif) {
         filtered_membrane_decay_ = std::exp(-config_.dt/config_.membrane_tau);
         filtered_synaptic_decay_ = std::exp(-config_.dt/config_.synaptic_tau);
