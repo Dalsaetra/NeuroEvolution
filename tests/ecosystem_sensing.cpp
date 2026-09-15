@@ -312,7 +312,7 @@ void test_obstacle_geometry_equivalence()
     // equality catches changed rounding at sector edges as well as occlusion.
     struct Box { double x0, y0, x1, y1; };
     constexpr double epsilon = 1e-9;
-    const auto ray = [](Vec2 origin, double angle, const Box& box) {
+    const auto ray = [epsilon](Vec2 origin, double angle, const Box& box) {
         const Vec2 direction{std::cos(angle), std::sin(angle)};
         double entry = 0, exit = std::numeric_limits<double>::infinity();
         const auto clip = [&](double position, double velocity, double low, double high) {

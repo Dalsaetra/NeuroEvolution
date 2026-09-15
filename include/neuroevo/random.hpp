@@ -6,7 +6,9 @@
 #include <random>
 #include <istream>
 #include <ostream>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 
 namespace neuroevo {
 
@@ -47,9 +49,35 @@ public:
     }
 
     void save_state(std::ostream& stream) const { stream << engine_ << '\n'; }
+    static std::size_t checkpoint_word_count()
+    {
+        static const std::size_t count = [] {
+            std::ostringstream saved;
+            saved << std::mt19937_64{};
+            std::istringstream input(saved.str());
+            std::string word;
+            std::size_t words = 0;
+            while (input >> word) ++words;
+            return words;
+        }();
+        return count;
+    }
     void load_state(std::istream& stream)
     {
-        if (!(stream >> engine_)) {
+        // Each engine occupies its own line. Do not let a runtime with a
+        // different MT serialization consume tokens from the following state.
+        std::string line;
+        if (!std::getline(stream >> std::ws, line))
+            throw std::runtime_error("Invalid random generator checkpoint");
+        std::istringstream tokens(line);
+        std::string word;
+        std::size_t words = 0;
+        while (tokens >> word) ++words;
+        if ((words == 312 || words == 313) && words != checkpoint_word_count())
+            throw std::runtime_error("Checkpoint uses a different C++ random-generator format. "
+                "Resume with scripts/ecosystem.ps1 to select a compatible build.");
+        std::istringstream state(line);
+        if (words != checkpoint_word_count() || !(state >> engine_)) {
             throw std::runtime_error("Invalid random generator checkpoint");
         }
     }

@@ -153,7 +153,7 @@ struct EcosystemConfig {
     double attack_range = 0.8, attack_degrees = 60, attack_damage = 35, attack_cost = 2;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     double healing_rate = 0.1, healing_cost = 2;
-    double meat_energy = 50, meat_decay = 0.0000001, carcass_recovery = 0.95;
+    double meat_energy = 50, meat_decay = 0.0001, carcass_recovery = 0.95;
     double nursery_meat_decay = 0.0025; // Biomass/second inside nursery; meat_decay applies outside.
 
     // Nursery and frontier layout
@@ -164,7 +164,7 @@ struct EcosystemConfig {
     std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
-    double nursery_food_energy = 70, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
+    double nursery_food_energy = 30, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
 
     // World size, population and seed
     std::size_t width = 80, height = 80, initial_creatures = 24, max_population = 200;
@@ -178,7 +178,7 @@ struct EcosystemConfig {
 
     // Energy budget
     double energy_capacity = 200, founder_energy = 90, basal_cost = 0.20;
-    double movement_cost = 0.12, turn_cost = 0.02, forage_cost = 0.30, call_cost = 0.05;
+    double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.05;
     double neuron_cost = 0.0001, synapse_cost = 0.00001, spike_cost = 0.00001;
     double rough_multiplier = 2.0, ingestion_rate = 1.0, digestion_delay = 3.0;
 
@@ -194,7 +194,7 @@ struct EcosystemConfig {
 
     // Weather
     double calm_duration = 180, warning_duration = 40, storm_duration = 60;
-    double storm_cost = 5.0, phase_offset = 0;
+    double storm_cost = 6.0, phase_offset = 0;
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 150, reproduction_cost = 60;
@@ -226,7 +226,7 @@ struct RunConfig {
     bool record_observations = false;
     bool record_brain_graphs = false;
     bool record_routine_events = false;
-    double detailed_tail_seconds = 0;
+    double detailed_tail_seconds = 600;
     std::size_t tail_record_every = 10;
 };
 

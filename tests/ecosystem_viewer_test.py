@@ -20,6 +20,57 @@ SPEC.loader.exec_module(VIEWER)
 
 
 class EcosystemReplayTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node required for compressed replay decoding")
+    def test_lossless_compressed_tail_and_random_access(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            records = [self.metadata()] + [{"type": "frame", "time": t / 10,
+                "creatures": [{"id": 1, "brain": {"potentials": [t / 17, -0.0],
+                    "spiked": [t % 2]}, "observation": [t / 19]}],
+                "resources": ([{"id": 2, "stock": t / 13, "kind": "meat", "x": 1}] if t % 3 else [])
+                    + [{"id": 1, "stock": 2.0, **({"label": "</script>\u2028&"} if t % 2 else {})}],
+                "events": [{"type": "birth", "time": t / 10}]} for t in range(21)]
+            source = self.write_recording(directory, records)
+            source.write_text(source.read_text().replace('-0.0', '-0'), encoding='utf-8')
+            expected = VIEWER.read_replay(source)
+            packed = VIEWER.read_replay(source, pack_resources=True)
+            document = VIEWER.render_html(packed, compress=True)
+            envelope = re.search(r'<script id="replay-data" type="application/json">(.*?)</script>', document, re.S).group(1)
+            script = directory / "decode.js"
+            script.write_text(VIEWER.REPLAY_LOADER + "\n(async()=>{\n"
+                + "const replay=await decodeReplay({textContent:" + json.dumps(envelope) + "});\n"
+                + "const expected=" + json.dumps(expected) + ";\n"
+                + "const assert=require('node:assert/strict');\n"
+                + "for(const i of [20,0,12,1,20,0])assert.deepEqual(replay.frames[i],expected.frames[i]);\n"
+                + "assert.deepEqual(replay,expected);\n"
+                + "})().catch(e=>{console.error(e);process.exitCode=1;});\n", encoding="utf-8")
+            result = subprocess.run([shutil.which("node"), str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            self.assertEqual(len(packed["frames"]), 21)
+            self.assertNotIn('</script>\u2028&', document)
+
+    def test_byte_budget_samples_tail_but_preserves_events_and_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            records = [self.metadata()] + [{"type": "frame", "time": t,
+                "creatures": [{"id": 1, "brain": {"potentials": [t] * 300}, "observation": [t]}],
+                "events": [{"type": "birth", "time": t}]} for t in range(103)]
+            source = self.write_recording(directory, records)
+            original = source.read_bytes()
+            with self.assertWarnsRegex(UserWarning, "sampled"):
+                payload = VIEWER.read_replay(source, max_frame_bytes=12000)
+            frames = payload["frames"]
+            self.assertLess(len(frames), 20)
+            self.assertEqual((frames[0]["time"], frames[-1]["time"]), (0, 102))
+            self.assertEqual([e["time"] for f in frames for e in f["events"]], list(range(103)))
+            for frame in frames:
+                self.assertEqual(frame["creatures"][0]["brain"]["potentials"], [frame["time"]] * 300)
+                self.assertEqual(frame["creatures"][0]["observation"], [frame["time"]])
+            self.assertEqual(source.read_bytes(), original)
+            self.assertIn('replay-data', VIEWER.render_html(payload))
+            self.assertEqual(len(VIEWER.read_replay(source, max_frame_bytes=1000000)["frames"]), 103)
+
     def test_bounded_overview_preserves_endpoints_events_and_drops_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
@@ -300,6 +351,26 @@ assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
         with tempfile.TemporaryDirectory() as temp:
             script = Path(temp) / "replay_test.js"
             script.write_text(harness, encoding="utf-8")
+            result = subprocess.run([shutil.which("node"), str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            # Exercise the actual asynchronous compressed-page startup and its
+            # interactive brain controls with the same DOM/canvas fixture.
+            compressed = VIEWER.render_html(payload, compress=True)
+            compressed_source = compressed.split("<script>", 1)[1].split("</script>", 1)[0]
+            compressed_data = re.search(r'<script id="replay-data" type="application/json">(.*?)</script>', compressed, re.S).group(1)
+            startup = harness.split("vm.runInNewContext(SOURCE,scope);", 1)[0]
+            startup += "\nObject.assign(scope,{DecompressionStream,Response,Blob,atob});\n"
+            startup += "document.getElementById('replay-data').textContent=" + json.dumps(compressed_data) + ";\n"
+            startup += "(async()=>{await vm.runInNewContext(" + json.dumps(compressed_source) + ",scope);\n"
+            startup += "assert.equal(String(nodes.get('population').textContent),'1');\n"
+            startup += "nodes.get('stepForward').listeners.click();\n"
+            startup += "nodes.get('creatureSelect').listeners.change({target:{value:'2'}});\n"
+            startup += "assert.equal(nodes.get('brainEmpty').style.display,'none');\n"
+            startup += "nodes.get('neuronSelect').listeners.change({target:{value:'1'}});\n"
+            startup += "assert.equal(nodes.get('potentialHistory').hidden,false);\n"
+            startup += "assert.match(nodes.get('potentialCaption').textContent,/Current V: 0.5/);\n"
+            startup += "})().catch(e=>{console.error(e);process.exitCode=1});\n"
+            script.write_text(startup, encoding="utf-8")
             result = subprocess.run([shutil.which("node"), str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 

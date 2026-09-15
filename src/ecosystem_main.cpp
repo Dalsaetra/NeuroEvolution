@@ -164,6 +164,10 @@ int main(int argc, char** argv)
         std::filesystem::path out="runs/ecosystem_"+std::to_string(timestamp);
         for (int i=1; i<argc; ++i) {
             const std::string arg=argv[i];
+            if (arg == "--rng-state-words") {
+                std::cout << neuroevo::Random::checkpoint_word_count() << '\n';
+                return 0;
+            }
             if (arg == "--help") {
                 std::cout << "Nursery ecosystem with independent spiking brains\nTune include/neuroevo/config.hpp and rebuild to change defaults.\n\n"
                     "Usage: neuroevo_ecosystem --creatures 24 --steps 4800 --out runs/my_ecosystem\n\n"

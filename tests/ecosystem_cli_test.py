@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,35 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows PowerShell launcher test")
+    def test_launcher_uses_release_binary_with_stale_single_config_binary(self):
+        repo = self.root / "launcher repo"
+        (repo / "scripts").mkdir(parents=True)
+        (repo / "tools").mkdir()
+        (repo / "build" / "Release").mkdir(parents=True)
+        source_root = Path(__file__).resolve().parents[1]
+        shutil.copy2(source_root / "scripts" / "ecosystem.ps1", repo / "scripts")
+        shutil.copy2(source_root / "tools" / "view_ecosystem.py", repo / "tools")
+        shutil.copy2(EXECUTABLE, repo / "build" / "Release" / "neuroevo_ecosystem.exe")
+        (repo / "build" / "neuroevo_ecosystem.exe").write_bytes(b"stale incompatible binary")
+        (repo / "build" / "CMakeCache.txt").write_text(
+            "CMAKE_CONFIGURATION_TYPES:STRING=Debug;Release\n", encoding="utf-8")
+        output = repo / "output"
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-File",
+            str(repo / "scripts" / "ecosystem.ps1"), "-Steps", "1", "-DetailedTailSeconds", "1",
+            "-KeepJsonl", "-RunDir", str(output)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((output / "ecosystem.html").exists())
+        self.assertTrue((output / "ecosystem_tail.html").exists())
+        imported = repo / "imported"
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-File",
+            str(repo / "scripts" / "ecosystem.ps1"), "-StartingGenomes", str(output),
+            "-Steps", "1", "-Creatures", "3", "-KeepJsonl", "-RunDir", str(imported)],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((imported / "ecosystem.html").exists())
+        self.assertEqual(len(list(csv.DictReader((imported / "starting_genomes.csv").open()))), 3)
+
     def test_regional_meat_decay_and_old_checkpoint(self):
         first = self.run_world("regional_meat", "--creatures", 1, "--steps", 1,
                                "--meat-decay", 0.012, "--nursery-meat-decay", 0.045)
@@ -62,7 +93,7 @@ class EcosystemCliTests(unittest.TestCase):
     def test_filtered_lif_switch_and_resume(self):
         for dt in (0.005, 0.002):
             args = ("--creatures", 1, "--no-reproduction", "--founder-brain", "random", "--brain-dt", dt,
-                    "--neuron-model", "filtered-lif", "--record-brain-graphs", 1)
+                    "--neuron-model", "filtered-lif", "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
             first = self.run_world(f"filtered_{dt}", *args, "--steps", 3)
             meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
             self.assertEqual(meta["neuron_model"], "filtered-lif")
@@ -82,7 +113,7 @@ class EcosystemCliTests(unittest.TestCase):
 
     def test_izhikevich_switch_and_resume(self):
         first = self.run_world("izh", "--creatures", 1, "--steps", 3,
-                               "--neuron-model", "izhikevich", "--izh-d", 2, "--record-brain-graphs", 1)
+                               "--neuron-model", "izhikevich", "--izh-d", 2, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(meta["neuron_model"], "izhikevich")
         self.assertEqual(meta["brain_dt"], 0.001)
@@ -109,6 +140,15 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((path / "summary.json").read_text())
         self.assertEqual(summary["record_every"], 500)
         self.assertFalse(summary["record_brains"])
+        self.assertEqual(summary["detailed_tail_seconds"], 600)
+        tail = [json.loads(line) for line in (path / "ecosystem_tail.jsonl").read_text().splitlines()]
+        self.assertEqual([frame["step"] for frame in tail[1:]], [0, 3])
+        self.assertTrue(tail[0]["brains"])
+        self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 83)
+        disabled = self.run_world("tail_disabled", "--creatures", 1, "--steps", 1,
+                                  "--detailed-tail-seconds", 0)
+        self.assertFalse((disabled / "ecosystem_tail.jsonl").exists())
 
     def test_population_and_brain_recording(self):
         worlds = []
@@ -116,7 +156,7 @@ class EcosystemCliTests(unittest.TestCase):
             path = self.run_world(str(population), "--creatures", population,
                                   "--steps", 30, "--record-every", 10,
                                   "--no-reproduction", "--seed", 17, "--record-brains", 1,
-                                  "--record-brain-graphs", 1, "--record-observations", 1)
+                                  "--record-brain-graphs", 1, "--record-observations", 1, "--detailed-tail-seconds", 0)
             lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
             metadata, final = lines[0], lines[-1]
             self.assertEqual(metadata["type"], "metadata")
@@ -180,7 +220,7 @@ class EcosystemCliTests(unittest.TestCase):
     def test_sparse_ancestor_nursery_is_exposed_in_the_cli(self):
         path = self.run_world("ancestor", "--creatures", 1, "--habitat", "ancestor-nursery",
                               "--steps", 5, "--record-every", 5, "--record-brains", 0,
-                              "--record-observations", 0, "--record-brain-graphs", 1)
+                              "--record-observations", 0, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
         brain = lines[0]["brains"][0]
         self.assertEqual((brain["inputs"], brain["outputs"]), (83, 6))
@@ -230,9 +270,9 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertFalse(json.loads((path / "summary.json").read_text())["storms_enabled"])
 
     def test_founders_start_fresh_brains_in_another_world(self):
-        first = self.run_world("source", "--creatures", 2, "--steps", 5, "--record-brain-graphs", 1)
+        first = self.run_world("source", "--creatures", 2, "--steps", 5, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         second = self.run_world("new", "--creatures", 4, "--steps", 1, "--seed", 99,
-                                "--food-assignment", "b-rich", "--founders", first / "checkpoint.eco", "--record-brain-graphs", 1)
+                                "--food-assignment", "b-rich", "--founders", first / "checkpoint.eco", "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         original = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
         lines = [json.loads(x) for x in (second / "ecosystem.jsonl").read_text().splitlines()]
         self.assertFalse(lines[0]["fruit_a_rich"])
@@ -241,7 +281,7 @@ class EcosystemCliTests(unittest.TestCase):
 
     def test_starting_genomes_samples_reproducibly_and_resets_founders(self):
         source = self.run_world("source with spaces", "--founder-brain", "random", "--creatures", 3, "--steps", 20,
-                                "--predation", 1, "--founder-mass", 0.7, "--founder-carnivory", 0.2, "--record-brain-graphs", 1)
+                                "--predation", 1, "--founder-mass", 0.7, "--founder-carnivory", 0.2, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         saved = (source / "checkpoint.eco").read_bytes()
         source_meta = json.loads((source / "ecosystem.jsonl").read_text().splitlines()[0])
         source_brains = {b["id"]: b for b in source_meta["brains"]}
@@ -249,7 +289,7 @@ class EcosystemCliTests(unittest.TestCase):
         for name, seed in (("sampled", 49), ("repeated", 49), ("different", 50)):
             out = self.run_world(name, "--starting-genomes", source, "--creatures", 20,
                                  "--seed", seed, "--steps", 1, "--founder-energy", 80,
-                                 "--food-assignment", "b-rich", "--record-brain-graphs", 1, "--record-brains", 1)
+                                 "--food-assignment", "b-rich", "--record-brain-graphs", 1, "--record-brains", 1, "--detailed-tail-seconds", 0)
             outputs.append(out)
         self.assertEqual((outputs[0] / "initial.eco").read_bytes(),
                          (outputs[1] / "initial.eco").read_bytes())

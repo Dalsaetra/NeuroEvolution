@@ -6,6 +6,7 @@ No web server, package installation, or internet connection is required.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import gzip
 import html
@@ -21,8 +22,14 @@ def _reject_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON number: {value}")
 
 
+def _json_integer(value: str) -> int | float:
+    # C++ may print signed floating-point zero as -0, without a decimal point.
+    return -0.0 if value == "-0" else int(value)
+
+
 def read_replay(path: Path, *, recover_truncated: bool = False,
-                overview: bool = False, max_frames: int | None = None) -> dict[str, Any]:
+                overview: bool = False, max_frames: int | None = None,
+                max_frame_bytes: int | None = None, pack_resources: bool = False) -> dict[str, Any]:
     """Read and validate the recording envelope; optional diagnostics stay optional."""
     if path.is_dir():
         plain = path / "ecosystem.jsonl"
@@ -32,8 +39,15 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
         source = path
     metadata: dict[str, Any] | None = None
     frames: list[dict[str, Any]] = []
+    resource_bases: dict[str, dict[str, Any]] = {}
     if max_frames is not None and max_frames < 2:
         raise ValueError("max_frames must be at least 2")
+    if max_frame_bytes is not None and max_frame_bytes < 1:
+        raise ValueError("max_frame_bytes must be positive")
+    frame_bytes = 0
+    size_sampled = False
+    def encoded_size(frame: dict[str, Any]) -> int:
+        return len(json.dumps(frame, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     stride, frame_count = 1, 0
     last_frame = None
     previous_time = -1
@@ -44,7 +58,7 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
             if not line.strip():
                 continue
             try:
-                record = json.loads(line, parse_constant=_reject_constant)
+                record = json.loads(line, parse_constant=_reject_constant, parse_int=_json_integer)
             except json.JSONDecodeError as error:
                 if recover_truncated and not line.endswith("\n") and not handle.read(1):
                     warnings.warn(f"{source.name}: skipped incomplete final JSON record on line {line_number}; using complete saved frames")
@@ -74,6 +88,20 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
                     if not isinstance(record[key], list) or any(not isinstance(item, dict) for item in record[key]):
                         raise ValueError(f"Frame on line {line_number}: {key} must contain objects")
                 record.setdefault("totals", {})
+                if pack_resources and all(type(r.get("id")) is int for r in record["resources"]):
+                    # Store static resource fields once; per-frame changes are
+                    # absolute values, never rounded or accumulated deltas.
+                    rows = []
+                    for resource in record.pop("resources"):
+                        base = resource_bases.setdefault(str(resource["id"]), resource)
+                        changed = {key: value for key, value in resource.items()
+                                   if key not in base or type(value) is not type(base[key]) or value != base[key]
+                                   or (isinstance(value, float) and value == 0 and
+                                       math.copysign(1, value) != math.copysign(1, base[key]))}
+                        removed = [key for key in base if key not in resource]
+                        rows.append([resource["id"], changed, removed] if removed else
+                                    [resource["id"], changed] if changed else resource["id"])
+                    record["resource_rows"] = rows
                 if overview:
                     for creature in record["creatures"]:
                         creature.pop("brain", None)
@@ -88,7 +116,11 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
                 if frame_count % stride == 0:
                     record["events"], pending_events = pending_events, []
                     frames.append(record)
-                    if max_frames and len(frames) > max_frames:
+                    if max_frame_bytes is not None:
+                        frame_bytes += encoded_size(record)
+                    while len(frames) > 2 and ((max_frames and len(frames) > max_frames)
+                            or (max_frame_bytes is not None and frame_bytes > max_frame_bytes)):
+                        size_sampled |= max_frame_bytes is not None and frame_bytes > max_frame_bytes
                         reduced, carry = [], []
                         for index, frame in enumerate(frames):
                             carry.extend(frame["events"])
@@ -98,6 +130,8 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
                         pending_events = carry + pending_events
                         frames = reduced
                         stride *= 2
+                        if max_frame_bytes is not None:
+                            frame_bytes = sum(encoded_size(frame) for frame in frames)
                 frame_count += 1
             else:
                 raise ValueError(f"{source.name}, line {line_number}: unknown record type {record.get('type')!r}")
@@ -126,6 +160,9 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
         if max_frames and len(frames) >= max_frames:
             last_frame["events"] = frames.pop()["events"] + last_frame["events"]
         frames.append(last_frame)
+    if size_sampled:
+        warnings.warn(f"{source.name}: sampled {len(frames)} of {frame_count} frames to keep the HTML viewer manageable; "
+                      "first/final states, events, and original recording are preserved")
     stats = []
     stats_path = source.parent / "ecosystem_stats.csv"
     if stats_path.exists():
@@ -142,14 +179,25 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
                 if "time" in numeric:
                     stats.append(numeric)
         stats.sort(key=lambda row: row["time"])
-    return {"metadata": metadata, "frames": frames, "name": source.parent.name, "stats": stats,
-            "overview": overview, "source_frames": frame_count}
+    payload = {"metadata": metadata, "frames": frames, "name": source.parent.name, "stats": stats,
+               "overview": overview, "source_frames": frame_count}
+    if pack_resources:
+        payload["resource_bases"] = resource_bases
+    return payload
 
 
-def render_html(payload: dict[str, Any]) -> str:
+def render_html(payload: dict[str, Any], *, compress: bool = False) -> str:
     # Escaping '<' is essential: JSON strings can contain a closing script tag.
     data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    if len(data.encode("utf-8")) > 200 * 1024 * 1024:
+    template = TEMPLATE
+    if compress:
+        data = json.dumps({"encoding": "gzip-base64", "data": base64.b64encode(
+            gzip.compress(data.encode("utf-8"), compresslevel=6, mtime=0)).decode("ascii")}, separators=(",", ":"))
+        template = template.replace("'use strict';", "'use strict';\n(async()=>{")
+        template = template.replace("const replay=JSON.parse(document.getElementById('replay-data').textContent);",
+            REPLAY_LOADER + "\nconst replay=await decodeReplay(document.getElementById('replay-data'));\n")
+        template = template.replace("resize();\n</script>", "resize();\n})().catch(error=>{document.getElementById('recordingInfo').textContent='Could not load replay: '+error.message;});\n</script>")
+    if not compress and len(data.encode("utf-8")) > 200 * 1024 * 1024:
         raise ValueError("Replay exceeds the 200 MiB HTML budget. Rebuild with --max-frames 100 (or fewer); original recording is preserved.")
     for character, replacement in (("&", "\\u0026"), ("<", "\\u003c"), (">", "\\u003e"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
         data = data.replace(character, replacement)
@@ -157,7 +205,42 @@ def render_html(payload: dict[str, Any]) -> str:
         "__REPLAY_TITLE__": html.escape(str(payload.get("name", "Ecosystem"))),
         "__REPLAY_PAYLOAD__": data,
     }
-    return re.sub(r"__REPLAY_TITLE__|__REPLAY_PAYLOAD__", lambda match: replacements[match.group()], TEMPLATE)
+    return re.sub(r"__REPLAY_TITLE__|__REPLAY_PAYLOAD__", lambda match: replacements[match.group()], template)
+
+
+REPLAY_LOADER = r'''
+async function decodeReplay(element){
+ const envelope=JSON.parse(element.textContent);
+ if(envelope.encoding!=='gzip-base64')throw Error('Unknown replay encoding');
+ if(typeof DecompressionStream==='undefined')throw Error('Use a current Edge, Chrome, or Firefox browser for this compressed replay');
+ const binary=atob(envelope.data),bytes=new Uint8Array(binary.length);
+ for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+ element.textContent='';
+ const replay=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+ const bases=replay.resource_bases;
+ if(bases){
+  // Only materialize resources for the displayed frame. Scrubbing backwards
+  // works directly because patches refer to a fixed base, not previous frames.
+  let cachedFrame=null,cachedResources=null;
+  for(const frame of replay.frames){
+   if(!frame.resource_rows)continue;
+   const rows=frame.resource_rows;delete frame.resource_rows;
+   Object.defineProperty(frame,'resources',{enumerable:true,get(){
+    if(cachedFrame!==frame){
+     cachedResources=rows.map(row=>{
+      const id=Array.isArray(row)?row[0]:row;
+      const value={...bases[id],...(Array.isArray(row)?row[1]:{})};
+      if(Array.isArray(row)&&row[2])for(const key of row[2])delete value[key];
+      return value;
+     });cachedFrame=frame;
+    }return cachedResources;
+   }});
+  }
+  delete replay.resource_bases;
+ }
+ return replay;
+}
+'''
 
 
 TEMPLATE = r'''<!doctype html>
@@ -402,17 +485,19 @@ def main() -> None:
                         help="After generating HTML, replace an uncompressed JSONL source with ecosystem.jsonl.gz")
     parser.add_argument("--recover-truncated", action="store_true",
                         help="Ignore an incomplete final JSON line after interruption; leave other validation strict")
-    parser.add_argument("--max-frames", type=int, help="Bound embedded frames; main overview defaults to 500, tail retains all")
+    parser.add_argument("--max-frames", type=int, help="Explicitly sample frames; main defaults to 500, tails retain every recorded frame")
     arguments = parser.parse_args()
     try:
         is_tail = not arguments.run_dir.is_dir() and arguments.run_dir.name.startswith("ecosystem_tail.")
         payload = read_replay(arguments.run_dir, recover_truncated=arguments.recover_truncated,
-                              overview=not is_tail, max_frames=arguments.max_frames if arguments.max_frames is not None else (None if is_tail else 500))
+                              overview=not is_tail, max_frames=arguments.max_frames if arguments.max_frames is not None else (None if is_tail else 500),
+                              max_frame_bytes=None if is_tail else 64 * 1024 * 1024,
+                              pack_resources=is_tail)
         directory = arguments.run_dir if arguments.run_dir.is_dir() else arguments.run_dir.parent
         destination = arguments.output or directory / ("ecosystem_tail.html" if is_tail else "ecosystem.html")
         destination.parent.mkdir(parents=True, exist_ok=True)
         # Avoid replacing a working replay with a partial/failed render.
-        rendered = render_html(payload)
+        rendered = render_html(payload, compress=is_tail)
         temporary = destination.with_name(destination.name + ".tmp")
         try:
             temporary.write_text(rendered, encoding="utf-8")

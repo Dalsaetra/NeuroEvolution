@@ -65,26 +65,49 @@ Optional CLI overrides remain available through `--help`. The launcher passes bi
 Runs save `ecosystem.jsonl`, `ecosystem_stats.csv`, `events.csv`, `summary.json`, `performance.csv`, and initial/final `.eco` checkpoints. Detailed tails add `ecosystem_tail.jsonl`. The viewer displays terrain, food, creatures, ancestry, diets, body traits, sensory values, and neural activity where recorded.
 
 Main recording defaults are compact: one frame every 500 world steps, without
-brain states, graphs, sensory arrays, or routine feeding events. With a detailed
-tail enabled, brain states/graphs and sensory arrays are stored only in the tail,
-even if old main-detail flags are supplied. `-Recording detailed` now selects a
-compact main history plus a 600-second detailed tail unless its duration is
-specified explicitly. `-Recording standard` records more frequent world frames
-without neural diagnostics. All recording options apply afresh on resume.
+brain states, graphs, sensory arrays, or routine feeding events. A detailed tail
+is enabled by default: the final 600 simulation seconds, recorded every 10 world
+steps (normally one second), with brain states/graphs and sensory arrays. Neural
+details stay in the tail even if old main-detail flags are supplied.
+`-Recording detailed` explicitly selects this same compact-history/detailed-tail
+combination; it is no longer required. `-Recording standard` records more frequent
+main-history frames without neural diagnostics. Use `-DetailedTailSeconds 0` to
+disable the tail. All recording options apply afresh on resume and genome import.
 
 The HTML generator makes `ecosystem.html` an overview with at most 500 frames,
 including the first and final frames. It omits neural/sensory arrays from old
 recordings too, retains milestone events and the full statistics CSV, and leaves
 the original recording intact. `ecosystem_tail.html` retains recorded detail and
-all tail frames. For unusually large tails use `--max-frames N` when rebuilding;
-generation rejects embedded payloads over 200 MiB instead of creating an HTML
-file too large to open. Outputs are replaced only after successful generation.
+every recorded tail frame, including brain dynamics and observations. Tail HTML
+uses lossless gzip compression and stores repeated resource properties once;
+the browser reconstructs resources for the displayed frame. Open it directly in
+a current Edge, Chrome, or Firefox browser. No server or internet is required.
+Only an explicit `--max-frames N` samples a tail. The main overview retains its
+64 MiB frame budget. Outputs are replaced only after successful generation.
+
+The detailed tail is recorded automatically. `-TailRecordEvery 1` records every world step (0.1 s by default);
+the default interval is 10 steps (1 s). These are snapshots of the neural state
+at each recorded world step, not every internal neural substep. A shorter tail
+duration reduces size without changing its frame interval or brain detail.
+The launcher also gzip-compresses the source recording unless `-KeepJsonl` is set.
 
 ```powershell
 .\scripts\ecosystem.ps1 -Resume runs/nursery/checkpoint.eco -Steps 2400
 .\scripts\ecosystem.ps1 -StartingGenomes runs/nursery -Creatures 24 -Seed 42
 .\scripts\rebuild-ecosystem.ps1 runs/nursery -Open
 ```
+
+After changing constants, use `.\scripts\ecosystem.ps1 -Build` to compile and
+start a new simulation. `rebuild-ecosystem.ps1` regenerates HTML from an existing
+recording; it does not compile or rerun the simulation. The launcher selects the
+Release executable for Visual Studio builds, ignoring old binaries from other
+build layouts.
+
+Historical GCC and MSVC checkpoints use different random-generator formats.
+When resuming or importing starting genomes from a GCC checkpoint in an MSVC setup, the launcher automatically
+builds/uses `build/resume-gnu` with the installed `g++` and Ninja. This keeps the
+original runtime's random sequence and distributions instead of converting the
+saved state. Direct executable invocations require the matching runtime.
 
 Resume restores saved biological settings, neural state, food, and RNG streams. Editing defaults affects new worlds; it does not rewrite a checkpoint. `-StartingGenomes` samples distinct surviving genome IDs uniformly for a fresh population, resetting lifetime state. It imports founders once at startup.
 

@@ -12,6 +12,7 @@ param(
     [ValidateRange(0.000001, 10000)][double]$SynapticGain,
     [ValidateSet("compact", "standard", "detailed")][string]$Recording,
     [ValidateRange(0, 1000000)][double]$DetailedTailSeconds,
+    [ValidateRange(1, 100000)][int]$TailRecordEvery,
     [switch]$KeepJsonl,
     [switch]$Build,
     [switch]$Open,
@@ -36,7 +37,7 @@ if ($Resume) {
 if ($StartingGenomes -and $PSBoundParameters.ContainsKey("FounderBrain")) {
     throw "-StartingGenomes and -FounderBrain select different genome sources."
 }
-if ($OpenTail -and (-not $PSBoundParameters.ContainsKey("DetailedTailSeconds") -or $DetailedTailSeconds -le 0)) {
+if ($OpenTail -and $PSBoundParameters.ContainsKey("DetailedTailSeconds") -and $DetailedTailSeconds -le 0) {
     throw "-OpenTail requires -DetailedTailSeconds greater than zero."
 }
 if ($Build) {
@@ -46,14 +47,61 @@ if ($Build) {
     if ($LASTEXITCODE -ne 0) { throw "Ecosystem build failed" }
 }
 $Executable = $null
-foreach ($Candidate in @("neuroevo_ecosystem.exe", "Release/neuroevo_ecosystem.exe", "Debug/neuroevo_ecosystem.exe", "neuroevo_ecosystem")) {
+# Match the configured generator, even if a previous compiler left binaries here.
+$CachePath = Join-Path $BuildPath "CMakeCache.txt"
+$MultiConfig = (Test-Path -LiteralPath $CachePath) -and
+    (Select-String -LiteralPath $CachePath -Pattern '^CMAKE_CONFIGURATION_TYPES:' -Quiet)
+$Candidates = if ($MultiConfig) { @("Release/neuroevo_ecosystem.exe", "Release/neuroevo_ecosystem") }
+    else { @("neuroevo_ecosystem.exe", "neuroevo_ecosystem") }
+foreach ($Candidate in $Candidates) {
     $Path = Join-Path $BuildPath $Candidate
     if (Test-Path -LiteralPath $Path -PathType Leaf) { $Executable = $Path; break }
 }
 if (-not $Executable) { throw "Ecosystem executable not found. Run with -Build first." }
+if ($Resume -or $StartingGenomes) {
+    $CheckpointPath = if ($Resume) { Resolve-RepoPath $Resume }
+        else { Join-Path (Resolve-RepoPath $StartingGenomes) "checkpoint.eco" }
+    $Reader = [System.IO.File]::OpenText($CheckpointPath)
+    $SavedWords = 0
+    try {
+        # Supported historical formats put the first RNG line in this header.
+        for ($LineIndex = 0; $LineIndex -lt 32 -and -not $Reader.EndOfStream; ++$LineIndex) {
+            $Line = $Reader.ReadLine().Trim()
+            if ($Line -match '^\d+(\s+\d+){311,312}$') {
+                $SavedWords = ($Line -split '\s+').Count
+                break
+            }
+        }
+    } finally { $Reader.Dispose() }
+    if ($SavedWords) {
+        $NativeWords = & $Executable --rng-state-words
+        if ($LASTEXITCODE -ne 0) { throw "Rebuild the executable with -Build before loading a checkpoint." }
+        if ([int]$NativeWords -ne $SavedWords) {
+            if ($SavedWords -ne 313) {
+                throw "This checkpoint needs the MSVC build. Configure a Visual Studio Release build to load it."
+            }
+            $GnuCompiler = Get-Command g++ -ErrorAction SilentlyContinue
+            if (-not $GnuCompiler -or -not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+                throw "This checkpoint was saved by the GCC build. GCC (g++) and Ninja are required to load it with a compatible runtime."
+            }
+            $CompatibleBuild = Join-Path $BuildPath "resume-gnu"
+            Write-Host "Checkpoint requires the GCC runtime; building a compatible executable."
+            & cmake -S $RepoRoot -B $CompatibleBuild -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_COMPILER=$($GnuCompiler.Source)"
+            if ($LASTEXITCODE -ne 0) { throw "Compatible resume build configuration failed" }
+            & cmake --build $CompatibleBuild --target neuroevo_ecosystem
+            if ($LASTEXITCODE -ne 0) { throw "Compatible resume build failed" }
+            $Executable = Join-Path $CompatibleBuild "neuroevo_ecosystem.exe"
+            $CompatibleWords = & $Executable --rng-state-words
+            if ($LASTEXITCODE -ne 0 -or [int]$CompatibleWords -ne $SavedWords) {
+                throw "The compatible build does not support this checkpoint's RNG format."
+            }
+        }
+    }
+}
+Write-Host "Executable: $Executable"
 $SimulationArguments = @("--out", $RunPath)
 foreach ($Setting in @(@("Steps", "--steps"), @("Creatures", "--creatures"), @("Seed", "--seed"),
-    @("Controller", "--controller"), @("FounderBrain", "--founder-brain"), @("NeuronModel", "--neuron-model"), @("BrainDt", "--brain-dt"), @("SynapticGain", "--synaptic-gain"), @("DetailedTailSeconds", "--detailed-tail-seconds"))) {
+    @("Controller", "--controller"), @("FounderBrain", "--founder-brain"), @("NeuronModel", "--neuron-model"), @("BrainDt", "--brain-dt"), @("SynapticGain", "--synaptic-gain"), @("DetailedTailSeconds", "--detailed-tail-seconds"), @("TailRecordEvery", "--tail-record-every"))) {
     if ($PSBoundParameters.ContainsKey($Setting[0])) {
         $Value = $PSBoundParameters[$Setting[0]]
         $SimulationArguments += @($Setting[1], [Convert]::ToString($Value, [System.Globalization.CultureInfo]::InvariantCulture))
