@@ -1,8 +1,9 @@
 # Delayed self-connections: feasibility experiment
 
 Date: 2026-09-10. These results use the actual C++ `Brain::step` implementation.
-This experiment adds explicit self-delay support to constructed circuits. Random
-founders and evolutionary mutation still do not create self-connections.
+This experiment added explicit self-delay support to constructed circuits.
+As of 2026-09-15, the dedicated `add_autapse_probability` structural mutation can
+also create hidden-neuron self-connections. Random founders still exclude them.
 
 ## Decision
 

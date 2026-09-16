@@ -142,6 +142,7 @@ int main(int argc, char** argv)
             {"--mutate-neuron-prob",&cfg.mutation.mutate_neuron_probability},
             {"--mutate-add-synapse-prob",&cfg.mutation.add_synapse_probability},
             {"--mutate-add-neuron-prob",&cfg.mutation.add_neuron_probability},
+            {"--mutate-add-autapse-prob",&cfg.mutation.add_autapse_probability},
             {"--mutate-reciprocal-motif-prob",&cfg.mutation.add_reciprocal_motif_probability},
             {"--mutate-remove-synapse-prob",&cfg.mutation.remove_synapse_probability}};
         std::size_t steps=run.steps,record_every=run.record_every,tail_record_every=run.tail_record_every,companions=0;
@@ -196,6 +197,7 @@ int main(int argc, char** argv)
                     "  --food-assignment X       random, a-rich, or b-rich\n"
                     "  --reproduction 0|1        Enable automatic local reproduction\n"
                     "  --no-reproduction         Shortcut for --reproduction 0\n"
+                    "  --mutate-add-autapse-prob X  Autapse structural choice weight, 0..1 (default 0.10)\n"
                     "  --communication 0|1       Enable calling and hearing\n"
                     "  --storms 0|1              Enable weather cycle and storm effects\n"
                     "  --no-storms               Keep storm sensor but hold it at zero and skip storms\n"
@@ -625,6 +627,7 @@ int main(int argc, char** argv)
             << ",\"mutate_neuron_probability\":" << world.config.mutation.mutate_neuron_probability
             << ",\"add_synapse_probability\":" << world.config.mutation.add_synapse_probability
             << ",\"add_neuron_probability\":" << world.config.mutation.add_neuron_probability
+            << ",\"add_autapse_probability\":" << world.config.mutation.add_autapse_probability
             << ",\"max_hidden_neurons\":" << world.config.mutation.max_hidden_neurons
             << ",\"rewire_synapse_probability\":" << world.config.mutation.rewire_synapse_probability
             << ",\"remove_synapse_probability\":" << world.config.mutation.remove_synapse_probability

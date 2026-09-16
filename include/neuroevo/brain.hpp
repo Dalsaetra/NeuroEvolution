@@ -48,7 +48,8 @@ public:
 
     static Brain random(BrainConfig config, Random& rng);
     // Non-self delays are derived from geometry; self-synapses keep their explicit
-    // delay (1..max_delay_steps). Random founders and mutation do not create them.
+    // delay (1..max_delay_steps). Only the dedicated autapse mutation creates them;
+    // random founders and ordinary wiring mutations exclude self-connections.
     static Brain from_components(
         BrainConfig config,
         std::vector<Neuron> neurons,
@@ -100,6 +101,7 @@ private:
     std::vector<std::size_t> disconnected_hidden_neurons() const;
     void remove_hidden_neuron(std::size_t index);
     void add_reciprocal_motif(Random& rng, bool weak = false);
+    void add_autapse(Random& rng);
     void ensure_io_connectivity(Random& rng);
 };
 

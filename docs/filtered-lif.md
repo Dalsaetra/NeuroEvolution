@@ -140,9 +140,10 @@ model and timestep must match. It is a new world, not a continuation.
 Filtered LIF uses the existing LIF mutation path for weights, wiring, thresholds,
 biases, positions, and background sensitivity. Membrane/synaptic time constants
 and refractory duration are inherited configuration values and do not mutate.
-No adaptation current is added. Existing restrictions on creating self-edges
-remain: constructed/imported self-edges keep their explicit delays, while random
-founders and structural mutation do not create them.
+No adaptation current is added. The dedicated `add_autapse_probability` structural
+operator can create hidden-neuron self-edges with explicit delays; constructed
+and imported self-edges also keep their explicit delays. Random founders and
+ordinary wiring mutations exclude self-edges. See the README for mutation settings.
 
 Brain checkpoint format 5 stores the filtered current of every neuron and the
 synaptic time constant, along with pending delayed events, voltage, refractory

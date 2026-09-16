@@ -34,7 +34,7 @@ void BrainConfig::select_model(NeuronModel model)
     if (model == NeuronModel::FilteredLif || neuron_model == NeuronModel::FilteredLif) {
         membrane_tau = model == NeuronModel::FilteredLif ? 0.05 : 0.10;
         refractory_time = model == NeuronModel::FilteredLif ? 0.01 : 0.04;
-        synaptic_gain = model == NeuronModel::FilteredLif ? 20.0 : 32.0;
+        synaptic_gain = model == NeuronModel::FilteredLif ? 12.0 : 32.0;
     }
     neuron_model = model;
     dt = model == NeuronModel::Izhikevich ? 0.001 : model == NeuronModel::FilteredLif ? 0.005 : 0.02;
@@ -226,6 +226,7 @@ void EcosystemConfig::validate() const
              mutation.background_sensitivity_sigma}) positive(value, "A mutation standard deviation", true);
     for (const auto value : {mutation.add_synapse_probability, mutation.add_neuron_probability,
              mutation.add_reciprocal_motif_probability,
+             mutation.add_autapse_probability,
              mutation.remove_synapse_probability, mutation.remove_neuron_probability, mutation.rewire_synapse_probability,
              mutation.mutate_weight_probability, mutation.mutate_neuron_probability}) probability(value, "Mutation probability");
     if (mutation.max_hidden_neurons < (sparse_ancestor && controller == ControllerKind::Spiking ? 2+eco_sectors : brain.hidden_count) || mutation.max_hidden_neurons > 10000)

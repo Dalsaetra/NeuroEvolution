@@ -1,4 +1,5 @@
 #include "../tools/autapse_fixture.hpp"
+#include "../src/ecosystem_mutation.hpp"
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -6,6 +7,45 @@
 using namespace autapse;
 void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 int main() try {
+    // Dedicated structural operator creates one unique hidden-neuron self edge.
+    neuroevo::MutationConfig mutation;
+    mutation.structural_edit_probability=1;
+    mutation.add_synapse_probability=mutation.add_neuron_probability=mutation.add_reciprocal_motif_probability=0;
+    mutation.remove_synapse_probability=mutation.remove_neuron_probability=mutation.rewire_synapse_probability=0;
+    mutation.add_autapse_probability=1;
+    for (auto model:{neuroevo::NeuronModel::Lif,neuroevo::NeuronModel::FilteredLif,neuroevo::NeuronModel::Izhikevich}) {
+        neuroevo::BrainConfig c;c.select_model(model);c.input_count=1;c.hidden_count=2;c.output_count=1;
+        auto b=Brain::from_components(c,std::vector<Brain::Neuron>(4),{});
+        neuroevo::Random rng(83);
+        b.mutate(mutation,rng);
+        require(b.synapses().size()==1,"Autapse operator did not add exactly one edge");
+        const auto e=b.synapses()[0];
+        require(e.pre==e.post && e.pre>=1 && e.pre<3 && e.delay_steps>=1 && e.delay_steps<=c.max_delay_steps,
+            "Autapse creation selected invalid neuron or delay");
+        b.mutate(mutation,rng);b.mutate(mutation,rng);
+        require(b.synapses().size()==2,"Autapse creation duplicated an existing self edge");
+        std::stringstream stream;b.save_state(stream);auto copy=Brain::load_state(stream);
+        require(copy.synapses()[0].delay_steps==e.delay_steps,"Created autapse delay did not survive checkpoint");
+        // One externally connected hidden cell and one self-only cell.
+        auto pruned=Brain::from_components(c,std::vector<Brain::Neuron>(4),{{0,1,1,1},{1,3,1,1},{2,2,1,2}});
+        require(pruned.remove_disconnected_hidden_neuron(rng),"Self-only cell was not considered disconnected");
+        require(pruned.config().hidden_count==1 && pruned.synapses().size()==2,
+            "Pruning removed the connected cell or retained the isolated autapse");
+        require(!pruned.remove_disconnected_hidden_neuron(rng),"Connected cell was incorrectly pruned");
+        auto structural=Brain::from_components(c,std::vector<Brain::Neuron>(4),{{0,1,1,1},{1,3,1,1},{2,2,1,2}});
+        auto remove=mutation;remove.add_autapse_probability=0;remove.remove_neuron_probability=1;
+        structural.mutate(remove,rng);
+        require(structural.synapses().size()==2 && structural.synapses()[0].pre==0,
+            "Structural removal did not prioritize the self-only cell");
+        auto disabled=mutation;disabled.add_autapse_probability=0;
+        auto empty=Brain::from_components(c,std::vector<Brain::Neuron>(4),{});
+        empty.mutate(disabled,rng);require(empty.synapses().empty(),"Disabled autapse operator created an edge");
+        c.hidden_count=0;auto no_hidden=Brain::from_components(c,std::vector<Brain::Neuron>(2),{});
+        no_hidden.mutate(mutation,rng);require(no_hidden.synapses().empty(),"Created an input/output autapse");
+    }
+    auto profile=neuroevo::detail::slight_mutation(mutation);
+    require(profile.add_autapse_probability==mutation.add_autapse_probability*mutation.slight.operator_scale,
+        "Birth scaling lost dedicated autapse probability");
     for (int d=1; d<=8; ++d) {
         Parameters p; p.delay=d;
         auto r=run(make(p),2000,[](int t) { auto x=blank(); x[0]=t==0; return x; });

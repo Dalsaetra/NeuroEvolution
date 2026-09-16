@@ -326,10 +326,11 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
     const bool budgeted = config.structural_edit_probability >= 0;
     const double grow = budgeted || config_.hidden_count < config.max_hidden_neurons ? config.add_neuron_probability : 0.0;
     const double motif = config_.hidden_count >= 2 ? config.add_reciprocal_motif_probability : 0.0;
+    const double autapse = config_.hidden_count > 0 ? config.add_autapse_probability : 0.0;
     const double remove = budgeted || !synapses_.empty() ? config.remove_synapse_probability : 0.0;
     const double prune = budgeted || config_.hidden_count > 0 ? config.remove_neuron_probability : 0.0;
     const double rewire = budgeted || !synapses_.empty() ? config.rewire_synapse_probability : 0.0;
-    const double structural = add + grow + motif + remove + prune + rewire;
+    const double structural = add + grow + motif + remove + prune + rewire + autapse;
     bool moved = false;
     if (structural > 0 && rng.chance(budgeted ? config.structural_edit_probability : std::min(1.0, structural))) {
         const double choice = rng.uniform(0.0, structural);
@@ -343,7 +344,8 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
                 synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
         }
         else if (choice < add + grow + motif + remove + prune) remove_random_neuron(rng);
-        else rewire_random_synapse(rng, input_groups);
+        else if (choice < add + grow + motif + remove + prune + rewire) rewire_random_synapse(rng, input_groups);
+        else add_autapse(rng);
     } else {
         const double weights = synapses_.empty() ? 0.0 : config.mutate_weight_probability * (budgeted ? 4.0 : 1.0);
         const bool sensory_edits = budgeted && !input_groups.empty();
@@ -434,7 +436,9 @@ void Brain::remove_random_neuron(Random& rng)
 std::vector<std::size_t> Brain::disconnected_hidden_neurons() const
 {
     std::vector<bool> incoming(total_neurons(), false), outgoing(total_neurons(), false);
-    for (const auto& edge : synapses_) { outgoing[edge.pre] = true; incoming[edge.post] = true; }
+    for (const auto& edge : synapses_) if (edge.pre != edge.post) {
+        outgoing[edge.pre] = true; incoming[edge.post] = true;
+    }
     std::vector<std::size_t> candidates;
     for (auto i = first_hidden_index(); i < first_output_index(); ++i)
         if (!incoming[i] || !outgoing[i]) candidates.push_back(i);
@@ -525,7 +529,9 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
 {
     if (config_.hidden_count + config_.output_count == 0) return;
     std::vector<bool> incoming(total_neurons(), false), outgoing(total_neurons(), false);
-    for (const auto& edge : synapses_) { outgoing[edge.pre] = true; incoming[edge.post] = true; }
+    for (const auto& edge : synapses_) if (edge.pre != edge.post) {
+        outgoing[edge.pre] = true; incoming[edge.post] = true;
+    }
     // Prefer repairing both ends. If that would require a self-loop, repair
     // either end with equal priority, using only legal, unoccupied connections.
     if (!disconnected_hidden_neurons().empty()) {
@@ -701,6 +707,19 @@ void Brain::add_random_neuron(Random& rng, bool weak)
         compute_delay_steps(neurons_[pre].position, neurons_[insertion].position)});
     synapses_.push_back({insertion, post, branch,
         compute_delay_steps(neurons_[insertion].position, neurons_[post].position)});
+}
+
+void Brain::add_autapse(Random& rng)
+{
+    std::vector<std::size_t> candidates;
+    for (auto i=first_hidden_index(); i<first_output_index(); ++i)
+        if (!synapse_exists(i,i)) candidates.push_back(i);
+    if (candidates.empty()) return;
+    const auto neuron=candidates[rng.uniform_index(candidates.size())];
+    const double weight=std::copysign(std::min(6.0,0.5*32.0/config_.synaptic_gain),random_synapse_weight(rng));
+    // Geometry cannot supply a self-delay. Choose an explicit inherited delay.
+    const auto delay=1+rng.uniform_index(config_.max_delay_steps);
+    synapses_.push_back({neuron,neuron,weight,delay});
 }
 
 void Brain::add_reciprocal_motif(Random& rng, bool weak)

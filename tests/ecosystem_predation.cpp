@@ -16,6 +16,7 @@ EcosystemWorld empty()
     c.set_predation(true);
     // Mechanical expectations below use a controlled fixture, not tunable defaults.
     c.dt=0.1; c.health_per_mass=20;
+    c.body_energy_per_mass=30;
     c.attack_damage=5; c.attack_cost=2;
     c.attack_base_fraction=1; // Isolate other combat rules from dietary strength.
     c.width=c.height=12; c.shelters=c.grazing_patches=c.fruit_patches=c.pods=c.initial_creatures=0;

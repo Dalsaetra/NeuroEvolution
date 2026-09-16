@@ -54,6 +54,10 @@ with adaptive LIF and continuous rate units; those latter models remain research
 
 Within `MutationConfig`, `copy_probability` and `slight_probability` define the birth mixture; strong mutations use the remaining probability. The `slight` and `strong` profiles explicitly name sigma scales, operator scales, structural budgets, local edit limits, and body scales. Body mutation probabilities and sigmas live beside the neural controls.
 
+`MutationConfig::add_autapse_probability` defaults to `0.10` and is a relative choice weight among structural operators, not a per-neuron or per-birth probability. The CLI override is `--mutate-add-autapse-prob`. When selected, it adds one self-connection to a uniformly chosen hidden neuron without an autapse, with an explicit delay uniformly sampled from `1..max_delay_steps`. It uses the weak structural-edge starting strength and the usual excitatory/inhibitory sign distribution. Birth profiles scale this operator like other structural choices; setting it to zero disables creation. Ordinary wiring and random founders still exclude self-connections. Removal and connection repair ignore self-edges when identifying hidden neurons missing incoming or outgoing connections to other neurons, so an isolated autapse receives disconnected-neuron priority.
+
+Ecosystem checkpoint format 26 saves this setting. Loading formats 22–25 sets it to zero to preserve their disabled autapse-creation policy; the updated disconnected-neuron rule applies to all runs.
+
 The current mixture is 50% copies, 45% slight mutations, and 5% strong mutations. Each birth independently has a 25% chance to prune one disconnected hidden neuron, including copy births. To freeze inheritance, set `copy_probability = 1`, `slight_probability = 0`, and `disconnected_neuron_prune_probability = 0`.
 
 `brain.hidden_count` controls random founders. The sparse ancestor's circuit and initial inherited neuron values are defined in [src/ecosystem_ancestor.cpp](src/ecosystem_ancestor.cpp). Set `sparse_ancestor = false` for random founder brains. Use `set_predation(false)` for per-experiment configurations so input/output dimensions follow body rules.

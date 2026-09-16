@@ -13,7 +13,7 @@ inline MutationConfig birth_mutation(MutationConfig mutation, const BirthMutatio
             &mutation.izhikevich_log_sigma}) *sigma *= profile.sigma_scale;
     for (auto* probability : {&mutation.mutate_weight_probability, &mutation.mutate_neuron_probability,
             &mutation.add_synapse_probability, &mutation.add_neuron_probability,
-            &mutation.add_reciprocal_motif_probability, &mutation.remove_synapse_probability,
+            &mutation.add_reciprocal_motif_probability, &mutation.add_autapse_probability, &mutation.remove_synapse_probability,
             &mutation.rewire_synapse_probability, &mutation.remove_neuron_probability})
         *probability *= profile.operator_scale;
     if (mutation.balance_structural_pairs) {

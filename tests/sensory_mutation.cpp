@@ -15,6 +15,7 @@ MutationConfig growth_only()
     MutationConfig mutation;
     mutation.mutate_weight_probability = mutation.mutate_neuron_probability = 0;
     mutation.add_neuron_probability = mutation.add_reciprocal_motif_probability = 0;
+    mutation.add_autapse_probability = 0;
     mutation.remove_neuron_probability = mutation.remove_synapse_probability = 0;
     mutation.rewire_synapse_probability = 0;
     mutation.add_synapse_probability = 1;

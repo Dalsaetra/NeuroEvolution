@@ -136,6 +136,9 @@ struct MutationConfig {
     double add_neuron_probability = 0.12;
     std::size_t max_hidden_neurons = 128;
     double add_reciprocal_motif_probability = 0.12;
+    // Relative choice weight within the structural mutation budget, not an
+    // independent per-neuron probability. Adds at most one hidden-neuron loop.
+    double add_autapse_probability = 0.10;
     double remove_synapse_probability = 0.30;
     double rewire_synapse_probability = 0.40;
     // Remove one hidden neuron and all incident edges; sensor/motor slots survive.
@@ -146,15 +149,15 @@ struct MutationConfig {
 
 struct EcosystemConfig {
     // Body, diet and predation
-    double carnivore_basal_fraction = 0.2; // Basal-rate multiplier at full carnivory.
+    double carnivore_basal_fraction = 0.5; // Basal-rate multiplier at full carnivory.
     bool predation = true;
     double founder_mass = 1.0, founder_carnivory = 0.0;
-    double health_per_mass = 20, body_energy_per_mass = 30;
-    double attack_range = 0.8, attack_degrees = 60, attack_damage = 35, attack_cost = 2;
+    double health_per_mass = 20, body_energy_per_mass = 60;
+    double attack_range = 1.0, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     double healing_rate = 0.1, healing_cost = 2;
-    double meat_energy = 50, meat_decay = 0.0001, carcass_recovery = 0.95;
-    double nursery_meat_decay = 0.0025; // Biomass/second inside nursery; meat_decay applies outside.
+    double meat_energy = 60, meat_decay = 0.0002, carcass_recovery = 0.95;
+    double nursery_meat_decay = 0.005; // Biomass/second inside nursery; meat_decay applies outside.
 
     // Nursery and frontier layout
     bool nursery_frontier = true; // Disable only for controlled mechanics experiments.
@@ -164,7 +167,7 @@ struct EcosystemConfig {
     std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
-    double nursery_food_energy = 30, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
+    double nursery_food_energy = 20, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
 
     // World size, population and seed
     std::size_t width = 80, height = 80, initial_creatures = 24, max_population = 200;
@@ -177,14 +180,14 @@ struct EcosystemConfig {
     double interaction_range = 0.8, interaction_degrees = 80.0;
 
     // Energy budget
-    double energy_capacity = 200, founder_energy = 90, basal_cost = 0.20;
-    double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.05;
-    double neuron_cost = 0.0001, synapse_cost = 0.00001, spike_cost = 0.00001;
-    double rough_multiplier = 2.0, ingestion_rate = 1.0, digestion_delay = 3.0;
+    double energy_capacity = 250, founder_energy = 90, basal_cost = 0.20;
+    double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.005;
+    double neuron_cost = 0.00001, synapse_cost = 0.000001, spike_cost = 0.000001;
+    double rough_multiplier = 1.5, ingestion_rate = 1.0, digestion_delay = 3.0;
 
     // Food nutrition, renewal and decay
     double graze_capacity = 3, fruit_capacity = 5, pod_capacity = 10;
-    double graze_energy = 60, poor_fruit_energy = 45, rich_fruit_energy = 90, pod_energy = 120;
+    double graze_energy = 40, poor_fruit_energy = 25, rich_fruit_energy = 90, pod_energy = 120;
     double graze_regrowth = 0.02, fruit_regrowth = 0.01, pod_regrowth = 0.08;
     bool outdoor_food_relocates = true;
     double graze_decay = 0.005, fruit_decay = 0.005; // biomass per second
@@ -193,12 +196,12 @@ struct EcosystemConfig {
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
 
     // Weather
-    double calm_duration = 180, warning_duration = 40, storm_duration = 60;
-    double storm_cost = 6.0, phase_offset = 0;
+    double calm_duration = 200, warning_duration = 40, storm_duration = 60;
+    double storm_cost = 8.0, phase_offset = 0;
 
     // Reproduction
-    double maturity_age = 30, reproduction_threshold = 150, reproduction_cost = 60;
-    double offspring_energy = 60, reproduction_cooldown = 30;
+    double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;
+    double offspring_energy = 60, reproduction_cooldown = 5;
 
     // Neural interface and controllers
     double motor_gain = 1.0, actuator_tau = 0.30;

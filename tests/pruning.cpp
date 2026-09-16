@@ -20,6 +20,7 @@ MutationConfig exact_inheritance()
     mutation.add_synapse_probability = 0;
     mutation.add_neuron_probability = 0;
     mutation.add_reciprocal_motif_probability = 0;
+    mutation.add_autapse_probability = 0;
     mutation.remove_synapse_probability = 0;
     mutation.rewire_synapse_probability = 0;
     mutation.remove_neuron_probability = 0;
@@ -127,7 +128,7 @@ void budget_contract()
         require(mutation.add_synapse_probability == mutation.remove_synapse_probability
             && mutation.add_neuron_probability == mutation.remove_neuron_probability,
             "Structural add/remove probabilities are asymmetric");
-        std::size_t add_edges=0, remove_edges=0, add_nodes=0, remove_nodes=0, weight_only=0, rewires=0;
+        std::size_t add_edges=0, autapses=0, remove_edges=0, add_nodes=0, remove_nodes=0, weight_only=0, rewires=0;
         Random rng(932);
         for (int trial=0; trial<10000; ++trial) {
             auto child=parent;
@@ -136,7 +137,9 @@ void budget_contract()
             if (after>before) { require(after==before+1,"More than one node added"); ++add_nodes; }
             else if (after<before) { require(after+1==before,"More than one node removed"); ++remove_nodes; }
             else if (child.synapses().size()>parent.synapses().size()) {
-                require(child.synapses().size()==parent.synapses().size()+1,"More than one edge added"); ++add_edges;
+                require(child.synapses().size()==parent.synapses().size()+1,"More than one edge added");
+                const auto& added=child.synapses().back();
+                if (added.pre==added.post) ++autapses; else ++add_edges;
             } else if (child.synapses().size()<parent.synapses().size()) {
                 require(child.synapses().size()+1==parent.synapses().size(),"More than one edge removed"); ++remove_edges;
             } else {
@@ -160,21 +163,25 @@ void budget_contract()
                 weight_only += weights>0 && neurons==0;
             }
         }
-        const auto structural=add_edges+remove_edges+add_nodes+remove_nodes+rewires;
+        const auto structural=add_edges+autapses+remove_edges+add_nodes+remove_nodes+rewires;
         require(structural>(strong?4800u:2800u) && structural<(strong?5200u:3200u),"Wrong structural budget");
         const double structural_weight = mutation.add_synapse_probability + mutation.remove_synapse_probability
             + mutation.add_neuron_probability + mutation.remove_neuron_probability
-            + mutation.add_reciprocal_motif_probability + mutation.rewire_synapse_probability;
+            + mutation.add_reciprocal_motif_probability + mutation.rewire_synapse_probability + mutation.add_autapse_probability;
         const double rewire_probability = mutation.structural_edit_probability
             * mutation.rewire_synapse_probability / structural_weight;
         const double expected_rewires = 10000 * rewire_probability;
         const double tolerance = 5 * std::sqrt(10000 * rewire_probability * (1 - rewire_probability));
         require(std::abs(double(rewires) - expected_rewires) < tolerance,"Wrong rewiring share within structural budget");
+        const double autapse_probability=mutation.structural_edit_probability*mutation.add_autapse_probability/structural_weight;
+        require(std::abs(double(autapses)-10000*autapse_probability)
+            < 5*std::sqrt(10000*autapse_probability*(1-autapse_probability)),"Wrong autapse share within structural budget");
         require(weight_only>(strong?3900u:5500u),"Parameter batches did not favor weight edits");
         require(std::abs(double(add_edges)-double(remove_edges))<180
             && std::abs(double(add_nodes)-double(remove_nodes))<100,"Observed structural choices are asymmetric");
 
         mutation.structural_edit_probability=1;
+        mutation.add_autapse_probability=0;
         mutation.add_synapse_probability=mutation.remove_synapse_probability=0;
         mutation.rewire_synapse_probability=0;
         mutation.add_neuron_probability=mutation.remove_neuron_probability=1;

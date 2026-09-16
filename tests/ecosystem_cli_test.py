@@ -46,13 +46,17 @@ class EcosystemCliTests(unittest.TestCase):
 
     def test_regional_meat_decay_and_old_checkpoint(self):
         first = self.run_world("regional_meat", "--creatures", 1, "--steps", 1,
-                               "--meat-decay", 0.012, "--nursery-meat-decay", 0.045)
+                               "--meat-decay", 0.012, "--nursery-meat-decay", 0.045,
+                               "--mutate-add-autapse-prob", 0.37)
         resumed = self.run_world("regional_meat_resumed", "--resume", first / "checkpoint.eco", "--steps", 1)
         metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["meat_decay"], 0.012)
         self.assertEqual(metadata["nursery_meat_decay"], 0.045)
+        summary = json.loads((resumed / "summary.json").read_text())
+        self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_25")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_26")
+        del lines[8]  # Version 26 adds the autapse operator setting.
         lines[0] = "NEUROEVO_ECOSYSTEM_24"
         del lines[10]  # Version 25 adds nursery decay after the birth profiles.
         historical = first / "v24.eco"
@@ -61,6 +65,8 @@ class EcosystemCliTests(unittest.TestCase):
         metadata = json.loads((old / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["meat_decay"], 0.012)
         self.assertEqual(metadata["nursery_meat_decay"], 0.012)
+        summary = json.loads((old / "summary.json").read_text())
+        self.assertEqual(summary["mutation"]["add_autapse_probability"], 0)
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="neuroevo_ecosystem_")
@@ -83,12 +89,20 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((first / "summary.json").read_text())
         self.assertEqual(summary["steps_run"], 10)
         self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.10)
         resumed = self.run_world("full_resumed", "--resume", first / "checkpoint.eco", "--steps", 5)
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["steps_run"], 5)
         self.assertEqual(summary["status"], "completed")
         whole = self.run_world("full_whole", "--creatures", 1, "--max-population", 1, "--steps", 15)
         self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+
+    def test_autapse_probability_validation(self):
+        for value in ("-0.1", "1.1", "nan"):
+            result = subprocess.run([str(EXECUTABLE), "--mutate-add-autapse-prob", value,
+                                     "--out", str(self.root / "invalid"), "--steps", "1"],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
 
     def test_filtered_lif_switch_and_resume(self):
         for dt in (0.005, 0.002):

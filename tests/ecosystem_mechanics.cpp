@@ -33,6 +33,8 @@ EcosystemConfig fixture_config()
     config.width = config.height = 12;
     config.initial_creatures = config.shelters = config.grazing_patches = config.fruit_patches = config.pods = 0;
     config.reproduction = false;
+    config.energy_capacity = 200;
+    config.reproduction_threshold = 150;
     config.basal_cost = config.movement_cost = config.turn_cost = config.forage_cost = config.call_cost = 0;
     config.neuron_cost = config.synapse_cost = config.spike_cost = config.storm_cost = 0;
     config.graze_regrowth = config.fruit_regrowth = config.pod_regrowth = 0;
@@ -461,6 +463,7 @@ void birth_cleanup()
     auto& m = config.mutation;
     m.mutate_weight_probability = m.mutate_neuron_probability = 0;
     m.add_synapse_probability = m.add_neuron_probability = m.add_reciprocal_motif_probability = 0;
+    m.add_autapse_probability = 0;
     m.remove_synapse_probability = m.remove_neuron_probability = m.rewire_synapse_probability = 0;
     std::size_t cleaned = 0, cleaned_copies = 0;
     for (unsigned seed = 0; seed < 1000; ++seed) {
