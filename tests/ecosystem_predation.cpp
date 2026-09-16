@@ -17,7 +17,7 @@ EcosystemWorld empty()
     // Mechanical expectations below use a controlled fixture, not tunable defaults.
     c.dt=0.1; c.health_per_mass=20;
     c.body_energy_per_mass=30;
-    c.attack_damage=5; c.attack_cost=2;
+    c.attack_damage=5; c.attack_cost=2; c.attack_range=0.8; c.attack_degrees=60;
     c.attack_base_fraction=1; // Isolate other combat rules from dietary strength.
     c.width=c.height=12; c.shelters=c.grazing_patches=c.fruit_patches=c.pods=c.initial_creatures=0;
     c.reproduction=c.storms_enabled=c.outdoor_food_relocates=false;
@@ -147,6 +147,48 @@ void dietary_attack_strength()
     for (int i=0;i<3;++i) { w.step({attack(),{}}); resumed.step({attack(),{}}); }
     require(saved(w)==saved(resumed),"Diet-scaled attacks diverged after resume");
 }
+void general_food_senses()
+{
+    auto w=empty(); add(w,{3,3});
+    const auto sector=eco_sectors/2, food=sector*eco_sector_channels+2;
+    EcoResource plant; plant.id=1; plant.position={5,3}; plant.stock=plant.capacity=1;
+    EcoResource meat=plant; meat.id=2; meat.kind=FoodKind::Meat; meat.position={4,3};
+    w.resources={plant,meat};
+    const auto check=[&](double plant_distance,double meat_distance) {
+        const auto inputs=w.observe(0);
+        const double plants=plant_distance<0 ? 0 : 1-plant_distance/w.config.vision_range;
+        const double meats=meat_distance<0 ? 0 : 1-meat_distance/w.config.vision_range;
+        near(inputs[food],std::max(plants,meats),"General food proximity missed nearest food");
+        near(inputs[eco_plant_offset+sector],plants,"Plant proximity included meat");
+        near(inputs[eco_meat_offset+eco_sectors+sector],meats,"Meat proximity changed");
+    };
+    check(2,1);
+    std::swap(w.resources[0],w.resources[1]); check(2,1);
+    w.resources[0].position={6,3}; check(2,3);
+    w.resources[1].stock=0; check(-1,3);
+    w.resources[0].stock=0; check(-1,-1);
+    w.resources[0].stock=1; w.resources[0].position={2,3}; check(-1,-1);
+    const auto labels=ecosystem_input_labels(true,true,true);
+    require(labels.size()==eco_predation_input_count && labels[eco_plant_offset+sector]=="vision_1_plant_proximity",
+        "Plant sensor label/layout mismatch");
+    std::vector<int> coverage(eco_predation_input_count);
+    for (const auto& group : ecosystem_input_groups(true,true)) for (auto input : group) ++coverage.at(input);
+    for (auto count : coverage) require(count==1,"Sensor mutation groups do not partition inputs");
+    const auto brain=make_sparse_ancestral_brain(w.config);
+    bool food_connected=false;
+    for (const auto& edge : brain.synapses()) {
+        if (edge.pre==food) food_connected=true;
+        require(edge.pre<eco_plant_offset || edge.pre>=eco_predation_input_count,
+            "Ancestor unexpectedly connects plant-only sensor");
+    }
+    require(food_connected,"Ancestor lacks general food wiring");
+    std::string old=saved(w); old.replace(0,std::string("NEUROEVO_ECOSYSTEM_27").size(),"NEUROEVO_ECOSYSTEM_26");
+    bool rejected=false;
+    try { std::istringstream input(old); EcosystemWorld::load_checkpoint(input); }
+    catch (const std::runtime_error& e) { rejected=std::string(e.what()).find("old food sensor layout")!=std::string::npos; }
+    require(rejected,"Old predation sensor layout was not clearly rejected");
+}
+
 void food_and_senses()
 {
     auto w=empty(); add(w,{3,3},0,{1,1}); add(w,{3.6,3});
@@ -423,6 +465,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

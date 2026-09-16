@@ -231,7 +231,7 @@ void verify() {
         auto brain=neuroevo::Brain::from_components(cfg,neurons,{});
         for(int t=0;t<1000;++t) {
             const auto spike=c.step(1.8,0);brain.step({});
-            require(spike==brain.neurons()[0].spiked,"Baseline spike mismatch");
+            require((spike != 0)==brain.neurons()[0].spiked,"Baseline spike mismatch");
             require(std::abs(c.v-brain.neurons()[0].potential)<1e-9,"Baseline voltage mismatch");
         }
     }

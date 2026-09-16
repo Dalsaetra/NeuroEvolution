@@ -1,6 +1,6 @@
 # Sensory and motor interface
 
-Nursery brains use three vision sectors, 83 local inputs, and six motor outputs. The non-predation extended interface has 66 inputs and five outputs; the reduced control interface has 60 inputs. Sensor labels and category groups are defined in `src/ecosystem_sensing.cpp`.
+Nursery brains use three vision sectors, 86 local inputs, and six motor outputs. The non-predation extended interface has 66 inputs and five outputs; the reduced control interface has 60 inputs. Sensor labels and category groups are defined in `src/ecosystem_sensing.cpp`.
 
 Inputs describe visible obstacles, food and creatures, hearing, contact, bodily state, weather, depleted food, and shelter. Predation appends meat sensing, observed body mass/health, and own health/damage. Typed food proximity distinguishes distance to individual food types. Walls occlude vision, and fields of view limit visible signals. Controllers do not receive global resource locations or population state.
 

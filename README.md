@@ -11,7 +11,9 @@ Requires CMake 3.24+, a C++17 compiler, and Python 3.11+ for replay generation. 
 .\scripts\ecosystem.ps1 -Build -Open
 ```
 
-The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor has five hidden neurons, 83 local inputs, and six motor outputs. Its attack output starts disconnected. Descendants inherit through natural births; an extinct population stays extinct.
+Build scripts show brief progress by default and retain full diagnostics when warnings or failures occur. Use `scripts/build.ps1 -VerboseBuild` or `scripts/ecosystem.ps1 -Build -VerboseBuild` for full build output.
+
+The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor has five hidden neurons, 86 local inputs, and six motor outputs. Its attack output starts disconnected. Descendants inherit through natural births; an extinct population stays extinct.
 
 For a longer run with a compact history and a detailed final window:
 

@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_26");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_27");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -123,7 +123,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool autapse_version = version == "NEUROEVO_ECOSYSTEM_26";
+    const bool general_food_version = version == "NEUROEVO_ECOSYSTEM_27";
+    const bool autapse_version = general_food_version || version == "NEUROEVO_ECOSYSTEM_26";
     const bool regional_meat_version = autapse_version || version == "NEUROEVO_ECOSYSTEM_25";
     const bool filtered_version = regional_meat_version || version == "NEUROEVO_ECOSYSTEM_24";
     const bool modern = filtered_version || version == "NEUROEVO_ECOSYSTEM_23";
@@ -144,6 +145,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     checkpoint::read_tuple(s,checkpoint::birth_profile_fields(cfg.mutation.strong));
     cfg.nursery_meat_decay=cfg.meat_decay; // Older checkpoints used one rate everywhere.
     if (regional_meat_version) checkpoint::read(s,cfg.nursery_meat_decay);
+    if (!general_food_version && cfg.predation)
+        throw std::runtime_error("Predation checkpoint uses the old food sensor layout. Start a new run; use the previous build to resume this checkpoint.");
     EcosystemWorld w(cfg,false);
     checkpoint::read(s,w.next_resource_id);
     if (!w.next_resource_id) throw std::runtime_error("Invalid next resource ID");

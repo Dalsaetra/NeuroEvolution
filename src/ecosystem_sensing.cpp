@@ -93,14 +93,15 @@ EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConf
                 const double present = meat ? inputs[eco_meat_offset + sector] : inputs[offset + 1];
                 const double stock = meat ? inputs[eco_meat_offset + 2 * eco_sectors + sector] : inputs[offset + 7];
                 if (efficiency <= 0 || present <= 0 || stock <= 0) continue;
+                const double plant_proximity = config.predation ? inputs[eco_plant_offset + sector] : inputs[offset + 2];
                 const auto nearest_type = [&](std::size_t channel) {
                     return inputs[offset + channel] > 0 && (!config.typed_food_proximity
-                        || std::abs(inputs[offset + channel] - inputs[offset + 2]) < epsilon);
+                        || std::abs(inputs[offset + channel] - plant_proximity) < epsilon);
                 };
                 const bool refilling = !meat && nearest_type(6)
                     && inputs[offset + 8] == 0.0 && inputs[offset + 9] == 0.0;
                 if (refilling) continue;
-                const double proximity = meat ? inputs[eco_meat_offset + eco_sectors + sector] : inputs[offset + 2];
+                const double proximity = meat ? inputs[eco_meat_offset + eco_sectors + sector] : plant_proximity;
                 const double distance = (1.0 - proximity) * config.vision_range;
                 const double value = !meat && nearest_type(3) ? 1.0 : 1.5;
                 const bool pod = !meat && inputs[offset + 8] > 0.0;
@@ -279,6 +280,13 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
         }
     }
 
+    // Preserve the plant-only cue before broadening food proximity to all food.
+    if (config.predation) for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
+        auto& food = inputs[sector * eco_sector_channels + 2];
+        inputs[eco_plant_offset + sector] = food;
+        food = std::max(food, inputs[eco_meat_offset + eco_sectors + sector]);
+    }
+
     for (std::size_t index = 0; index < creatures.size(); ++index) {
         if (index == creature_index) continue;
         const EcoCreature& other = creatures[index];
@@ -411,6 +419,9 @@ const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation)
             }
             groups.push_back({eco_health_offset});
             groups.push_back({eco_health_offset + 1});
+            std::vector<std::size_t> plants;
+            for (std::size_t sector = 0; sector < eco_sectors; ++sector) plants.push_back(eco_plant_offset + sector);
+            groups.push_back(std::move(plants));
         }
         return groups;
     };
@@ -449,6 +460,8 @@ std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, b
             for (std::size_t sector = 0; sector < eco_sectors; ++sector)
                 labels.push_back("vision_" + std::to_string(sector) + "_" + channel);
         labels.push_back("health"); labels.push_back("damage");
+        for (std::size_t sector = 0; sector < eco_sectors; ++sector)
+            labels.push_back("vision_" + std::to_string(sector) + "_plant_proximity");
     }
     return labels;
 }

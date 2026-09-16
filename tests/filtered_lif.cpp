@@ -10,6 +10,7 @@ Brain restored(const Brain& b){std::istringstream s(saved(b));return Brain::load
 Brain single(double dt,double drive=0,double current=0,double self=0) {
     auto c=BrainConfig::filtered_lif(dt);c.input_count=c.hidden_count=0;c.output_count=1;
     c.background_activity_enabled=false;
+    c.synaptic_gain=20; // Controlled circuit strength, independent of nursery tuning.
     std::vector<Brain::Neuron> n(1);n[0].bias=drive/c.membrane_tau;n[0].synaptic_current=current/c.membrane_tau;
     std::vector<Brain::Synapse> edges;if(self)edges.push_back({0,0,self,static_cast<std::size_t>(std::lround(.06/dt))});
     return Brain::from_components(c,n,edges);
@@ -23,6 +24,7 @@ int main() try {
         require(strong.synapses()[i].weight==weak.synapses()[i].weight,"Ancestor weights cancelled filtered gain change");
     for(double dt:{.005,.002}) {
         auto cfg=BrainConfig::filtered_lif(dt);
+        cfg.synaptic_gain=20; // These reference circuits were calibrated at gain 20.
         require(cfg.max_delay_steps==static_cast<std::size_t>(std::lround(.160/dt)),"Physical maximum delay changed");
         auto quiet=single(dt);for(int i=0;i<100;++i)quiet.step({});
         require(quiet.neurons()[0].potential==0 && !quiet.neurons()[0].spiked,"Zero-input cell fired");
@@ -37,7 +39,6 @@ int main() try {
         for(double drive:{0.,3.6}) {
             auto memory=single(dt,drive,8,1);int count=0;
             for(int t=0;t<std::lround(8/dt);++t){memory.step({});if(t>=std::lround(6/dt))count+=memory.neurons()[0].spiked;}
-            std::cout<<dt<<" s memory drive "<<drive<<": "<<count/2.<<" Hz\n";
             require(count>previous,"Persistent firing failed or graded rate did not increase");previous=count;
         }
         // Incoming inhibition during refractory must be stored, then integrated.
@@ -66,7 +67,6 @@ int main() try {
             if(t>=std::lround(2/dt) && !reverse){a1+=pair.neurons()[4].spiked;b1+=pair.neurons()[5].spiked;}
             if(t>=std::lround(6/dt)){a2+=pair.neurons()[4].spiked;b2+=pair.neurons()[5].spiked;}
         }
-        std::cout<<dt<<" s WTA rates: "<<a1/2.<<'/'<<b1/2.<<" -> "<<a2/2.<<'/'<<b2/2.<<" Hz\n";
         require(a1>0 && b2>0 && a1>=3*b1 && b2>=3*a2,"Filtered sensory-driven WTA failed reversal");
         // Keep pending recurrent events and nonzero currents across a checkpoint.
         auto resumed=restored(pair);for(int i=0;i<103;++i){pair.step({.1,.2,0,0});resumed.step({.1,.2,0,0});}

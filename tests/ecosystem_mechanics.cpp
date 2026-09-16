@@ -248,6 +248,7 @@ void weather_shelter_and_costs()
 
     auto effort_config = fixture_config();
     effort_config.movement_cost = 0.12;
+    effort_config.rough_multiplier = 2;
     effort_config.forage_cost = 0.3;
     effort_config.call_cost = 0.05;
     effort_config.communication = false;

@@ -50,8 +50,8 @@ void profile(const std::filesystem::path& out) {
         auto prototype=Brain::from_components(c,base.neurons(),base.synapses());
         constexpr int batch=32;
         std::vector<Brain> brains(batch,prototype);
-        std::vector<std::vector<double>> inputs(batch,std::vector<double>(83));
-        for(int k=0;k<batch;++k)for(int i=0;i<83;++i)inputs[k][i]=0.1+0.7*((k*13+i*7)%31)/30.0;
+        std::vector<std::vector<double>> inputs(batch,std::vector<double>(c.input_count));
+        for(int k=0;k<batch;++k)for(std::size_t i=0;i<c.input_count;++i)inputs[k][i]=0.1+0.7*((k*13+i*7)%31)/30.0;
         const int ticks=static_cast<int>(std::round(1/v.dt));
         std::size_t spike_count=0;
         const auto start=Clock::now();

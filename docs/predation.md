@@ -25,3 +25,9 @@ Corpse energy is `carcass_recovery * (body_energy_per_mass * mass + max(remainin
 Meat loses biomass at `nursery_meat_decay` per second inside the nursery and `meat_decay` per second outside, including frontier shelters. Both default to `0.0000001`; zero disables decay in that region. CLI overrides are `--nursery-meat-decay` and `--meat-decay`. Spoilage removes the corresponding stored energy and never replenishes a corpse. Checkpoints preserve both settings; supported older checkpoints retain their original rate in both regions.
 
 Replays include body traits, health, damage, attack effort, and carcasses. Tests exercise direction/range/occlusion, simultaneous hits, protection, paid effort, dietary sharing, healing, body-funded births, corpse recovery, regional decay, and exact continuation.
+
+## Food vision
+
+`vision_N_food_proximity` reports the nearest visible plant or meat in each sector, independent of diet. The sparse ancestor uses this signal for steering and foraging. `vision_N_plant_proximity` preserves the former plant-only behavior as a separate evolvable input group, initially disconnected in the ancestor. Dedicated meat presence, proximity, and amount inputs remain unchanged. Existing food presence, stock, and plant-type inputs still describe plants. Empty resources and refilling pods retain their existing depleted-food behavior.
+
+The predation interface now has 86 inputs. Version 27 checkpoints preserve this layout; older predation checkpoints require the previous build, or a fresh simulation with this build. Non-predation checkpoints retain their existing interface.

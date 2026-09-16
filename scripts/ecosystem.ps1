@@ -15,6 +15,7 @@ param(
     [ValidateRange(1, 100000)][int]$TailRecordEvery,
     [switch]$KeepJsonl,
     [switch]$Build,
+    [switch]$VerboseBuild,
     [switch]$Open,
     [switch]$OpenTail
 )
@@ -41,10 +42,10 @@ if ($OpenTail -and $PSBoundParameters.ContainsKey("DetailedTailSeconds") -and $D
     throw "-OpenTail requires -DetailedTailSeconds greater than zero."
 }
 if ($Build) {
-    & cmake -S $RepoRoot -B $BuildPath -DCMAKE_BUILD_TYPE=Release
-    if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
-    & cmake --build $BuildPath --config Release --target neuroevo_ecosystem
-    if ($LASTEXITCODE -ne 0) { throw "Ecosystem build failed" }
+    . (Join-Path $PSScriptRoot "build-output.ps1")
+    Write-Host "Building ecosystem Release..."
+    Invoke-BuildCommand cmake @("-S", $RepoRoot, "-B", $BuildPath, "-DCMAKE_BUILD_TYPE=Release") -Detailed:$VerboseBuild
+    Invoke-BuildCommand cmake @("--build", $BuildPath, "--config", "Release", "--target", "neuroevo_ecosystem") -Detailed:$VerboseBuild
 }
 $Executable = $null
 # Match the configured generator, even if a previous compiler left binaries here.
@@ -86,10 +87,9 @@ if ($Resume -or $StartingGenomes) {
             }
             $CompatibleBuild = Join-Path $BuildPath "resume-gnu"
             Write-Host "Checkpoint requires the GCC runtime; building a compatible executable."
-            & cmake -S $RepoRoot -B $CompatibleBuild -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_COMPILER=$($GnuCompiler.Source)"
-            if ($LASTEXITCODE -ne 0) { throw "Compatible resume build configuration failed" }
-            & cmake --build $CompatibleBuild --target neuroevo_ecosystem
-            if ($LASTEXITCODE -ne 0) { throw "Compatible resume build failed" }
+            . (Join-Path $PSScriptRoot "build-output.ps1")
+            Invoke-BuildCommand cmake @("-S", $RepoRoot, "-B", $CompatibleBuild, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_COMPILER=$($GnuCompiler.Source)") -Detailed:$VerboseBuild
+            Invoke-BuildCommand cmake @("--build", $CompatibleBuild, "--target", "neuroevo_ecosystem") -Detailed:$VerboseBuild
             $Executable = Join-Path $CompatibleBuild "neuroevo_ecosystem.exe"
             $CompatibleWords = & $Executable --rng-state-words
             if ($LASTEXITCODE -ne 0 -or [int]$CompatibleWords -ne $SavedWords) {

@@ -449,7 +449,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     std::vector<Vec2> positions(population), proposed(population);
     std::vector<unsigned char> blocked(population), newly_blocked(population);
     for (std::size_t substep = 0; substep < substeps; ++substep) {
-        std::fill(blocked.begin(), blocked.end(), 0);
+        std::fill(blocked.begin(), blocked.end(), static_cast<unsigned char>(0));
         for (std::size_t i = 0; i < population; ++i) {
             positions[i] = creatures[i].position;
             const Vec2 delta = displacements[i] * (1.0 / static_cast<double>(substeps));
@@ -467,7 +467,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         bool changed;
         do {
             changed = false;
-            std::fill(newly_blocked.begin(), newly_blocked.end(), 0);
+            std::fill(newly_blocked.begin(), newly_blocked.end(), static_cast<unsigned char>(0));
             for (std::size_t i = 0; i < population; ++i) {
                 for (std::size_t j = i + 1; j < population; ++j) {
                     if (paths_collide(positions[i], proposed[i], positions[j], proposed[j], diameter)) {

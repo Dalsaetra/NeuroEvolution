@@ -42,10 +42,11 @@ class EcosystemCliTests(unittest.TestCase):
             capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((imported / "ecosystem.html").exists())
-        self.assertEqual(len(list(csv.DictReader((imported / "starting_genomes.csv").open()))), 3)
+        with (imported / "starting_genomes.csv").open() as source:
+            self.assertEqual(len(list(csv.DictReader(source))), 3)
 
     def test_regional_meat_decay_and_old_checkpoint(self):
-        first = self.run_world("regional_meat", "--creatures", 1, "--steps", 1,
+        first = self.run_world("regional_meat", "--predation", 0, "--creatures", 1, "--steps", 1,
                                "--meat-decay", 0.012, "--nursery-meat-decay", 0.045,
                                "--mutate-add-autapse-prob", 0.37)
         resumed = self.run_world("regional_meat_resumed", "--resume", first / "checkpoint.eco", "--steps", 1)
@@ -55,7 +56,7 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_26")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_27")
         del lines[8]  # Version 26 adds the autapse operator setting.
         lines[0] = "NEUROEVO_ECOSYSTEM_24"
         del lines[10]  # Version 25 adds nursery decay after the birth profiles.
@@ -131,7 +132,7 @@ class EcosystemCliTests(unittest.TestCase):
         meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(meta["neuron_model"], "izhikevich")
         self.assertEqual(meta["brain_dt"], 0.001)
-        hidden = meta["brains"][0]["neurons"][83]
+        hidden = meta["brains"][0]["neurons"][86]
         self.assertEqual(hidden["izhikevich"]["d"], 2)
         self.assertEqual(hidden["threshold"], 30)
         resumed = self.run_world("izh_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
@@ -159,7 +160,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual([frame["step"] for frame in tail[1:]], [0, 3])
         self.assertTrue(tail[0]["brains"])
         self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
-        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 83)
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 86)
         disabled = self.run_world("tail_disabled", "--creatures", 1, "--steps", 1,
                                   "--detailed-tail-seconds", 0)
         self.assertFalse((disabled / "ecosystem_tail.jsonl").exists())
@@ -175,12 +176,12 @@ class EcosystemCliTests(unittest.TestCase):
             metadata, final = lines[0], lines[-1]
             self.assertEqual(metadata["type"], "metadata")
             self.assertEqual(len(metadata["brains"]), population)
-            self.assertEqual(len(metadata["input_labels"]), 83)
+            self.assertEqual(len(metadata["input_labels"]), 86)
             self.assertEqual(len(final["creatures"]), population)
             self.assertEqual(len({c["id"] for c in final["creatures"]}), population)
             self.assertGreater(final["totals"]["spikes"], 0)
             for creature in final["creatures"]:
-                self.assertEqual(len(creature["observation"]), 83)
+                self.assertEqual(len(creature["observation"]), 86)
                 self.assertIn("forward", creature)
                 self.assertIn("potentials", creature["brain"])
             with (path / "ecosystem_stats.csv").open(newline="") as handle:
@@ -237,8 +238,8 @@ class EcosystemCliTests(unittest.TestCase):
                               "--record-observations", 0, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
         brain = lines[0]["brains"][0]
-        self.assertEqual((brain["inputs"], brain["outputs"]), (83, 6))
-        self.assertEqual(len(brain["neurons"]), 94)
+        self.assertEqual((brain["inputs"], brain["outputs"]), (86, 6))
+        self.assertEqual(len(brain["neurons"]), 97)
         self.assertEqual(len(brain["synapses"]), 32)
         self.assertTrue(all(c["controller"] == "spiking" for c in lines[-1]["creatures"]))
         summary = json.loads((path / "summary.json").read_text())
@@ -265,7 +266,7 @@ class EcosystemCliTests(unittest.TestCase):
         tail = [json.loads(x) for x in (path / "ecosystem_tail.jsonl").read_text().splitlines()]
         self.assertEqual([frame["step"] for frame in tail[1:]], [25, 30, 35])
         self.assertEqual(len(tail[0]["brains"]), 3)
-        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 83)
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 86)
         self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
         summary = json.loads((path / "summary.json").read_text())
         self.assertFalse(summary["record_brains"])

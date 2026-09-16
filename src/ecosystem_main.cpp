@@ -176,7 +176,7 @@ int main(int argc, char** argv)
                     "  --record-every N          Save a replay frame every N steps\n"
                     "  --record-brains 0|1       Record neural activity\n"
                     "  --record-observations 0|1 Record sensory values per creature\n"
-                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (83 total by default)\n"
+                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (86 total by default)\n"
                     "  --typed-food-proximity 0|1  Per-food-type distance signals; also overrides resume\n"
                     "  --mutate-rewire-synapse-prob N  Rewiring operator weight (also overrides resume)\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
