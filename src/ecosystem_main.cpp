@@ -87,6 +87,8 @@ int main(int argc, char** argv)
             {"--healing-cost",&cfg.healing_cost},
             {"--meat-energy",&cfg.meat_energy},
             {"--meat-decay",&cfg.meat_decay},
+            {"--nursery-food-respawn-delay",&cfg.nursery_food_respawn_delay},
+            {"--outdoor-food-respawn-delay",&cfg.outdoor_food_respawn_delay},
             {"--nursery-meat-decay",&cfg.nursery_meat_decay},
             {"--carcass-recovery",&cfg.carcass_recovery},
             {"--mass-mutation-probability",&cfg.mutation.mass_mutation_probability},
@@ -123,7 +125,7 @@ int main(int argc, char** argv)
             {"--pod-regrowth",&cfg.pod_regrowth},{"--pod-work",&cfg.pod_work},{"--pod-decay",&cfg.pod_decay},
             {"--pod-open-duration",&cfg.pod_open_duration},{"--calm-duration",&cfg.calm_duration},
             {"--warning-duration",&cfg.warning_duration},{"--storm-duration",&cfg.storm_duration},
-            {"--storm-cost",&cfg.storm_cost},{"--phase-offset",&cfg.phase_offset},
+            {"--storm-damage",&cfg.storm_damage},{"--storm-cost",&cfg.storm_cost},{"--phase-offset",&cfg.phase_offset},
             {"--maturity-age",&cfg.maturity_age},{"--reproduction-threshold",&cfg.reproduction_threshold},
             {"--reproduction-cost",&cfg.reproduction_cost},{"--offspring-energy",&cfg.offspring_energy},
             {"--reproduction-cooldown",&cfg.reproduction_cooldown},{"--motor-gain",&cfg.motor_gain},
@@ -212,6 +214,10 @@ int main(int argc, char** argv)
                     "  --attack-range X / --attack-degrees X / --attack-damage X / --attack-cost X\n"
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
+                    "  --nursery-food-respawn-delay X  Graze/fruit cooldown inside nursery (seconds)\n"
+                    "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
+                    "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
+                    "  --storm-damage X         Health damage/second at mass 1\n"
                     "  --nursery-meat-decay X    Meat biomass lost/second inside nursery; --meat-decay applies outside\n"
                     "  --founders FILE           Copy/reset living brains from a checkpoint into a new world\n"
                     "  --starting-genomes DIR    Sample surviving genome IDs uniformly, with replacement, from DIR/checkpoint.eco\n"
@@ -274,6 +280,7 @@ int main(int argc, char** argv)
                     cfg.brain.conduction_speed = calibrated ? 6.0 : 1.5;
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
+                else if (arg == "--storm-health-damage") cfg.storm_health_damage=boolean(value,arg);
                 else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
@@ -614,6 +621,8 @@ int main(int argc, char** argv)
             << ",\"offspring_energy\":" << world.config.offspring_energy
             << ",\"reproduction_cooldown\":" << world.config.reproduction_cooldown
             << ",\"basal_cost\":" << world.config.basal_cost << ",\"storm_cost\":" << world.config.storm_cost
+            << ",\"storm_health_damage\":" << (world.config.storm_health_damage ? "true" : "false")
+            << ",\"storm_damage\":" << world.config.storm_damage
             << ",\"graze_energy\":" << world.config.graze_energy
             << ",\"poor_fruit_energy\":" << world.config.poor_fruit_energy
             << ",\"rich_fruit_energy\":" << world.config.rich_fruit_energy

@@ -126,7 +126,7 @@ void EcosystemWorld::generate_nursery_frontier()
         Random food_rng(config.seed ^ 0x6e757273666f6f64ULL);
         for (std::size_t i=0;i<config.nursery_food_patches;++i) {
             EcoResource r;r.id=resources.size()+1;r.kind=FoodKind::Graze;r.position={-100,-100};
-            r.stock=r.capacity=config.nursery_food_capacity;r.energy_per_unit=config.nursery_food_energy;r.regrowth=0;
+            r.stock=r.capacity=config.nursery_food_capacity;r.energy_per_unit=config.nursery_food_energy;r.regrowth=config.nursery_food_regrowth;
             if (config.nursery_food_decay>0) r.stock *= nursery_age_rng.uniform(0.0,1.0);
             if (!relocate_nursery_food(r,food_rng,false)) throw std::invalid_argument("Nursery food patches cannot fit with spacing; reduce patch count");
             resources.push_back(r);

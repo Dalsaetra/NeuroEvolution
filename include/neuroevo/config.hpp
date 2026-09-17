@@ -116,7 +116,7 @@ struct MutationConfig {
     bool balance_structural_pairs = true;
     bool allow_birth_motifs = false;
     double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.12;
-    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.75;
+    double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.4;
 
     // Direct Brain::mutate controls. Births derive these from the profiles above.
     // A structural budget of -1 uses the sum of operator probabilities.
@@ -150,9 +150,9 @@ struct MutationConfig {
 
 struct EcosystemConfig {
     // Body, diet and predation
-    double carnivore_basal_fraction = 0.5; // Basal-rate multiplier at full carnivory.
+    double carnivore_basal_fraction = 0.2; // Basal-rate multiplier at full carnivory.
     bool predation = true;
-    double founder_mass = 1.0, founder_carnivory = 0.0;
+    double founder_mass = 1.0, founder_carnivory = 0.4;
     double health_per_mass = 20, body_energy_per_mass = 60;
     double attack_range = 1.0, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
@@ -164,41 +164,46 @@ struct EcosystemConfig {
     bool nursery_frontier = true; // Disable only for controlled mechanics experiments.
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 3;
-    std::size_t shelter_size = 8;
-    std::size_t nursery_food_patches = 16;
+    std::size_t shelter_size = 7;
+    std::size_t nursery_food_patches = 10;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
-    double nursery_food_energy = 20, nursery_food_capacity = 2, nursery_food_regrowth = 0.02;
+    double nursery_food_energy = 30, nursery_food_capacity = 2, nursery_food_regrowth = 0;
 
     // World size, population and seed
-    std::size_t width = 80, height = 80, initial_creatures = 24, max_population = 200;
-    std::size_t shelters = 20, grazing_patches = 300, fruit_patches = 80, pods = 120;
+    std::size_t width = 100, height = 100, initial_creatures = 24, max_population = 200;
+    std::size_t shelters = 20, grazing_patches = 250, fruit_patches = 80, pods = 120;
     std::uint64_t seed = 7;
 
     // Motion and local senses
     double dt = 0.10, radius = 0.25, max_speed = 1.5, max_turn_rate = 3.141592653589793;
     double vision_range = 12.0, fov_degrees = 150.0, hearing_range = 6.0;
-    double interaction_range = 0.8, interaction_degrees = 80.0;
+    double interaction_range = 1.0, interaction_degrees = 80.0;
 
     // Energy budget
-    double energy_capacity = 250, founder_energy = 90, basal_cost = 0.20;
+    double energy_capacity = 250, founder_energy = 90, basal_cost = 1.0;
     double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.005;
     double neuron_cost = 0.00001, synapse_cost = 0.000001, spike_cost = 0.000001;
     double rough_multiplier = 1.5, ingestion_rate = 1.0, digestion_delay = 3.0;
 
     // Food nutrition, renewal and decay
-    double graze_capacity = 3, fruit_capacity = 5, pod_capacity = 10;
-    double graze_energy = 40, poor_fruit_energy = 25, rich_fruit_energy = 90, pod_energy = 120;
-    double graze_regrowth = 0.02, fruit_regrowth = 0.01, pod_regrowth = 0.08;
+    double graze_capacity = 3, fruit_capacity = 4, pod_capacity = 10;
+    double graze_energy = 30, poor_fruit_energy = 20, rich_fruit_energy = 60, pod_energy = 120;
+    // Optional passive biomass/second, also active with relocation. Pods need refill growth.
+    double graze_regrowth = 0, fruit_regrowth = 0, pod_regrowth = 0.08;
     bool outdoor_food_relocates = true;
+    // Seconds after graze/fruit depletion before relocation or regrowth can resume.
+    double nursery_food_respawn_delay = 1.0, outdoor_food_respawn_delay = 1.0;
     double graze_decay = 0.005, fruit_decay = 0.005; // biomass per second
     double shelter_food_decay = 0.005;
-    double shelter_food_energy = 1, shelter_food_capacity = 2, shelter_food_regrowth = 0.6;
+    double shelter_food_energy = 1, shelter_food_capacity = 2, shelter_food_regrowth = 0;
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
 
     // Weather
-    double calm_duration = 200, warning_duration = 40, storm_duration = 60;
-    double storm_cost = 8.0, phase_offset = 0;
+    double calm_duration = 300, warning_duration = 40, storm_duration = 60;
+    double storm_cost = 5.0, phase_offset = 0;
+    bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
+    double storm_damage = 5.0; // Health/second at mass 1; divided by body mass.
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;

@@ -636,6 +636,15 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         }
     }
 
+    // Depletion starts one cooldown, retained across retries and checkpoints.
+    const auto respawn_ready = [&](EcoResource& resource) {
+        if (resource.kind == FoodKind::Meat || resource.kind == FoodKind::Pod) return true;
+        if (resource.stock > epsilon) { resource.respawn_at = -1; return true; }
+        if (resource.respawn_at < 0) resource.respawn_at = end + (in_nursery(resource.position)
+            ? config.nursery_food_respawn_delay : config.outdoor_food_respawn_delay);
+        return end + epsilon >= resource.respawn_at;
+    };
+
     // Relocate only after all feeding allocations: newly placed food cannot be
     // eaten through another creature's stale target in this step.
     for (auto& resource : resources) {
@@ -644,7 +653,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         resource.stock-=spoiled;
         totals.spoiled_biomass+=spoiled;
         if (config.nursery_food_relocates && resource.stock<=epsilon
-            && relocate_nursery_food(resource,map_rng,true)) {
+            && respawn_ready(resource) && relocate_nursery_food(resource,map_rng,true)) {
             totals.regrown_biomass += resource.capacity-resource.stock;
             resource.stock=resource.capacity;
             events.push_back({end,"nursery_food_relocated",0,0,resource.id,resource.stock});
@@ -655,7 +664,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         if(!resource.shelter_food)continue;
         const double spoiled=std::min(resource.stock,config.shelter_food_decay*config.dt);
         resource.stock-=spoiled;totals.spoiled_biomass+=spoiled;
-        if(resource.stock<=epsilon && relocate_shelter_food(resource)) {
+        if(resource.stock<=epsilon && respawn_ready(resource) && relocate_shelter_food(resource)) {
             totals.regrown_biomass+=resource.capacity-resource.stock;
             resource.stock=resource.capacity;
             events.push_back({end,"shelter_food_relocated",0,0,resource.id,resource.stock});
@@ -668,7 +677,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         const double spoiled = std::min(resource.stock, decay * config.dt);
         resource.stock -= spoiled;
         totals.spoiled_biomass += spoiled;
-        if (resource.stock <= epsilon && relocate_outdoor_food(resource)) {
+        if (resource.stock <= epsilon && respawn_ready(resource) && relocate_outdoor_food(resource)) {
             totals.regrown_biomass += resource.capacity - resource.stock;
             resource.stock = resource.capacity;
             events.push_back({end,"outdoor_food_relocated",0,0,resource.id,resource.stock});
@@ -687,9 +696,19 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         return r.kind == FoodKind::Meat && r.stock <= 0;
     }), resources.end());
 
+    std::unordered_set<std::uint64_t> storm_victims;
     // 4. Due digestive packets arrive at the end boundary, then this interval's
     // energetic costs are charged. Future packets cannot rescue a starving body.
     for (auto& creature : creatures) {
+        const bool exposed = storm && !sheltered(creature.position);
+        if (exposed && config.storm_health_damage && creature.health > 0) {
+            const double damage = std::min(creature.health, config.storm_damage * config.dt / creature.body.mass);
+            creature.health -= damage;
+            creature.damage_pulse += damage;
+            totals.damage += damage;
+            if (damage > 0) events.push_back({end, "storm_damage", creature.id, 0, 0, damage});
+            if (creature.health <= 0) storm_victims.insert(creature.id);
+        }
         const bool killed = config.predation && creature.health <= 0;
         std::size_t pending = 0;
         for (const auto& packet : creature.digestion) {
@@ -715,8 +734,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         const double foraging = config.forage_cost * creature.action.forage * config.dt;
         const double calling = config.call_cost * creature.action.call * config.dt;
         const double neural = (config.neuron_cost * static_cast<double>(stats.neuron_count) + config.synapse_cost * static_cast<double>(stats.synapse_count)) * config.dt + config.spike_cost * static_cast<double>(creature.step_spikes);
-        const bool exposed = storm && !sheltered(creature.position);
-        const double exposure = exposed ? config.storm_cost * config.dt
+        const double exposure = exposed && !config.storm_health_damage ? config.storm_cost * config.dt
             / (config.predation ? creature.body.mass : 1.0) : 0;
         if (exposed) creature.exposed_time += config.dt;
         const double requested_cost = metabolism + movement + turning + foraging + calling + neural + exposure;
@@ -748,7 +766,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             events.push_back({end, "maturation", creature.id, creature.parent_id, 0, creature.age});
         }
     }
-    remove_dead(end);
+    remove_dead(end, storm_victims);
 
     // 5. Birth placement prioritizes energy, breaks ties reproducibly and validates
     // full circles against terrain and every living/born body. Failed birth is free.
@@ -833,18 +851,19 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             static_cast<double>(creatures.size())});
     capacity_limited = full;
 
+    // Register depletion even when weather or relocation policy prevents regrowth.
+    for (auto& resource : resources) respawn_ready(resource);
+
     // 6. Regrowth uses the weather at interval start and appears at its end.
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
     for (auto& resource : resources) {
         if (resource.kind == FoodKind::Meat) continue;
-        if(resource.shelter_food && config.shelter_food_decay>0)continue;
-        if (config.nursery_food_relocates && in_nursery(resource.position)) continue;
-        if (config.outdoor_food_relocates && resource.kind != FoodKind::Pod
-            && !resource.shelter_food && !in_nursery(resource.position)) continue;
         if (storm && !in_nursery(resource.position) && !resource.shelter_food) continue;
         if (resource.kind == FoodKind::Pod && resource.pod_state != PodState::Refilling) continue;
+        if (!respawn_ready(resource)) continue;
         const double amount = std::max(0.0, std::min(resource.capacity - resource.stock, resource.regrowth * config.dt));
         resource.stock += amount;
+        if (resource.stock > epsilon) resource.respawn_at = -1;
         totals.regrown_biomass += amount;
         if (resource.kind == FoodKind::Pod && resource.stock + epsilon >= resource.capacity) {
             resource.pod_state = PodState::Closed;

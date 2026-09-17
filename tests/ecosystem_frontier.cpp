@@ -58,7 +58,7 @@ void geography_and_inheritance()
         if (w.in_nursery(r.position)) {
             ++nursery_food;
             require(r.energy_per_unit==cfg.nursery_food_energy
-                && r.capacity==cfg.nursery_food_capacity && r.regrowth==(cfg.nursery_food_relocates?0:cfg.nursery_food_regrowth),
+                && r.capacity==cfg.nursery_food_capacity && r.regrowth==cfg.nursery_food_regrowth,
                 "Nursery patches must use the configured nutrition, capacity, and regrowth");
         } else {
             // Relative nutrition and carrying capacity are experimental tuning
@@ -97,7 +97,7 @@ void rough_patches()
 {
     for(bool frontier:{false,true})for(std::uint64_t seed=1;seed<=8;++seed) {
         auto cfg=frontier?EcosystemConfig{}:controlled_config();
-        cfg.seed=seed;cfg.initial_creatures=0;
+        cfg.seed=seed;cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;cfg.initial_creatures=0;
         EcosystemWorld w(cfg),repeat(cfg);
         require(w.terrain==repeat.terrain,"Rough patches are not seeded deterministically");
         std::vector<bool> seen(w.terrain.size());std::size_t rough=0,floor=0;
@@ -124,7 +124,7 @@ void wall_lines()
 {
     std::size_t shelter_walls=0,bends=0;
     for(std::uint64_t seed=1;seed<=8;++seed) for(std::size_t gate:{0u,4u}) {
-        auto cfg=EcosystemConfig{};cfg.seed=seed;cfg.initial_creatures=0;cfg.nursery_exit_width=gate;
+        auto cfg=EcosystemConfig{};cfg.seed=seed;cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;cfg.initial_creatures=0;cfg.nursery_exit_width=gate;
         EcosystemWorld w(cfg);
         std::vector<bool> seen(w.terrain.size());std::size_t wall_count=0;
         const auto outdoor_wall=[&](std::size_t i) {
@@ -169,7 +169,7 @@ void wall_lines()
 }
 void weather_and_costs()
 {
-    auto cfg=EcosystemConfig{}; cfg.initial_creatures=0; cfg.reproduction=false;
+    auto cfg=EcosystemConfig{}; cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;cfg.initial_creatures=0; cfg.reproduction=false;
     cfg.phase_offset=cfg.calm_duration+cfg.warning_duration+1;
     EcosystemWorld w(cfg);
     const auto inner=std::find_if(w.resources.begin(),w.resources.end(),[&](const auto& r){return w.in_nursery(r.position);});
@@ -193,7 +193,7 @@ void weather_and_costs()
 }
 void feeding_efficiency()
 {
-    auto cfg=EcosystemConfig{};cfg.initial_creatures=0;cfg.reproduction=false;
+    auto cfg=EcosystemConfig{};cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;cfg.initial_creatures=0;cfg.reproduction=false;
     EcosystemWorld original(cfg);
     auto patch=*std::find_if(original.resources.begin(),original.resources.end(),[&](const auto& r){return original.in_nursery(r.position);});
     original.resources={patch};
@@ -215,7 +215,7 @@ void feeding_efficiency()
 }
 void relocation()
 {
-    auto cfg=EcosystemConfig{};cfg.initial_creatures=0;cfg.reproduction=false;
+    auto cfg=EcosystemConfig{};cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;cfg.initial_creatures=0;cfg.reproduction=false;
     cfg.phase_offset=cfg.calm_duration+cfg.warning_duration+1;
     EcosystemWorld w(cfg);
     auto& patch=w.resources.front();const auto old=patch.position;const auto id=patch.id;

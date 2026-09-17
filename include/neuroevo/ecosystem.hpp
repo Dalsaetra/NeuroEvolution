@@ -24,6 +24,7 @@ struct EcoResource {
     FoodKind kind = FoodKind::Graze;
     Vec2 position;
     double stock = 0, capacity = 0, regrowth = 0, energy_per_unit = 0;
+    double respawn_at = -1; // Pending plant cooldown deadline; -1 means no cooldown.
     Vec2 shelter_origin; // Original shelter center, stable across food relocations.
     bool shelter_food = false; // Low-quality graze; shares the existing graze sensory channel.
     PodState pod_state = PodState::Closed;
@@ -103,7 +104,7 @@ public:
     double maximum_speed(const EcoCreature& creature) const;
     double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;
     BodyGenes inherit_body(const BodyGenes& parent, bool strong, Random& rng) const;
-    void remove_dead(double end);
+    void remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims = {});
     // Empty actions means each living creature runs its own controller/brain.
     // Supplied actions must match the population at the beginning of the step.
     void step(const std::vector<EcoAction>& actions = {});

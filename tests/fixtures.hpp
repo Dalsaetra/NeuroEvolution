@@ -8,6 +8,7 @@ inline EcosystemConfig controlled_config()
 {
     EcosystemConfig c;
     c.nursery_frontier = false;
+    c.nursery_food_respawn_delay = c.outdoor_food_respawn_delay = 0;
     c.sparse_ancestor = false;
     c.set_predation(false);
     c.width = c.height = 48;

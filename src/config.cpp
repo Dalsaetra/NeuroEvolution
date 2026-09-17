@@ -180,6 +180,10 @@ void EcosystemConfig::validate() const
     if (food_assignment < -1 || food_assignment > 1) throw std::invalid_argument("Food assignment must be -1 (seeded), 0 (A rich), or 1 (B rich)");
     for (const auto value : {health_per_mass, body_energy_per_mass, attack_range, attack_degrees,
              attack_damage, attack_cost, healing_cost, meat_energy}) positive(value, "Predation parameter");
+    positive(nursery_food_respawn_delay, "Nursery food respawn delay", true);
+    positive(outdoor_food_respawn_delay, "Outdoor food respawn delay", true);
+    positive(storm_damage, "Storm damage", true);
+    if (storm_health_damage && !predation) throw std::invalid_argument("Storm health damage requires predation/body mechanics");
     positive(meat_decay, "Outside meat decay", true);
     positive(nursery_meat_decay, "Nursery meat decay", true);
     for (const auto value : {healing_rate, mutation.mass_mutation_sigma, mutation.carnivory_mutation_sigma})

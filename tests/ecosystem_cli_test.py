@@ -45,18 +45,33 @@ class EcosystemCliTests(unittest.TestCase):
         with (imported / "starting_genomes.csv").open() as source:
             self.assertEqual(len(list(csv.DictReader(source))), 3)
 
+    def test_storm_health_mode_resume(self):
+        first = self.run_world("storm_health", "--creatures", 1, "--steps", 2,
+                               "--storm-health-damage", 1, "--storm-damage", 7)
+        resumed = self.run_world("storm_health_resume", "--resume", first / "checkpoint.eco", "--steps", 1)
+        metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertTrue(metadata["storm_health_damage"])
+        self.assertEqual(metadata["storm_damage"], 7)
+
     def test_regional_meat_decay_and_old_checkpoint(self):
         first = self.run_world("regional_meat", "--predation", 0, "--creatures", 1, "--steps", 1,
                                "--meat-decay", 0.012, "--nursery-meat-decay", 0.045,
-                               "--mutate-add-autapse-prob", 0.37)
+                               "--mutate-add-autapse-prob", 0.37,
+                               "--nursery-food-respawn-delay", 2, "--outdoor-food-respawn-delay", 5)
         resumed = self.run_world("regional_meat_resumed", "--resume", first / "checkpoint.eco", "--steps", 1)
         metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["meat_decay"], 0.012)
         self.assertEqual(metadata["nursery_meat_decay"], 0.045)
+        self.assertEqual(metadata["nursery_food_respawn_delay"], 2)
+        self.assertEqual(metadata["outdoor_food_respawn_delay"], 5)
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_27")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_29")
+        del lines[13]  # Version 29 adds storm mode and damage rate.
+        for i in range(24, 24 + int(lines[23])):
+            lines[i] = " ".join(lines[i].split()[:-1])  # Remove per-resource cooldown.
+        del lines[12]  # Version 28 adds regional respawn delays.
         del lines[8]  # Version 26 adds the autapse operator setting.
         lines[0] = "NEUROEVO_ECOSYSTEM_24"
         del lines[10]  # Version 25 adds nursery decay after the birth profiles.
@@ -66,6 +81,8 @@ class EcosystemCliTests(unittest.TestCase):
         metadata = json.loads((old / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(metadata["meat_decay"], 0.012)
         self.assertEqual(metadata["nursery_meat_decay"], 0.012)
+        self.assertEqual(metadata["nursery_food_respawn_delay"], 0)
+        self.assertEqual(metadata["outdoor_food_respawn_delay"], 0)
         summary = json.loads((old / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0)
 
@@ -197,7 +214,8 @@ class EcosystemCliTests(unittest.TestCase):
         first = self.run_world("frontier", "--steps", 3)
         summary = json.loads((first / "summary.json").read_text())
         metadata = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
-        self.assertEqual((metadata["width"], metadata["height"]), (80, 80))
+        self.assertGreater(metadata["width"], metadata["nursery"]["size"])
+        self.assertGreater(metadata["height"], metadata["nursery"]["size"])
         self.assertTrue(metadata["nursery"]["enabled"])
         self.assertNotIn("establishment", metadata)
         self.assertNotIn("archive_eval_trials", metadata)

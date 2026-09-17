@@ -44,7 +44,7 @@ BodyGenes EcosystemWorld::inherit_body(const BodyGenes& parent, bool strong, Ran
     return child;
 }
 
-void EcosystemWorld::remove_dead(double end)
+void EcosystemWorld::remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims)
 {
     // Process by ID so corpse IDs, events and roundoff do not depend on storage order.
     std::vector<const EcoCreature*> dead;
@@ -72,7 +72,7 @@ void EcosystemWorld::remove_dead(double end)
                 totals.carcass_energy += recovered;
                 events.push_back({end, "carcass", c.id, 0, meat.id, recovered});
             }
-            if (c.health <= 0) ++totals.predation_deaths;
+            if (c.health <= 0 && !storm_victims.count(c.id)) ++totals.predation_deaths;
         }
         totals.discarded_energy += discarded;
         ++totals.deaths;

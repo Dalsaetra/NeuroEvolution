@@ -7,10 +7,73 @@
 using namespace neuroevo;
 void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 std::string save(const EcosystemWorld& w){std::ostringstream s;w.save_checkpoint(s);return s.str();}
+void optional_regrowth() {
+    for(bool nursery:{false,true}) for(bool relocate:{false,true}) {
+        EcosystemConfig cfg;cfg.width=cfg.height=80;cfg.initial_creatures=0;cfg.storms_enabled=false;
+        cfg.nursery_food_relocates=cfg.outdoor_food_relocates=relocate;
+        cfg.nursery_food_decay=cfg.graze_decay=cfg.fruit_decay=0;
+        EcosystemWorld w(cfg,false);
+        EcoResource r;r.id=1;r.position=nursery?Vec2{40,40}:Vec2{10,10};r.stock=0.5;r.capacity=1;
+        w.resources={r};w.step();check(w.resources[0].stock==0.5,"Zero regrowth replenished food");
+        w.resources[0].regrowth=1;w.step();
+        check(std::abs(w.resources[0].stock-0.6)<1e-9,"Relocation disabled explicit passive regrowth");
+        w.resources[0].stock=0.99;w.step();check(w.resources[0].stock==1,"Regrowth exceeded capacity");
+    }
+    EcosystemConfig cfg;cfg.width=cfg.height=80;cfg.initial_creatures=0;cfg.nursery_food_regrowth=0.7;
+    EcosystemWorld w(cfg);
+    for(const auto& r:w.resources)if(w.in_nursery(r.position))
+        check(r.regrowth==0.7,"Moving nursery food lost configured regrowth");
+}
+
+void respawn_delays() {
+    for (bool relocate : {false,true}) for (auto kind : {FoodKind::Graze,FoodKind::FruitA,FoodKind::FruitB}) {
+        EcosystemConfig cfg; cfg.width=cfg.height=80; cfg.initial_creatures=0; cfg.dt=0.1; cfg.storms_enabled=false;
+        cfg.nursery_food_relocates=cfg.outdoor_food_relocates=relocate;
+        cfg.nursery_food_respawn_delay=0.2; cfg.outdoor_food_respawn_delay=0.4;
+        cfg.nursery_food_decay=cfg.graze_decay=cfg.fruit_decay=0;
+        EcosystemWorld w(cfg,false);
+        EcoResource r; r.kind=kind; r.id=1; r.position={40,40}; r.capacity=1; r.regrowth=1;
+        w.resources.push_back(r); r.id=2; r.position={10,10}; w.resources.push_back(r);
+        w.next_resource_id=3;
+        w.step(); // Depletion observed at t=0.1, deadlines t=0.3 and t=0.5.
+        check(w.resources[0].stock==0 && w.resources[1].stock==0,"Food respawned before cooldown");
+        std::istringstream input(save(w)); auto resumed=EcosystemWorld::load_checkpoint(input);
+        for(int i=0;i<4;++i) {
+            w.step(); resumed.step();
+            check(save(w)==save(resumed),"Food cooldown continuation diverged");
+            if(i==0)check(w.resources[0].stock==0,"Nursery cooldown ended early");
+            if(i<3)check(w.resources[1].stock==0,"Outside cooldown ended early");
+            if(i==1)check(w.resources[0].stock>0,"Nursery food did not respawn on time");
+        }
+        check(w.resources[1].stock>0,"Outside food did not respawn on time");
+        w.resources[0].stock=0; w.step();
+        check(w.resources[0].stock==0 && w.resources[0].respawn_at>0.6,"Second depletion reused old deadline");
+    }
+    for (bool nursery : {false,true}) {
+        EcosystemConfig cfg; cfg.width=cfg.height=80; cfg.initial_creatures=0; cfg.dt=0.1;
+        cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0.2;
+        cfg.nursery_food_decay=cfg.graze_decay=0.01;
+        EcosystemWorld w(cfg,false);
+        EcoResource r; r.id=1; r.capacity=1; r.stock=0.0005;
+        r.position=nursery ? Vec2{40,40} : Vec2{10,10}; w.resources={r};
+        w.step(); check(w.resources[0].stock==0,"Decay bypassed cooldown");
+        w.step(); check(w.resources[0].stock==0,"Decay cooldown ended early");
+        w.step(); check(w.resources[0].stock==1,"Decay cooldown did not expire");
+    }
+    for (bool nursery : {false,true}) {
+        auto cfg=EcosystemConfig{};
+        if(nursery)cfg.nursery_food_respawn_delay=-1;else cfg.outdoor_food_respawn_delay=-1;
+        bool rejected=false;try{cfg.validate();}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"Negative respawn delay accepted");
+    }
+}
 int main(){try{
+    optional_regrowth();
+    respawn_delays();
     for(bool frontier:{false,true}) {
         auto cfg=frontier?EcosystemConfig{}:controlled_config();
         cfg.initial_creatures=0;cfg.reproduction=false;
+        cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;
         EcosystemWorld w(cfg);
         std::array<std::size_t,4> counts{};std::size_t shelter_count=0;
         for(const auto& r:w.resources) {
@@ -114,6 +177,8 @@ int main(){try{
             "Single-tile shelter must retain its empty slot");
         w.config.shelter_size=cfg.shelter_size;
         w.creatures={c};w.config.shelter_food_decay=0; // Historical static policy still works.
+        w.config.basal_cost=0.2; // This fixture tests a sustainable shelter supply.
+        shelter.regrowth=0.6;
         w.resources={shelter};w.resources[0].stock=0;w.creatures[0].position=shelter.position;
         w.config.phase_offset=cfg.calm_duration+cfg.warning_duration+1;
         w.step({{}});check(w.resources[0].stock>0,"Shelter regrowth during storms");

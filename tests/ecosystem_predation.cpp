@@ -47,6 +47,46 @@ double ledger(const EcosystemWorld& w)
     return stored+t.attacking+t.healing+t.metabolism+t.movement+t.turning+t.foraging+t.calling
         +t.neural+t.exposure+t.reproduction_overhead+t.discarded_energy+t.meat_spoiled_energy;
 }
+void storm_health()
+{
+    auto cfg=empty().config;cfg.width=cfg.height=80;cfg.nursery_frontier=true;
+    cfg.storms_enabled=true;cfg.phase_offset=cfg.calm_duration+cfg.warning_duration;
+    cfg.storm_health_damage=true;cfg.storm_damage=10;cfg.storm_cost=99;cfg.healing_rate=10;
+    EcosystemWorld w(cfg,false);
+    add(w,{10.5,10.5},0,{1,0}); add(w,{15.5,10.5},0,{2,0});
+    add(w,{40,40});add(w,{20.5,10.5});
+    w.terrain[40*cfg.width+40]=w.terrain[10*cfg.width+20]=Terrain::Shelter;
+    for(auto& c:w.creatures)c.health=10;
+    const auto initial=ledger(w);w.step({{},{},{},{}});
+    near(w.creatures[0].health,9,"Storm health damage missing or healed immediately");
+    near(w.creatures[1].health,9.5,"Storm health damage ignored mass");
+    near(w.creatures[2].health,11,"Nursery failed to protect from storm damage");
+    near(w.creatures[3].health,11,"Shelter failed to protect from storm damage");
+    near(w.creatures[0].damage_pulse,1,"Storm did not set damage feedback");
+    near(w.creatures[0].energy,100,"Health storm drained energy");
+    near(w.totals.exposure,0,"Health storm recorded energy exposure");near(ledger(w),initial,"Storm health mode broke energy ledger");
+    std::istringstream stream(saved(w));auto copy=EcosystemWorld::load_checkpoint(stream);
+    w.step({{},{},{},{}});copy.step({{},{},{},{}});
+    require(saved(w)==saved(copy),"Storm mode checkpoint continuation diverged");
+    w.creatures[0].health=0.1;w.creatures[0].digestion.push_back({0,4,FoodKind::Graze});
+    const auto before=ledger(w);w.step({{},{},{},{}});
+    require(w.creatures.size()==3 && w.totals.predation_deaths==0,"Storm death counted as predation or victim survived");
+    require(!w.resources.empty() && w.resources.back().kind==FoodKind::Meat,"Storm victim did not leave corpse");
+    near(ledger(w),before,"Lethal storm duplicated energy");
+    auto energy=empty();energy.config.storms_enabled=true;energy.config.phase_offset=cfg.phase_offset;
+    energy.config.storm_cost=10;add(energy,{3,3});energy.step({{}});
+    near(energy.creatures[0].energy,99,"Default energy storm changed");near(energy.creatures[0].health,20,"Energy storm damaged health");
+    energy.config.storm_health_damage=true;energy.config.storm_damage=0;energy.step({{}});
+    near(energy.creatures[0].energy,99,"Zero-damage storm drained energy");
+    energy.config.storm_damage=10;energy.config.storms_enabled=false;energy.step({{}});
+    near(energy.creatures[0].health,20,"Disabled storm damaged health");
+    for(bool invalid_mode:{false,true}) {
+        auto invalid=cfg;if(invalid_mode)invalid.set_predation(false);else invalid.storm_damage=-1;
+        bool rejected=false;try{invalid.validate();}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected,"Invalid storm configuration accepted");
+    }
+}
+
 void combat()
 {
     const auto nursery_attack = [](double attacker_x, double target_x, bool protected_target, double damage_rate) {
@@ -255,7 +295,7 @@ void food_and_senses()
     near(w.creatures[0].eaten[4],0.1*0.01/1.01,"Shared corpse allocation ignored low carnivory");
     near(w.creatures[1].eaten[4],0.1/1.01,"Carnivore lost meat to an oversized low-carnivory request");
     // A tiny corpse inside relocating nursery terrain must decay away permanently.
-    auto cfg=EcosystemConfig{}; cfg.initial_creatures=0; cfg.nursery_meat_decay=1;
+    auto cfg=EcosystemConfig{}; cfg.initial_creatures=0; cfg.width=cfg.height=80; cfg.nursery_meat_decay=1;
     EcosystemWorld nursery(cfg,false); plant.stock=plant.capacity=0.01; plant.position={40,40};
     nursery.resources.push_back(plant); nursery.step();
     require(nursery.resources.empty() && nursery.totals.regrown_biomass==0,"Corpse regrew or relocated in nursery");
@@ -465,6 +505,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { storm_health(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }
