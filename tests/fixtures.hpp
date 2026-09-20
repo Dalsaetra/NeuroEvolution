@@ -11,6 +11,7 @@ inline EcosystemConfig controlled_config()
     c.nursery_food_respawn_delay = c.outdoor_food_respawn_delay = 0;
     c.sparse_ancestor = false;
     c.set_predation(false);
+    c.storm_health_damage = false; // Controlled historical energy-drain storms.
     c.width = c.height = 48;
     c.max_population = 128;
     c.shelters = 12; c.shelter_size = 6;

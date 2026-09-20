@@ -155,6 +155,7 @@ EcosystemWorld::EcosystemWorld(EcosystemConfig settings, bool generate)
       mutation_rng(mix(config.seed ^ 0x6d7574617465ULL)), conflict_rng(mix(config.seed ^ 0x746965ULL))
 {
     config.validate();
+    nursery_food_current_energy = config.nursery_food_energy;
     terrain.assign(config.width * config.height, Terrain::Ground);
     if (generate) generate_world();
 }
@@ -242,6 +243,9 @@ void EcosystemWorld::generate_world()
     next_creature_id = 1;
     next_resource_id = 1;
     capacity_limited = false;
+    nursery_food_current_energy = config.nursery_food_energy;
+    nursery_above_food_threshold = false;
+    nursery_food_reductions = 0;
     totals = {};
     events.clear();
     creatures.clear();
@@ -850,6 +854,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         events.push_back({end, full ? "capacity_limited" : "capacity_released", 0, 0, 0,
             static_cast<double>(creatures.size())});
     capacity_limited = full;
+    // Evaluate once after movement, deaths and births; staying above the limit
+    // does not repeatedly reduce nutrition. Already ingested packets keep their energy.
+    update_nursery_food_energy(end);
 
     // Register depletion even when weather or relocation policy prevents regrowth.
     for (auto& resource : resources) respawn_ready(resource);

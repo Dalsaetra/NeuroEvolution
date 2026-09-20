@@ -5,6 +5,23 @@
 #include <stdexcept>
 
 namespace neuroevo {
+void EcosystemWorld::update_nursery_food_energy(double event_time)
+{
+    if (!config.nursery_frontier || !config.nursery_food_population_threshold) return;
+    const auto population = static_cast<std::size_t>(std::count_if(creatures.begin(), creatures.end(),
+        [&](const auto& c) { return in_nursery(c.position); }));
+    const bool above = population > config.nursery_food_population_threshold;
+    if (above && !nursery_above_food_threshold) {
+        nursery_food_current_energy *= config.nursery_food_energy_factor;
+        ++nursery_food_reductions;
+        for (auto& r : resources)
+            if (r.kind == FoodKind::Graze && !r.shelter_food && in_nursery(r.position))
+                r.energy_per_unit = nursery_food_current_energy;
+        events.push_back({event_time, "nursery_food_energy_reduced", 0, 0, 0, nursery_food_current_energy});
+    }
+    nursery_above_food_threshold = above;
+}
+
 void EcosystemWorld::generate_nursery_frontier()
 {
     const auto x0 = (config.width - config.nursery_size) / 2;

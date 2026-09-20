@@ -85,6 +85,9 @@ public:
     std::uint64_t next_resource_id = 1;
     // capacity_limited reports currently blocked births, not a simulation stop.
     bool fruit_a_rich = true, capacity_limited = false;
+    double nursery_food_current_energy = 0;
+    bool nursery_above_food_threshold = false;
+    std::uint64_t nursery_food_reductions = 0;
     double time() const;
     WeatherPhase weather() const;
     double storm_cue() const;
@@ -93,6 +96,7 @@ public:
     bool in_nursery(Vec2 position) const;
     void generate_nursery_frontier();
     bool relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures);
+    void update_nursery_food_energy(double event_time);
     bool relocate_outdoor_food(EcoResource& resource);
     void add_shelter_food(Vec2 position);
     bool relocate_shelter_food(EcoResource& resource);

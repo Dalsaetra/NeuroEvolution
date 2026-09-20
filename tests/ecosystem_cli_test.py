@@ -53,8 +53,32 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertTrue(metadata["storm_health_damage"])
         self.assertEqual(metadata["storm_damage"], 7)
 
+    def test_nursery_nutrition_resume_and_legacy(self):
+        first = self.run_world("nutrition", "--creatures", 51, "--steps", 2,
+            "--no-reproduction", "--no-storms", "--nursery-food-energy", 80,
+            "--nursery-food-population-threshold", 50, "--nursery-food-energy-factor", 0.8)
+        summary = json.loads((first / "summary.json").read_text())
+        self.assertEqual(summary["nursery"]["current_food_energy"], 64)
+        self.assertEqual(summary["nursery"]["food_reductions"], 1)
+        resumed = self.run_world("nutrition_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
+        summary = json.loads((resumed / "summary.json").read_text())
+        self.assertEqual(summary["nursery"]["current_food_energy"], 64)
+        self.assertEqual(summary["nursery"]["food_reductions"], 1)
+        with (resumed / "ecosystem_stats.csv").open() as source:
+            rows = list(csv.DictReader(source))
+        self.assertEqual(float(rows[-1]["nursery_food_energy"]), 64)
+        lines = (first / "checkpoint.eco").read_text().splitlines()
+        del lines[14]
+        lines[0] = "NEUROEVO_ECOSYSTEM_29"
+        legacy = first / "v29.eco"
+        legacy.write_text("\n".join(lines) + "\n")
+        old = self.run_world("nutrition_old", "--resume", legacy, "--steps", 1)
+        summary = json.loads((old / "summary.json").read_text())
+        self.assertEqual(summary["nursery"]["food_population_threshold"], 0)
+        self.assertEqual(summary["nursery"]["food_reductions"], 0)
+
     def test_regional_meat_decay_and_old_checkpoint(self):
-        first = self.run_world("regional_meat", "--predation", 0, "--creatures", 1, "--steps", 1,
+        first = self.run_world("regional_meat", "--predation", 0, "--storm-health-damage", 0, "--creatures", 1, "--steps", 1,
                                "--meat-decay", 0.012, "--nursery-meat-decay", 0.045,
                                "--mutate-add-autapse-prob", 0.37,
                                "--nursery-food-respawn-delay", 2, "--outdoor-food-respawn-delay", 5)
@@ -67,7 +91,8 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_29")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_30")
+        del lines[14]  # Version 30 adds nursery nutrition policy and crossing state.
         del lines[13]  # Version 29 adds storm mode and damage rate.
         for i in range(24, 24 + int(lines[23])):
             lines[i] = " ".join(lines[i].split()[:-1])  # Remove per-resource cooldown.
@@ -362,7 +387,7 @@ class EcosystemCliTests(unittest.TestCase):
             (source, ("--resume", source / "checkpoint.eco"), "cannot combine"),
             (source, ("--founders", source / "checkpoint.eco"), "cannot combine"),
             (source, ("--founder-brain", "sparse-ancestor"), "cannot combine"),
-            (source, ("--predation", 0), "interface cannot be reduced"),
+            (source, ("--predation", 0, "--storm-health-damage", 0), "interface cannot be reduced"),
         ):
             result = subprocess.run([str(EXECUTABLE), "--out", str(self.root / "invalid"),
                                      "--starting-genomes", str(path), *map(str, args)],

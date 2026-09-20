@@ -67,7 +67,58 @@ void respawn_delays() {
         check(rejected,"Negative respawn delay accepted");
     }
 }
+void population_nutrition() {
+    EcosystemConfig cfg; cfg.initial_creatures=51; cfg.reproduction=false;
+    cfg.storms_enabled=false; cfg.nursery_food_decay=0;
+    cfg.nursery_food_energy=80; cfg.nursery_food_population_threshold=50;
+    cfg.nursery_food_energy_factor=0.8;
+    EcosystemWorld w(cfg);
+    // Remove collision obstacles so occupancy changes are explicit in this test.
+    std::fill(w.terrain.begin(),w.terrain.end(),Terrain::Ground);
+    const auto inside=w.creatures.back().position;
+    w.creatures.back().position={2,2};
+    w.creatures.front().digestion.push_back({1000,23,FoodKind::Graze});
+    EcoResource meat; meat.id=w.resources.back().id+1;meat.kind=FoodKind::Meat;
+    w.next_resource_id=meat.id+1;
+    meat.position=inside;meat.stock=meat.capacity=1;meat.energy_per_unit=60;
+    w.resources.push_back(meat);
+    const auto before=w.resources;
+    const auto step=[](EcosystemWorld& x){x.step(std::vector<EcoAction>(x.creatures.size()));};
+    step(w);
+    check(w.nursery_food_reductions==0,"Exactly 50 nursery residents triggered a reduction");
+    w.creatures.back().position=inside;step(w);
+    check(w.nursery_food_reductions==1 && w.nursery_food_current_energy==64,"First upward crossing did not reduce 80 to 64");
+    check(w.config.nursery_food_energy==80,"Reduction overwrote starting configuration");
+    for(std::size_t i=0;i<w.resources.size();++i) {
+        const auto& r=w.resources[i];
+        const double expected=w.in_nursery(r.position)&&r.kind==FoodKind::Graze&&!r.shelter_food?64:before[i].energy_per_unit;
+        check(r.energy_per_unit==expected,"Nutrition change affected the wrong food resource");
+    }
+    check(w.creatures.front().digestion.front().energy==23,"Reduction changed already ingested energy");
+    check(std::count_if(w.events.begin(),w.events.end(),[](const auto& e){return e.type=="nursery_food_energy_reduced"&&e.amount==64;})==1,"Reduction event missing");
+    std::istringstream input(save(w));auto resumed=EcosystemWorld::load_checkpoint(input);
+    step(w);step(resumed);
+    check(save(w)==save(resumed),"Nutrition checkpoint continuation diverged");
+    check(w.nursery_food_reductions==1,"Remaining above the threshold reduced energy again");
+    for(auto* x:{&w,&resumed}){x->creatures.back().position={2,2};step(*x);}
+    std::istringstream rearmed(save(w));resumed=EcosystemWorld::load_checkpoint(rearmed);
+    for(auto* x:{&w,&resumed}){x->creatures.back().position=inside;step(*x);}
+    check(save(w)==save(resumed),"Rearmed checkpoint lost the next crossing");
+    check(w.nursery_food_reductions==2&&std::abs(w.nursery_food_current_energy-51.2)<1e-10,"Second crossing did not compound");
+    for(auto& r:w.resources)if(r.kind==FoodKind::Graze&&w.in_nursery(r.position)){
+        check(w.relocate_nursery_food(r,w.map_rng,false),"Test relocation failed");
+        check(std::abs(r.energy_per_unit-51.2)<1e-10,"Relocation reset reduced nutrition");break;
+    }
+    w.config.nursery_food_population_threshold=0;w.nursery_above_food_threshold=false;step(w);
+    check(w.nursery_food_reductions==2,"Disabled mechanic still reduced nutrition");
+    for(double factor:{0.0,-0.1,1.1}) {
+        cfg.nursery_food_energy_factor=factor;bool rejected=false;
+        try{cfg.validate();}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"Invalid nutrition factor accepted");
+    }
+}
 int main(){try{
+    population_nutrition();
     optional_regrowth();
     respawn_delays();
     for(bool frontier:{false,true}) {

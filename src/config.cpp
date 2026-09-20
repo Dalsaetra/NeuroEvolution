@@ -107,6 +107,9 @@ void EcosystemConfig::set_predation(bool enabled)
 void EcosystemConfig::validate() const
 {
     brain.validate_model();
+    positive(nursery_food_energy_factor, "Nursery food energy factor");
+    if (nursery_food_energy_factor > 1)
+        throw std::invalid_argument("Nursery food energy factor must be in (0,1]");
     probability(mutation.izhikevich_intrinsic_probability, "Izhikevich intrinsic mutation probability");
     positive(mutation.izhikevich_log_sigma, "Izhikevich mutation log sigma", true);
     if (shelter_size < 1 || std::min(width,height) < 5 || shelter_size > std::min(width,height)-4)

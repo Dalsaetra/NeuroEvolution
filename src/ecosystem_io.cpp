@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_29");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_30");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -88,6 +88,8 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.nursery_meat_decay);
     checkpoint::write(s,config.nursery_food_respawn_delay,config.outdoor_food_respawn_delay);
     checkpoint::write(s,config.storm_health_damage,config.storm_damage);
+    checkpoint::write(s,config.nursery_food_population_threshold,config.nursery_food_energy_factor,
+        nursery_food_current_energy,nursery_above_food_threshold,nursery_food_reductions);
     checkpoint::write(s,next_resource_id);
     checkpoint::write_tuple(s,checkpoint::predation_total_fields(totals));
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
@@ -125,7 +127,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool storm_damage_version = version == "NEUROEVO_ECOSYSTEM_29";
+    const bool nursery_nutrition_version = version == "NEUROEVO_ECOSYSTEM_30";
+    const bool storm_damage_version = nursery_nutrition_version || version == "NEUROEVO_ECOSYSTEM_29";
     const bool respawn_version = storm_damage_version || version == "NEUROEVO_ECOSYSTEM_28";
     const bool general_food_version = respawn_version || version == "NEUROEVO_ECOSYSTEM_27";
     const bool autapse_version = general_food_version || version == "NEUROEVO_ECOSYSTEM_26";
@@ -153,9 +156,22 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (respawn_version) checkpoint::read(s,cfg.nursery_food_respawn_delay,cfg.outdoor_food_respawn_delay);
     cfg.storm_health_damage=false;
     if (storm_damage_version) checkpoint::read(s,cfg.storm_health_damage,cfg.storm_damage);
+    // Existing checkpoints retain the constant nutrition policy they were run with.
+    cfg.nursery_food_population_threshold=0;
+    double nursery_energy=cfg.nursery_food_energy;
+    bool nursery_above=false;
+    std::uint64_t nursery_reductions=0;
+    if (nursery_nutrition_version)
+        checkpoint::read(s,cfg.nursery_food_population_threshold,cfg.nursery_food_energy_factor,
+            nursery_energy,nursery_above,nursery_reductions);
+    if (nursery_energy < 0 || nursery_energy > cfg.nursery_food_energy)
+        throw std::runtime_error("Invalid current nursery food energy");
     if (!general_food_version && cfg.predation)
         throw std::runtime_error("Predation checkpoint uses the old food sensor layout. Start a new run; use the previous build to resume this checkpoint.");
     EcosystemWorld w(cfg,false);
+    w.nursery_food_current_energy=nursery_energy;
+    w.nursery_above_food_threshold=nursery_above;
+    w.nursery_food_reductions=nursery_reductions;
     checkpoint::read(s,w.next_resource_id);
     if (!w.next_resource_id) throw std::runtime_error("Invalid next resource ID");
     checkpoint::read_tuple(s,checkpoint::predation_total_fields(w.totals));
@@ -241,6 +257,10 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"size\":" << w.config.nursery_size << ",\"exit_width\":" << w.config.nursery_exit_width
       << ",\"food_decay\":" << w.config.nursery_food_decay
       << ",\"food_energy\":" << w.config.nursery_food_energy
+      << ",\"current_food_energy\":" << w.nursery_food_current_energy
+      << ",\"food_population_threshold\":" << w.config.nursery_food_population_threshold
+      << ",\"food_energy_factor\":" << w.config.nursery_food_energy_factor
+      << ",\"food_reductions\":" << w.nursery_food_reductions
       << ",\"food_patches\":" << w.config.nursery_food_patches
       << ",\"food_relocates\":" << (w.config.nursery_food_relocates?"true":"false") << "}"
       << ",\"fov_degrees\":" << w.config.fov_degrees << ",\"seed\":" << w.config.seed
@@ -284,7 +304,8 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"pod\":" << w.config.pod_energy << "}"
       << ",\"fruit_a_rich\":" << (w.fruit_a_rich ? "true" : "false")
       << ",\"controller\":"; quoted(s,to_string(w.config.controller));
-    s << ",\"initial_creatures\":" << w.creatures.size() << ",\"reproduction\":" << (w.config.reproduction ? "true" : "false")
+    s << ",\"initial_creatures\":" << w.creatures.size() << ",\"max_population\":" << w.config.max_population
+      << ",\"reproduction\":" << (w.config.reproduction ? "true" : "false")
       << ",\"storms_enabled\":" << (w.config.storms_enabled ? "true" : "false")
       << ",\"sensory_interface\":" << (w.config.extended_senses ? 2 : 1)
       << ",\"calibrated_io\":" << (w.config.brain.calibrated_io ? "true" : "false")
@@ -321,6 +342,8 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     s << "{\"type\":\"frame\",\"step\":" << w.step_index << ",\"time\":" << w.time()
       << ",\"weather\":"; quoted(s,to_string(w.weather()));
     s << ",\"cue\":" << w.storm_cue() << ",\"capacity_limited\":" << (w.capacity_limited ? "true" : "false")
+      << ",\"nursery_food_energy\":" << w.nursery_food_current_energy
+      << ",\"nursery_food_reductions\":" << w.nursery_food_reductions
       << ",\"totals\":"; totals_json(s,w.totals);
     s << ",\"creatures\":";
     std::size_t index = 0;
@@ -374,6 +397,8 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
         // recording starts and must remain self-contained when frames are sampled.
         if (r.kind == FoodKind::Meat)
             s << ",\"kind\":\"meat\",\"capacity\":" << r.capacity << ",\"value\":" << r.energy_per_unit;
+        else if (w.in_nursery(r.position))
+            s << ",\"value\":" << r.energy_per_unit;
         s << ",\"stock\":" << r.stock << ",\"progress\":" << r.progress << ",\"state\":";
         quoted(s,to_string(r.pod_state)); s << '}';
     });
@@ -393,7 +418,8 @@ void write_ecosystem_stats_header(std::ostream& s)
          "metabolism,movement,turning,foraging,calling,neural,exposure,reproduction_overhead,discarded_energy,capacity_limited,"
          "founder_births,descendant_births,births_first_100s,natural_spiking_breeders,mature_offspring,"
          "nursery_population,frontier_population,attacking,healing,body_construction,external_body_energy,"
-         "carcass_energy,meat_spoiled_energy,damage,predation_deaths,mean_mass,mean_carnivory,mean_health_fraction,meat_biomass\n";
+         "carcass_energy,meat_spoiled_energy,damage,predation_deaths,mean_mass,mean_carnivory,mean_health_fraction,meat_biomass,"
+         "nursery_food_energy,nursery_food_reductions\n";
 }
 void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
 {
@@ -424,6 +450,7 @@ void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
       << ',' << t.meat_spoiled_energy
       << ',' << t.damage
       << ',' << t.predation_deaths
-      << ',' << mass/population << ',' << carnivory/population << ',' << health/population << ',' << meat << '\n';
+      << ',' << mass/population << ',' << carnivory/population << ',' << health/population << ',' << meat
+      << ',' << w.nursery_food_current_energy << ',' << w.nursery_food_reductions << '\n';
 }
 } // namespace neuroevo

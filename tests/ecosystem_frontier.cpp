@@ -170,6 +170,7 @@ void wall_lines()
 void weather_and_costs()
 {
     auto cfg=EcosystemConfig{}; cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;cfg.initial_creatures=0; cfg.reproduction=false;
+    cfg.storm_health_damage=false; // This fixture checks energy-drain weather.
     cfg.phase_offset=cfg.calm_duration+cfg.warning_duration+1;
     EcosystemWorld w(cfg);
     const auto inner=std::find_if(w.resources.begin(),w.resources.end(),[&](const auto& r){return w.in_nursery(r.position);});

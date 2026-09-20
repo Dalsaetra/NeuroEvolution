@@ -65,6 +65,7 @@ int main(int argc, char** argv)
         std::map<std::string,std::size_t*> sizes{
             {"--nursery-size",&cfg.nursery_size},
             {"--nursery-food-patches",&cfg.nursery_food_patches},
+            {"--nursery-food-population-threshold",&cfg.nursery_food_population_threshold},
             {"--nursery-exit-width",&cfg.nursery_exit_width},
             {"--shelter-size",&cfg.shelter_size},
             {"--creatures",&cfg.initial_creatures},{"--max-population",&cfg.max_population},
@@ -98,6 +99,7 @@ int main(int argc, char** argv)
 
             {"--nursery-food-decay",&cfg.nursery_food_decay},
             {"--nursery-food-energy",&cfg.nursery_food_energy},
+            {"--nursery-food-energy-factor",&cfg.nursery_food_energy_factor},
             {"--nursery-food-capacity",&cfg.nursery_food_capacity},
             {"--nursery-food-regrowth",&cfg.nursery_food_regrowth},
             {"--dt",&cfg.dt},{"--brain-dt",&cfg.brain.dt},{"--radius",&cfg.radius},
@@ -215,6 +217,8 @@ int main(int argc, char** argv)
                     "  --health-per-mass X / --body-energy-per-mass X / --healing-rate X / --healing-cost X\n"
                     "  --meat-energy X / --meat-decay X / --carcass-recovery X\n"
                     "  --nursery-food-respawn-delay X  Graze/fruit cooldown inside nursery (seconds)\n"
+                    "  --nursery-food-population-threshold N  Reduce food on upward crossings above N; 0 disables\n"
+                    "  --nursery-food-energy-factor X  Multiply nursery nutrition per crossing (default 0.8)\n"
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
                     "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
                     "  --storm-damage X         Health damage/second at mass 1\n"
@@ -584,7 +588,11 @@ int main(int argc, char** argv)
             << ",\"food_capacity\":" << world.config.nursery_food_capacity
             << ",\"food_patches\":" << world.config.nursery_food_patches
             << ",\"food_relocates\":" << (world.config.nursery_food_relocates?"true":"false")
-            << ",\"food_regrowth\":" << world.config.nursery_food_regrowth << "}"
+            << ",\"food_regrowth\":" << world.config.nursery_food_regrowth
+            << ",\"current_food_energy\":" << world.nursery_food_current_energy
+            << ",\"food_population_threshold\":" << world.config.nursery_food_population_threshold
+            << ",\"food_energy_factor\":" << world.config.nursery_food_energy_factor
+            << ",\"food_reductions\":" << world.nursery_food_reductions << "}"
             << ",\n  \"storms_enabled\":" << (world.config.storms_enabled?"true":"false")
             << ",\n  \"shelter_size\":" << world.config.shelter_size
             << ",\n  \"step\":" << world.step_index << ",\n  \"time\":" << world.time()

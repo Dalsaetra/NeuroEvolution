@@ -30,6 +30,22 @@ python tools/view_ecosystem.py runs/nursery
 
 ## Tune in code
 
+The nursery starts with 16 food patches at 100 energy per biomass unit, and the
+population cap is 300. At the end of each step, a nursery population crossing
+from 50 or fewer creatures to more than 50 permanently multiplies nursery food
+energy by 0.8 (100, 80, 64, ...). Staying above 50 does not trigger additional
+reductions; falling back to 50 or below rearms the next crossing. The rule affects
+existing nursery grazing patches and their later replenishment, leaving meat,
+outdoor food, and already ingested digestive packets unchanged. Checkpoints
+preserve the current nutrition, crossing state, and reduction count. Checkpoints
+from before this mechanic keep it disabled when resumed.
+
+Tune `nursery_food_population_threshold` (0 disables) and
+`nursery_food_energy_factor` in `EcosystemConfig`, or use the corresponding
+`--nursery-food-population-threshold` and `--nursery-food-energy-factor` CLI flags.
+Each reduction is recorded as a `nursery_food_energy_reduced` event, and current
+nutrition and reduction count appear in the stats, replay, and summary.
+
 Edit **[include/neuroevo/config.hpp](include/neuroevo/config.hpp)** and rebuild. Default construction, the executable, and the PowerShell launcher use the same settings. There are no habitat preset overrides or launcher-level biological defaults.
 
 The default neuron model is LIF. Select the experimental Izhikevich alternative

@@ -154,7 +154,7 @@ struct EcosystemConfig {
     bool predation = true;
     double founder_mass = 1.0, founder_carnivory = 0.4;
     double health_per_mass = 20, body_energy_per_mass = 60;
-    double attack_range = 1.0, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
+    double attack_range = 1.6, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     double healing_rate = 0.1, healing_cost = 2;
     double meat_energy = 60, meat_decay = 0.0002, carcass_recovery = 0.95;
@@ -165,15 +165,18 @@ struct EcosystemConfig {
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 3;
     std::size_t shelter_size = 7;
-    std::size_t nursery_food_patches = 10;
+    std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
-    double nursery_food_energy = 30, nursery_food_capacity = 2, nursery_food_regrowth = 0;
+    double nursery_food_energy = 100, nursery_food_capacity = 2, nursery_food_regrowth = 0;
+    // Reduce nutrition once per upward population crossing; zero disables it.
+    std::size_t nursery_food_population_threshold = 50;
+    double nursery_food_energy_factor = 0.8;
 
     // World size, population and seed
-    std::size_t width = 100, height = 100, initial_creatures = 24, max_population = 200;
-    std::size_t shelters = 20, grazing_patches = 250, fruit_patches = 80, pods = 120;
-    std::uint64_t seed = 7;
+    std::size_t width = 100, height = 100, initial_creatures = 48, max_population = 300;
+    std::size_t shelters = 24, grazing_patches = 250, fruit_patches = 80, pods = 120;
+    std::uint64_t seed = 8;
 
     // Motion and local senses
     double dt = 0.10, radius = 0.25, max_speed = 1.5, max_turn_rate = 3.141592653589793;
@@ -203,7 +206,7 @@ struct EcosystemConfig {
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
     double storm_cost = 5.0, phase_offset = 0;
     bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
-    double storm_damage = 5.0; // Health/second at mass 1; divided by body mass.
+    double storm_damage = 0.4; // Health/second at mass 1; divided by body mass.
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;
