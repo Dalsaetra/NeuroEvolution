@@ -183,11 +183,10 @@ void EcosystemWorld::generate_nursery_frontier()
         c.heading=spawn_rng.uniform(-3.141592653589793,3.141592653589793);
         c.energy=config.founder_energy; c.controller=config.controller;
         Random genome_rng(config.seed ^ (c.id*104729ULL));
-        c.brain=config.sparse_ancestor && config.controller == ControllerKind::Spiking
-            ? make_sparse_ancestral_brain(config) : Brain::random(config.brain,genome_rng);
-        if (config.sparse_ancestor && config.controller == ControllerKind::Spiking) c.genome_id=1;
         c.neural_rng=Random(config.seed ^ (c.id*13007ULL));
         initialize_body(c);
+        if (config.sparse_ancestor && config.controller == ControllerKind::Spiking) initialize_ancestral_genome(c);
+        else c.brain=Brain::random(config.brain,genome_rng);
         creatures.push_back(std::move(c));
     }
     if (config.reproduction && creatures.size()>=config.max_population) {

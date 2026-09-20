@@ -386,12 +386,11 @@ void EcosystemWorld::generate_world()
         creature.energy = config.founder_energy;
         creature.controller = config.controller;
         Random genome_rng(mix(config.seed ^ mix(creature.id) ^ 0x67656e6f6d65ULL));
-        creature.brain = config.sparse_ancestor && config.controller == ControllerKind::Spiking
-            ? make_sparse_ancestral_brain(config) : Brain::random(config.brain, genome_rng);
-        if (config.sparse_ancestor && config.controller == ControllerKind::Spiking) creature.genome_id=1;
-        creature.brain.reset_state();
         creature.neural_rng = Random(mix(config.seed ^ mix(creature.id) ^ 0x6e657572616cULL));
         initialize_body(creature);
+        if (config.sparse_ancestor && config.controller == ControllerKind::Spiking) initialize_ancestral_genome(creature);
+        else creature.brain = Brain::random(config.brain, genome_rng);
+        creature.brain.reset_state();
         creatures.push_back(std::move(creature));
     }
     if (config.reproduction && creatures.size() >= config.max_population) {

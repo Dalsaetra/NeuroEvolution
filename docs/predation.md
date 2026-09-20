@@ -1,6 +1,6 @@
 # Predation, mass, and diet
 
-Predation is enabled in the default nursery. Initial sparse ancestors have mass 1, carnivory 0, and a disconnected attack motor. Brain topology and body traits are inherited; health, energy, injury feedback, and activity are lifetime state.
+Predation is enabled in the default nursery. Initial sparse ancestors use the configured founder mass and carnivory and a template with a disconnected attack motor. With `mutate_initial_ancestors` enabled (the default), each founder independently receives one strong mutation pass affecting brain and body genes before the run starts. Brain topology and body traits are inherited; health, energy, injury feedback, and activity are lifetime state.
 
 Tune body and combat rules in `EcosystemConfig` and inherited variation in `MutationConfig`, both in [config.hpp](../include/neuroevo/config.hpp).
 

@@ -105,6 +105,7 @@ public:
     bool line_of_sight(Vec2 from, Vec2 to) const;
     void generate_world();
     void initialize_body(EcoCreature& creature);
+    void initialize_ancestral_genome(EcoCreature& creature);
     double max_health(const EcoCreature& creature) const;
     double maximum_speed(const EcoCreature& creature) const;
     double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;

@@ -223,6 +223,7 @@ struct EcosystemConfig {
     int food_assignment = -1;
     ControllerKind controller = ControllerKind::Spiking;
     bool sparse_ancestor = true;
+    bool mutate_initial_ancestors = true; // One independent strong brain/body mutation pass per fresh ancestor.
     BrainConfig brain;
     MutationConfig mutation;
     // Derived interface dimensions only; no hidden tuning overrides.

@@ -13,7 +13,7 @@ Requires CMake 3.24+, a C++17 compiler, and Python 3.11+ for replay generation. 
 
 Build scripts show brief progress by default and retain full diagnostics when warnings or failures occur. Use `scripts/build.ps1 -VerboseBuild` or `scripts/ecosystem.ps1 -Build -VerboseBuild` for full build output.
 
-The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor has five hidden neurons, 86 local inputs, and six motor outputs. Its attack output starts disconnected. Descendants inherit through natural births; an extinct population stays extinct.
+The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 86 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
 
 For a longer run with a compact history and a detailed final window:
 
@@ -91,6 +91,21 @@ Ecosystem checkpoint format 26 saves this setting. Loading formats 22–25 sets 
 The current mixture is 50% copies, 45% slight mutations, and 5% strong mutations. Each birth independently has a 25% chance to prune one disconnected hidden neuron, including copy births. To freeze inheritance, set `copy_probability = 1`, `slight_probability = 0`, and `disconnected_neuron_prune_probability = 0`.
 
 `brain.hidden_count` controls random founders. The sparse ancestor's circuit and initial inherited neuron values are defined in [src/ecosystem_ancestor.cpp](src/ecosystem_ancestor.cpp). Set `sparse_ancestor = false` for random founder brains. Use `set_predation(false)` for per-experiment configurations so input/output dimensions follow body rules.
+
+`mutate_initial_ancestors` defaults to `true`. Each fresh sparse ancestor starts
+from that template and independently receives one application of the current
+strong mutation preset, including brain and body genes. This is one preset pass
+per founder, with its configured edit budget and probabilities; it does not
+select from the copy/slight/strong mixture or run the separate birth cleanup.
+Founder mutations use the simulation seed and creature ID, making runs reproducible
+without sharing a single mutated genome across the population. Mutated founders
+receive separate genome IDs and start with full health for their resulting mass.
+Set `mutate_initial_ancestors = false` or `--mutate-initial-ancestors 0` for the
+unmodified ancestors; `--mutate-initial-ancestors 1` enables variation. This applies
+to fresh ancestors in both map layouts and the solo ancestor nursery. Random
+founders and imported genomes retain their existing initialization. Version 33
+checkpoints preserve the toggle and exact genomes; resuming never mutates founders
+again, and older checkpoints load with the toggle disabled.
 
 Optional CLI overrides remain available through `--help`. The launcher passes biological settings only when explicitly requested; omitted options use compiled defaults. Its `-Recording` presets are explicit recording conveniences. Generated maps and the single-ancestor nursery remain available for controlled experiments via `--habitat`.
 

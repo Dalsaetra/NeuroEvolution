@@ -209,6 +209,7 @@ int main(int argc, char** argv)
                     "  --resume FILE             Continue full state from a checkpoint (no world overrides)\n"
                     "  --predation 0|1           Combat/body/diet mechanics (on in nursery-frontier)\n"
                     "  --shelter-predation-damage 0|1  Allow attack damage to targets inside shelters\n"
+                    "  --mutate-initial-ancestors 0|1  Apply one strong brain/body mutation per fresh ancestor (default 1)\n"
                     "  --founder-mass X          Initial body mass, 0.5..2\n"
                     "  --founder-carnivory X     Initial meat efficiency, 0..1\n"
                     "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
@@ -289,6 +290,7 @@ int main(int argc, char** argv)
                 }
                 else if (arg == "--storm-health-damage") cfg.storm_health_damage=boolean(value,arg);
                 else if (arg == "--shelter-predation-damage") cfg.shelter_predation_damage=boolean(value,arg);
+                else if (arg == "--mutate-initial-ancestors") cfg.mutate_initial_ancestors=boolean(value,arg);
                 else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
@@ -367,6 +369,8 @@ int main(int argc, char** argv)
         if (companions>cfg.initial_creatures) throw std::invalid_argument("--companions cannot exceed --creatures");
         for (const char* name : {"ecosystem.jsonl","ecosystem_tail.jsonl","ecosystem_stats.csv","events.csv","summary.json","checkpoint.eco","initial.eco","starting_genomes.csv"})
             if (std::filesystem::exists(out/name)) throw std::runtime_error("Run output already exists; choose a fresh --out directory: "+out.string());
+        // Imported genomes replace the ancestor template and retain their saved genes.
+        if (!founders.empty()) cfg.mutate_initial_ancestors=false;
         auto world=resume.empty()?(habitat=="ancestor-nursery"
             ?neuroevo::make_ancestral_nursery(cfg):neuroevo::EcosystemWorld(cfg)):load(resume);
         if (typed_food_override>=0) world.config.typed_food_proximity=typed_food_override!=0;
@@ -573,6 +577,7 @@ int main(int argc, char** argv)
         std::ofstream summary(out/"summary.json");
         summary << "{\n  \"status\":\"" << status << "\",\n  \"steps_run\":" << world.step_index-starting_step
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
+            << ",\n  \"mutate_initial_ancestors\":" << (world.config.mutate_initial_ancestors?"true":"false")
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
             << ",\"shelter_predation_damage\":" << (world.config.shelter_predation_damage?"true":"false")

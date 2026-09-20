@@ -10,6 +10,7 @@ inline EcosystemConfig controlled_config()
     c.nursery_frontier = false;
     c.nursery_food_respawn_delay = c.outdoor_food_respawn_delay = 0;
     c.sparse_ancestor = false;
+    c.mutate_initial_ancestors = false; // Keep controlled ancestral circuits unmodified.
     c.set_predation(false);
     c.storm_health_damage = false; // Controlled historical energy-drain storms.
     c.width = c.height = 48;

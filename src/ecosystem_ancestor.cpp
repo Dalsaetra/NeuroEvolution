@@ -1,4 +1,5 @@
 #include "neuroevo/ecosystem.hpp"
+#include "ecosystem_mutation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -149,6 +150,25 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     return Brain::from_components(brain_config, std::move(neurons), std::move(synapses));
 }
 
+void EcosystemWorld::initialize_ancestral_genome(EcoCreature& creature)
+{
+    creature.brain = make_sparse_ancestral_brain(config);
+    creature.genome_id = 1;
+    if (config.mutate_initial_ancestors) {
+        // Keep founder variation independent of map, spawning, and later birth RNGs.
+        Random rng(config.seed ^ (creature.id * 104729ULL) ^ 0x616e636573746f72ULL);
+        const double initial_mass = creature.body.mass;
+        creature.body = inherit_body(creature.body, true, rng);
+        creature.health = max_health(creature);
+        if (config.predation)
+            totals.external_body_energy += config.body_energy_per_mass * (creature.body.mass - initial_mass);
+        creature.brain.mutate(detail::strong_mutation(config.mutation), rng,
+            ecosystem_input_groups(config.extended_senses, config.predation));
+        creature.genome_id = creature.id;
+    }
+    creature.brain.reset_state();
+}
+
 EcosystemWorld make_ancestral_nursery(EcosystemConfig config)
 {
     if (config.max_population < 2) {
@@ -196,9 +216,9 @@ EcosystemWorld make_ancestral_nursery(EcosystemConfig config)
     founder.heading = 0.0;
     founder.energy = config.founder_energy;
     founder.controller = ControllerKind::Spiking;
-    founder.brain = make_sparse_ancestral_brain(world.config);
     founder.neural_rng = Random(config.seed ^ 0x6e757273657279ULL);
     world.initialize_body(founder);
+    world.initialize_ancestral_genome(founder);
     world.creatures.push_back(std::move(founder));
     world.next_creature_id = 2;
     return world;

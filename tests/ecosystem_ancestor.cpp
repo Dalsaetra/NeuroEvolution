@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -66,6 +67,60 @@ EcosystemConfig nursery_config()
     config.calm_duration = 100000;
     config.mutation = exact_inheritance();
     return config;
+}
+
+void initial_ancestor_variation()
+{
+    require(EcosystemConfig{}.mutate_initial_ancestors,"Initial ancestor mutation should default to enabled");
+    const auto saved=[](const EcosystemWorld& w){std::ostringstream s;w.save_checkpoint(s);return s.str();};
+    for(bool frontier:{false,true}) {
+        EcosystemConfig cfg;cfg.initial_creatures=12;cfg.nursery_frontier=frontier;cfg.reproduction=false;
+        cfg.mutation.mass_mutation_probability=cfg.mutation.carnivory_mutation_probability=1;
+        EcosystemWorld varied(cfg), repeated(cfg);
+        require(saved(varied)==saved(repeated),"Founder mutations are not seed-reproducible");
+        auto plain_cfg=cfg;plain_cfg.mutate_initial_ancestors=false;
+        EcosystemWorld plain(plain_cfg);
+        require(varied.terrain==plain.terrain,"Founder mutation changed map generation");
+        const auto template_brain=make_sparse_ancestral_brain(cfg);
+        double body_energy=0;bool different_brains=false,different_bodies=false;
+        for(std::size_t i=0;i<varied.creatures.size();++i) {
+            const auto& c=varied.creatures[i];const auto& p=plain.creatures[i];
+            require(same_genome(p.brain,template_brain)&&p.genome_id==1,"Disabled toggle changed ancestral template");
+            require(p.body.mass==cfg.founder_mass&&p.body.carnivory==cfg.founder_carnivory,"Disabled toggle mutated body genes");
+            require(c.genome_id==c.id&&c.parent_id==0&&c.generation==0,"Varied founders lost genome or ancestry identity");
+            require(c.health==varied.max_health(c)&&c.energy==cfg.founder_energy,"Mutated founder health or energy is incorrect");
+            require(c.position.x==p.position.x&&c.position.y==p.position.y&&c.heading==p.heading,"Mutation changed founder placement");
+            body_energy+=cfg.body_energy_per_mass*c.body.mass;
+            different_brains|=!same_genome(c.brain,varied.creatures.front().brain);
+            different_bodies|=c.body.mass!=varied.creatures.front().body.mass;
+        }
+        require(different_brains&&different_bodies,"Founders shared a single brain or body mutation");
+        require(std::abs(varied.totals.external_body_energy-body_energy)<1e-8,"Mutated founder mass broke body energy accounting");
+        auto other_cfg=cfg;++other_cfg.seed;EcosystemWorld other(other_cfg);
+        require(!same_genome(varied.creatures.front().brain,other.creatures.front().brain),"Changing the seed did not change founder mutation");
+        std::istringstream input(saved(varied));auto resumed=EcosystemWorld::load_checkpoint(input);
+        require(saved(varied)==saved(resumed),"Resume reapplied founder mutation or lost toggle");
+        varied.step();resumed.step();
+        require(saved(varied)==saved(resumed),"Varied founder checkpoint continuation diverged");
+    }
+    // Force the strong preset to add exactly one neuron; copy/slight settings
+    // and the independent birth-pruning probability must not alter initialization.
+    EcosystemConfig cfg;cfg.initial_creatures=4;cfg.mutation=exact_inheritance();
+    cfg.mutation.copy_probability=1;cfg.mutation.slight_probability=0;
+    cfg.mutation.strong.structural_probability=1;cfg.mutation.strong.local_edits=0;
+    cfg.mutation.add_neuron_probability=1;cfg.mutation.disconnected_neuron_prune_probability=1;
+    EcosystemWorld once(cfg);
+    for(const auto& c:once.creatures)
+        require(c.brain.config().hidden_count==make_sparse_ancestral_brain(cfg).config().hidden_count+1,
+            "Initialization did not apply the strong preset exactly once");
+    auto solo=make_ancestral_nursery(cfg);
+    require(solo.creatures.front().brain.config().hidden_count==make_sparse_ancestral_brain(cfg).config().hidden_count+1,
+        "Solo nursery did not apply ancestor mutation");
+    cfg.sparse_ancestor=false;EcosystemWorld random_enabled(cfg);
+    cfg.mutate_initial_ancestors=false;EcosystemWorld random_disabled(cfg);
+    for(std::size_t i=0;i<random_enabled.creatures.size();++i)
+        require(same_genome(random_enabled.creatures[i].brain,random_disabled.creatures[i].brain),
+            "Ancestor toggle mutated random founders");
 }
 
 void sparse_genome_contract()
@@ -260,6 +315,7 @@ int main()
 {
     try {
         sparse_genome_contract();
+        initial_ancestor_variation();
         stable_mutation_contract();
         crowding_escape();
         solo_lineage_trial();

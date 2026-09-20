@@ -63,7 +63,8 @@ class EcosystemCliTests(unittest.TestCase):
             self.assertEqual(metadata["shelter_predation_damage"], bool(enabled))
             self.assertEqual(summary["predation"]["shelter_predation_damage"], bool(enabled))
             lines = (first / "checkpoint.eco").read_text().splitlines()
-            self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_32")
+            self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
+            del lines[17]  # Version 33 adds initial ancestor mutation policy.
             del lines[16]  # Version 32 adds ordinary shelter damage policy.
             lines[0] = "NEUROEVO_ECOSYSTEM_31"
             legacy = first / "v31.eco"
@@ -91,7 +92,8 @@ class EcosystemCliTests(unittest.TestCase):
             rows = list(csv.DictReader(source))
         self.assertEqual(float(rows[-1]["nursery_food_energy"]), 64)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_32")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
+        del lines[17]  # Version 33 adds initial ancestor mutation policy.
         del lines[16]  # Version 32 adds ordinary shelter damage policy.
         del lines[15]  # Version 31 adds the reduction cooldown and deadline.
         lines[0] = "NEUROEVO_ECOSYSTEM_30"
@@ -125,7 +127,8 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_32")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
+        del lines[17]  # Version 33 adds initial ancestor mutation policy.
         del lines[16]  # Version 32 adds ordinary shelter damage policy.
         del lines[15]  # Version 31 adds the reduction cooldown and deadline.
         del lines[14]  # Version 30 adds nursery nutrition policy and crossing state.
@@ -311,8 +314,33 @@ class EcosystemCliTests(unittest.TestCase):
                  if abs(c["x"] - initial[c["id"]]["x"]) + abs(c["y"] - initial[c["id"]]["y"]) > 0.1]
         self.assertGreater(len(moved), 1)
 
+    def test_initial_ancestor_mutation_resume_and_legacy(self):
+        first = self.run_world("varied_ancestors", "--creatures", 8, "--steps", 2,
+            "--mutate-initial-ancestors", 1, "--no-reproduction", "--record-brain-graphs", 1,
+            "--detailed-tail-seconds", 0)
+        metadata, initial = [json.loads(line) for line in
+            (first / "ecosystem.jsonl").read_text().splitlines()[:2]]
+        self.assertTrue(metadata["mutate_initial_ancestors"])
+        self.assertEqual(len({c["genome_id"] for c in initial["creatures"]}), 8)
+        self.assertGreater(len({json.dumps(b["synapses"], sort_keys=True) for b in metadata["brains"]}), 1)
+        resumed = self.run_world("varied_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
+        summary = json.loads((resumed / "summary.json").read_text())
+        self.assertTrue(summary["mutate_initial_ancestors"])
+        lines = (first / "checkpoint.eco").read_text().splitlines()
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
+        del lines[17]
+        lines[0] = "NEUROEVO_ECOSYSTEM_32"
+        legacy = first / "v32.eco"
+        legacy.write_text("\n".join(lines) + "\n")
+        old = self.run_world("ancestor_legacy", "--resume", legacy, "--steps", 1,
+            "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
+        old_meta = json.loads((old / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertFalse(old_meta["mutate_initial_ancestors"])
+        self.assertEqual(old_meta["brains"], metadata["brains"])
+
     def test_sparse_ancestor_nursery_is_exposed_in_the_cli(self):
         path = self.run_world("ancestor", "--creatures", 1, "--habitat", "ancestor-nursery",
+                              "--mutate-initial-ancestors", 0,
                               "--steps", 5, "--record-every", 5, "--record-brains", 0,
                               "--record-observations", 0, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
@@ -326,6 +354,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(summary["habitat"], "ancestor-nursery")
 
         group = self.run_world("ancestor_group", "--creatures", 4, "--founder-brain", "sparse-ancestor",
+                               "--mutate-initial-ancestors", 0,
                                "--steps", 1, "--record-every", 1, "--no-reproduction")
         frame = json.loads((group / "ecosystem.jsonl").read_text().splitlines()[1])
         self.assertEqual(len({creature["genome_id"] for creature in frame["creatures"]}), 1)
