@@ -208,6 +208,7 @@ int main(int argc, char** argv)
                     "  --no-storms               Keep storm sensor but hold it at zero and skip storms\n"
                     "  --resume FILE             Continue full state from a checkpoint (no world overrides)\n"
                     "  --predation 0|1           Combat/body/diet mechanics (on in nursery-frontier)\n"
+                    "  --shelter-predation-damage 0|1  Allow attack damage to targets inside shelters\n"
                     "  --founder-mass X          Initial body mass, 0.5..2\n"
                     "  --founder-carnivory X     Initial meat efficiency, 0..1\n"
                     "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
@@ -287,6 +288,7 @@ int main(int argc, char** argv)
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
                 else if (arg == "--storm-health-damage") cfg.storm_health_damage=boolean(value,arg);
+                else if (arg == "--shelter-predation-damage") cfg.shelter_predation_damage=boolean(value,arg);
                 else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
@@ -573,6 +575,7 @@ int main(int argc, char** argv)
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
+            << ",\"shelter_predation_damage\":" << (world.config.shelter_predation_damage?"true":"false")
             << ",\"founder_mass\":" << world.config.founder_mass << ",\"founder_carnivory\":" << world.config.founder_carnivory
             << ",\"mass_mutation_probability\":" << world.config.mutation.mass_mutation_probability
             << ",\"mass_mutation_sigma\":" << world.config.mutation.mass_mutation_sigma

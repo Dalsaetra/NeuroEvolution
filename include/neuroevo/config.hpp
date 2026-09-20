@@ -152,6 +152,7 @@ struct EcosystemConfig {
     // Body, diet and predation
     double carnivore_basal_fraction = 0.2; // Basal-rate multiplier at full carnivory.
     bool predation = true;
+    bool shelter_predation_damage = true; // Allow damage to targets in ordinary shelters; nursery stays protected.
     double founder_mass = 1.0, founder_carnivory = 0.4;
     double health_per_mass = 20, body_energy_per_mass = 60;
     double attack_range = 1.6, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;

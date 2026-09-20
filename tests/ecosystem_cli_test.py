@@ -53,6 +53,25 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertTrue(metadata["storm_health_damage"])
         self.assertEqual(metadata["storm_damage"], 7)
 
+    def test_shelter_predation_damage_resume_and_legacy(self):
+        for enabled in (0, 1):
+            first = self.run_world(f"shelter_{enabled}", "--creatures", 1, "--steps", 1,
+                "--shelter-predation-damage", enabled)
+            resumed = self.run_world(f"shelter_resume_{enabled}", "--resume", first / "checkpoint.eco", "--steps", 1)
+            metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
+            summary = json.loads((resumed / "summary.json").read_text())
+            self.assertEqual(metadata["shelter_predation_damage"], bool(enabled))
+            self.assertEqual(summary["predation"]["shelter_predation_damage"], bool(enabled))
+            lines = (first / "checkpoint.eco").read_text().splitlines()
+            self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_32")
+            del lines[16]  # Version 32 adds ordinary shelter damage policy.
+            lines[0] = "NEUROEVO_ECOSYSTEM_31"
+            legacy = first / "v31.eco"
+            legacy.write_text("\n".join(lines) + "\n")
+            old = self.run_world(f"shelter_legacy_{enabled}", "--resume", legacy, "--steps", 1)
+            summary = json.loads((old / "summary.json").read_text())
+            self.assertTrue(summary["predation"]["shelter_predation_damage"])
+
     def test_nursery_nutrition_resume_and_legacy(self):
         first = self.run_world("nutrition", "--creatures", 51, "--steps", 2,
             "--no-reproduction", "--no-storms", "--nursery-food-energy", 80,
@@ -72,7 +91,8 @@ class EcosystemCliTests(unittest.TestCase):
             rows = list(csv.DictReader(source))
         self.assertEqual(float(rows[-1]["nursery_food_energy"]), 64)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_31")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_32")
+        del lines[16]  # Version 32 adds ordinary shelter damage policy.
         del lines[15]  # Version 31 adds the reduction cooldown and deadline.
         lines[0] = "NEUROEVO_ECOSYSTEM_30"
         legacy = first / "v30.eco"
@@ -105,7 +125,8 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_31")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_32")
+        del lines[16]  # Version 32 adds ordinary shelter damage policy.
         del lines[15]  # Version 31 adds the reduction cooldown and deadline.
         del lines[14]  # Version 30 adds nursery nutrition policy and crossing state.
         del lines[13]  # Version 29 adds storm mode and damage rate.

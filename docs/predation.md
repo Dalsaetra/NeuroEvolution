@@ -8,7 +8,9 @@ Tune body and combat rules in `EcosystemConfig` and inherited variation in `Muta
 
 For mass `m`, maximum health is `health_per_mass * m`, speed is `max_speed / sqrt(m)`, basal metabolism is `basal_cost * m * (1 - (1 - carnivore_basal_fraction) * carnivory)`, and exposed storm drain is `storm_cost / m`. Collision radius remains fixed.
 
-Attack damage per step is `attack_damage * (attack_base_fraction + (1 - attack_base_fraction) * carnivory) * effort * dt`. Attacks choose the nearest visible creature in the configured forward cone and range. Misses consume energy; insufficient energy reduces effort. Post-movement hits resolve simultaneously, including mutual kills. Nursery targets are protected; ordinary frontier shelters protect against storms only.
+Attack damage per step is `attack_damage * (attack_base_fraction + (1 - attack_base_fraction) * carnivory) * effort * dt`. Attacks choose the nearest visible creature in the configured forward cone and range. Misses consume energy; insufficient energy reduces effort. Post-movement hits resolve simultaneously, including mutual kills. Nursery targets are always protected.
+
+`shelter_predation_damage` defaults to `true`, allowing predation damage in ordinary shelters. Set it to `false`, or pass `--shelter-predation-damage 0`, to protect sheltered targets; `--shelter-predation-damage 1` enables damage again. Protection checks the target's position after movement, regardless of where the attacker is. Attacks still consume energy when the target is protected. Shelter storm protection and nursery immunity are unchanged. Version 32 checkpoints preserve this setting; older supported checkpoints retain enabled damage in ordinary shelters.
 
 Healing consumes energy, respects the health cap, and cannot occur in a step where the creature received damage. Zero energy or zero health causes death.
 

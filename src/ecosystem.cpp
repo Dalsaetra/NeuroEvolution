@@ -520,11 +520,14 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             const double paid = std::min(c.energy, config.attack_cost * c.action.attack * config.dt);
             c.energy -= paid; c.energy_spent += paid; totals.attacking += paid;
             if (target != population) {
-                // Nursery protection follows the target's post-movement position,
-                // including attacks across a gate. Effort still costs energy.
+                // Protection follows the target's post-movement position, including
+                // attacks across shelter boundaries. Effort still costs energy.
                 const double diet_strength = config.attack_base_fraction
                     + (1.0 - config.attack_base_fraction) * c.body.carnivory;
-                const double hit = in_nursery(creatures[target].position) ? 0.0
+                const auto target_position = creatures[target].position;
+                const bool protected_target = in_nursery(target_position)
+                    || (!config.shelter_predation_damage && sheltered(target_position));
+                const double hit = protected_target ? 0.0
                     : config.attack_damage * diet_strength * paid / config.attack_cost;
                 damage[target] += hit;
                 events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit});

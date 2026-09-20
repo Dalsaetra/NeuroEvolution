@@ -87,12 +87,53 @@ void storm_health()
     }
 }
 
+void shelter_damage()
+{
+    require(EcosystemConfig{}.shelter_predation_damage,"Shelter damage must default to enabled");
+    for(bool enabled:{false,true}) for(bool attacker_inside:{false,true})
+        for(bool target_inside:{false,true}) for(bool lethal:{false,true}) {
+        auto w=empty();w.config.shelter_predation_damage=enabled;
+        add(w,{3.7,3.5});add(w,{4.3,3.5});
+        if(attacker_inside)w.terrain[3*w.config.width+3]=Terrain::Shelter;
+        if(target_inside)w.terrain[3*w.config.width+4]=Terrain::Shelter;
+        if(lethal)w.creatures[1].health=0.25;
+        const double health=w.creatures[1].health;
+        const double damage=(!enabled&&target_inside)?0:std::min(health,0.5);
+        std::istringstream input(saved(w));auto resumed=EcosystemWorld::load_checkpoint(input);
+        w.step({attack(),{}});resumed.step({attack(),{}});
+        require(saved(w)==saved(resumed),"Shelter damage policy lost on checkpoint resume");
+        require(w.creatures.size()==(damage>=health?1u:2u),"Shelter protection used the wrong creature or ignored its setting");
+        if(w.creatures.size()==2) {
+            near(w.creatures[1].health,health-damage,"Shelter damage used attacker's shelter state");
+            near(w.creatures[1].damage_pulse,damage,"Shelter damage feedback incorrect");
+        }
+        near(w.totals.damage,damage,"Shelter damage totals incorrect");
+        require(w.totals.predation_deaths==(damage>=health?1u:0u),"Shelter protection failed on lethal attack");
+        near(w.totals.attacking,0.2,"Shelter protection removed attack cost");
+        const auto hit=std::find_if(w.events.begin(),w.events.end(),[](const auto& e){return e.type=="attack_hit";});
+        require(hit!=w.events.end(),"Shelter attack event missing");
+        near(hit->amount,(!enabled&&target_inside)?0:0.5,"Shelter attack event recorded wrong damage");
+    }
+    for(bool entering:{false,true}) {
+        auto w=empty();w.config.shelter_predation_damage=false;w.config.max_speed=2;
+        w.terrain[3*w.config.width+4]=Terrain::Shelter;
+        const double heading=entering?0:3.141592653589793;
+        add(w,{entering?3.3:4.7,3.5},heading);
+        add(w,{entering?3.9:4.1,3.5},heading);
+        EcoAction move;move.forward=1;
+        w.step({attack(),move});
+        require(w.sheltered(w.creatures[1].position)==entering,"Target failed to cross shelter boundary");
+        near(w.creatures[1].health,entering?20:19.5,"Shelter protection used target's position before movement");
+    }
+}
+
 void combat()
 {
-    const auto nursery_attack = [](double attacker_x, double target_x, bool protected_target, double damage_rate) {
+    const auto nursery_attack = [](double attacker_x, double target_x, bool protected_target, double damage_rate, bool shelter_damage) {
         auto cfg=empty().config;
         cfg.width=cfg.height=80; cfg.nursery_frontier=true;
         cfg.attack_damage=damage_rate;
+        cfg.shelter_predation_damage=shelter_damage;
         EcosystemWorld nursery(cfg,false); // Open ground isolates gate-crossing geometry.
         add(nursery,{attacker_x,40},attacker_x<target_x ? 0 : 3.141592653589793);
         add(nursery,{target_x,40});
@@ -112,11 +153,11 @@ void combat()
         near(nursery.creatures[0].energy,99.8,"Nursery attacker did not pay for effort");
         near(nursery.creatures[0].action.attack,1,"Nursery protection disabled attack output");
     };
-    for (double damage_rate : {5.0,15.0,50.0,1000.0,EcosystemConfig{}.attack_damage}) {
-        nursery_attack(40,40.6,true,damage_rate);
-        nursery_attack(31.7,32.3,true,damage_rate); // Attacker outside, victim inside.
-        nursery_attack(32.3,31.7,false,damage_rate); // Attacker inside, victim outside.
-        nursery_attack(30,30.6,false,damage_rate);
+    for (bool shelter_damage : {false,true}) for (double damage_rate : {5.0,15.0,50.0,1000.0,EcosystemConfig{}.attack_damage}) {
+        nursery_attack(40,40.6,true,damage_rate,shelter_damage);
+        nursery_attack(31.7,32.3,true,damage_rate,shelter_damage); // Attacker outside, victim inside.
+        nursery_attack(32.3,31.7,false,damage_rate,shelter_damage); // Attacker inside, victim outside.
+        nursery_attack(30,30.6,false,damage_rate,shelter_damage);
     }
 
     auto w=empty(); add(w,{3,3}); add(w,{3.6,3},3.141592653589793);
@@ -505,6 +546,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { storm_health(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { storm_health(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

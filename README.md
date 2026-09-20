@@ -55,6 +55,11 @@ nutrition and reduction count appear in the stats, replay, and summary.
 
 Edit **[include/neuroevo/config.hpp](include/neuroevo/config.hpp)** and rebuild. Default construction, the executable, and the PowerShell launcher use the same settings. There are no habitat preset overrides or launcher-level biological defaults.
 
+`shelter_predation_damage` defaults to `true`. Set it to `false` or use
+`--shelter-predation-damage 0` to prevent predation damage to creatures in ordinary
+shelters. Protection uses the target's position after movement. The nursery
+always remains protected. See [predation](docs/predation.md).
+
 The default neuron model is LIF. Select the experimental Izhikevich alternative
 with `--neuron-model izhikevich`, or `-NeuronModel izhikevich` in the PowerShell
 launcher. It uses regular-spiking neurons and a 1 ms neural timestep. In C++, use
