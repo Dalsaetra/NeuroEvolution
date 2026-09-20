@@ -88,6 +88,7 @@ public:
     double nursery_food_current_energy = 0;
     bool nursery_above_food_threshold = false;
     std::uint64_t nursery_food_reductions = 0;
+    double nursery_food_reduction_ready_at = 0;
     double time() const;
     WeatherPhase weather() const;
     double storm_cue() const;

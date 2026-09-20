@@ -34,15 +34,22 @@ The nursery starts with 16 food patches at 100 energy per biomass unit, and the
 population cap is 300. At the end of each step, a nursery population crossing
 from 50 or fewer creatures to more than 50 permanently multiplies nursery food
 energy by 0.8 (100, 80, 64, ...). Staying above 50 does not trigger additional
-reductions; falling back to 50 or below rearms the next crossing. The rule affects
+reductions; falling back to 50 or below rearms the next crossing. After each
+reduction, a 1,000 simulation second cooldown blocks further reductions.
+Crossings during that cooldown are ignored, even if the population stays above
+50 after it expires; a new upward crossing at or after expiry is required.
+The first reduction has no cooldown. The rule affects
 existing nursery grazing patches and their later replenishment, leaving meat,
 outdoor food, and already ingested digestive packets unchanged. Checkpoints
-preserve the current nutrition, crossing state, and reduction count. Checkpoints
-from before this mechanic keep it disabled when resumed.
+preserve the current nutrition, crossing state, reduction count, and cooldown
+deadline. Checkpoints from before this mechanic keep it disabled when resumed;
+version 30 checkpoints retain their original zero-cooldown policy.
 
 Tune `nursery_food_population_threshold` (0 disables) and
 `nursery_food_energy_factor` in `EcosystemConfig`, or use the corresponding
 `--nursery-food-population-threshold` and `--nursery-food-energy-factor` CLI flags.
+Set `nursery_food_reduction_delay` or `--nursery-food-reduction-delay X` to change
+the cooldown in simulation seconds (default 1000; 0 removes the cooldown).
 Each reduction is recorded as a `nursery_food_energy_reduced` event, and current
 nutrition and reduction count appear in the stats, replay, and summary.
 

@@ -100,6 +100,7 @@ int main(int argc, char** argv)
             {"--nursery-food-decay",&cfg.nursery_food_decay},
             {"--nursery-food-energy",&cfg.nursery_food_energy},
             {"--nursery-food-energy-factor",&cfg.nursery_food_energy_factor},
+            {"--nursery-food-reduction-delay",&cfg.nursery_food_reduction_delay},
             {"--nursery-food-capacity",&cfg.nursery_food_capacity},
             {"--nursery-food-regrowth",&cfg.nursery_food_regrowth},
             {"--dt",&cfg.dt},{"--brain-dt",&cfg.brain.dt},{"--radius",&cfg.radius},
@@ -219,6 +220,7 @@ int main(int argc, char** argv)
                     "  --nursery-food-respawn-delay X  Graze/fruit cooldown inside nursery (seconds)\n"
                     "  --nursery-food-population-threshold N  Reduce food on upward crossings above N; 0 disables\n"
                     "  --nursery-food-energy-factor X  Multiply nursery nutrition per crossing (default 0.8)\n"
+                    "  --nursery-food-reduction-delay X  Seconds between reductions (default 1000); requires a new crossing\n"
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
                     "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
                     "  --storm-damage X         Health damage/second at mass 1\n"
@@ -592,6 +594,7 @@ int main(int argc, char** argv)
             << ",\"current_food_energy\":" << world.nursery_food_current_energy
             << ",\"food_population_threshold\":" << world.config.nursery_food_population_threshold
             << ",\"food_energy_factor\":" << world.config.nursery_food_energy_factor
+            << ",\"food_reduction_delay\":" << world.config.nursery_food_reduction_delay
             << ",\"food_reductions\":" << world.nursery_food_reductions << "}"
             << ",\n  \"storms_enabled\":" << (world.config.storms_enabled?"true":"false")
             << ",\n  \"shelter_size\":" << world.config.shelter_size

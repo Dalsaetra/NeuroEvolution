@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 using namespace neuroevo;
@@ -72,6 +73,7 @@ void population_nutrition() {
     cfg.storms_enabled=false; cfg.nursery_food_decay=0;
     cfg.nursery_food_energy=80; cfg.nursery_food_population_threshold=50;
     cfg.nursery_food_energy_factor=0.8;
+    cfg.nursery_food_reduction_delay=0;
     EcosystemWorld w(cfg);
     // Remove collision obstacles so occupancy changes are explicit in this test.
     std::fill(w.terrain.begin(),w.terrain.end(),Terrain::Ground);
@@ -117,7 +119,57 @@ void population_nutrition() {
         check(rejected,"Invalid nutrition factor accepted");
     }
 }
+void population_nutrition_cooldown() {
+    check(EcosystemConfig{}.nursery_food_reduction_delay==1000,"Default nutrition cooldown changed");
+    for (double dt : {0.1,0.2}) {
+        EcosystemConfig cfg;cfg.initial_creatures=2;cfg.nursery_food_population_threshold=1;
+        cfg.reproduction=false;cfg.storms_enabled=false;cfg.nursery_food_reduction_delay=1;cfg.dt=dt;
+        EcosystemWorld w(cfg);
+        std::fill(w.terrain.begin(),w.terrain.end(),Terrain::Ground);
+        const auto inside=w.creatures.back().position;
+        const auto step=[](EcosystemWorld& x){x.step(std::vector<EcoAction>(x.creatures.size()));};
+        step(w);
+        check(w.nursery_food_reductions==1,"Cooldown delayed the first reduction");
+        check(std::abs(w.nursery_food_reduction_ready_at-(dt+1))<1e-9,"Cooldown is not in simulation seconds");
+        auto boundary=w;
+        w.creatures.back().position={2,2};step(w);
+        w.creatures.back().position=inside;step(w);
+        check(w.nursery_food_reductions==1,"Crossing during cooldown reduced nutrition");
+        check(std::abs(w.nursery_food_reduction_ready_at-(dt+1))<1e-9,"Ignored crossing extended cooldown");
+        std::istringstream input(save(w));auto resumed=EcosystemWorld::load_checkpoint(input);
+        check(save(w)==save(resumed),"Checkpoint lost cooldown or ignored crossing state");
+        while(w.time()<dt+1+dt) {
+            step(w);step(resumed);
+            check(save(w)==save(resumed),"Cooldown continuation diverged");
+            check(w.nursery_food_reductions==1,"Cooldown expiry replayed an ignored crossing");
+        }
+        for(auto* x:{&w,&resumed}) {
+            x->creatures.back().position={2,2};step(*x);
+            x->creatures.back().position=inside;step(*x);
+        }
+        check(w.nursery_food_reductions==2,"New crossing after cooldown did not reduce nutrition");
+        check(save(w)==save(resumed),"Post-cooldown crossing diverged on resume");
+        check(std::abs(w.nursery_food_reduction_ready_at-(w.time()+1))<1e-9,"Second reduction did not start a fresh cooldown");
+        w.creatures.back().position={2,2};step(w);
+        w.creatures.back().position=inside;step(w);
+        check(w.nursery_food_reductions==2,"Second episode bypassed cooldown");
+        // A crossing exactly at the deadline is eligible, independent of timestep.
+        boundary.creatures.back().position={2,2};
+        while(boundary.time()+dt < boundary.nursery_food_reduction_ready_at-1e-9)step(boundary);
+        boundary.creatures.back().position=inside;step(boundary);
+        check(boundary.nursery_food_reductions==2,"Crossing at cooldown deadline was ignored");
+        w.generate_world();
+        check(w.nursery_food_reduction_ready_at==0,"New world retained old cooldown");
+        step(w);check(w.nursery_food_reductions==1,"New world did not allow its first reduction");
+    }
+    for(double delay:{-1.0,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+        EcosystemConfig cfg;cfg.nursery_food_reduction_delay=delay;bool rejected=false;
+        try{cfg.validate();}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"Invalid nutrition cooldown accepted");
+    }
+}
 int main(){try{
+    population_nutrition_cooldown();
     population_nutrition();
     optional_regrowth();
     respawn_delays();

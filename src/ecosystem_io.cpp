@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_30");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_31");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -90,6 +90,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.storm_health_damage,config.storm_damage);
     checkpoint::write(s,config.nursery_food_population_threshold,config.nursery_food_energy_factor,
         nursery_food_current_energy,nursery_above_food_threshold,nursery_food_reductions);
+    checkpoint::write(s,config.nursery_food_reduction_delay,nursery_food_reduction_ready_at);
     checkpoint::write(s,next_resource_id);
     checkpoint::write_tuple(s,checkpoint::predation_total_fields(totals));
     checkpoint::write(s,step_index,next_creature_id,fruit_a_rich,capacity_limited);
@@ -127,7 +128,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool nursery_nutrition_version = version == "NEUROEVO_ECOSYSTEM_30";
+    const bool nursery_cooldown_version = version == "NEUROEVO_ECOSYSTEM_31";
+    const bool nursery_nutrition_version = nursery_cooldown_version || version == "NEUROEVO_ECOSYSTEM_30";
     const bool storm_damage_version = nursery_nutrition_version || version == "NEUROEVO_ECOSYSTEM_29";
     const bool respawn_version = storm_damage_version || version == "NEUROEVO_ECOSYSTEM_28";
     const bool general_food_version = respawn_version || version == "NEUROEVO_ECOSYSTEM_27";
@@ -164,6 +166,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (nursery_nutrition_version)
         checkpoint::read(s,cfg.nursery_food_population_threshold,cfg.nursery_food_energy_factor,
             nursery_energy,nursery_above,nursery_reductions);
+    cfg.nursery_food_reduction_delay=0; // Older runs had no cooldown.
+    double nursery_ready_at=0;
+    if (nursery_cooldown_version)
+        checkpoint::read(s,cfg.nursery_food_reduction_delay,nursery_ready_at);
+    if (nursery_ready_at < 0) throw std::runtime_error("Invalid nursery food reduction deadline");
     if (nursery_energy < 0 || nursery_energy > cfg.nursery_food_energy)
         throw std::runtime_error("Invalid current nursery food energy");
     if (!general_food_version && cfg.predation)
@@ -172,6 +179,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     w.nursery_food_current_energy=nursery_energy;
     w.nursery_above_food_threshold=nursery_above;
     w.nursery_food_reductions=nursery_reductions;
+    w.nursery_food_reduction_ready_at=nursery_ready_at;
     checkpoint::read(s,w.next_resource_id);
     if (!w.next_resource_id) throw std::runtime_error("Invalid next resource ID");
     checkpoint::read_tuple(s,checkpoint::predation_total_fields(w.totals));
@@ -260,6 +268,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"current_food_energy\":" << w.nursery_food_current_energy
       << ",\"food_population_threshold\":" << w.config.nursery_food_population_threshold
       << ",\"food_energy_factor\":" << w.config.nursery_food_energy_factor
+      << ",\"food_reduction_delay\":" << w.config.nursery_food_reduction_delay
       << ",\"food_reductions\":" << w.nursery_food_reductions
       << ",\"food_patches\":" << w.config.nursery_food_patches
       << ",\"food_relocates\":" << (w.config.nursery_food_relocates?"true":"false") << "}"

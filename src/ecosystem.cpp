@@ -246,6 +246,7 @@ void EcosystemWorld::generate_world()
     nursery_food_current_energy = config.nursery_food_energy;
     nursery_above_food_threshold = false;
     nursery_food_reductions = 0;
+    nursery_food_reduction_ready_at = 0;
     totals = {};
     events.clear();
     creatures.clear();

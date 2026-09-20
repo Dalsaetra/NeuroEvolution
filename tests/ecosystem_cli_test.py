@@ -56,18 +56,32 @@ class EcosystemCliTests(unittest.TestCase):
     def test_nursery_nutrition_resume_and_legacy(self):
         first = self.run_world("nutrition", "--creatures", 51, "--steps", 2,
             "--no-reproduction", "--no-storms", "--nursery-food-energy", 80,
-            "--nursery-food-population-threshold", 50, "--nursery-food-energy-factor", 0.8)
+            "--nursery-food-population-threshold", 50, "--nursery-food-energy-factor", 0.8,
+            "--nursery-food-reduction-delay", 12.5)
         summary = json.loads((first / "summary.json").read_text())
         self.assertEqual(summary["nursery"]["current_food_energy"], 64)
         self.assertEqual(summary["nursery"]["food_reductions"], 1)
         resumed = self.run_world("nutrition_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["nursery"]["current_food_energy"], 64)
+        self.assertEqual(summary["nursery"]["food_reduction_delay"], 12.5)
+        metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["nursery"]["food_reduction_delay"], 12.5)
         self.assertEqual(summary["nursery"]["food_reductions"], 1)
         with (resumed / "ecosystem_stats.csv").open() as source:
             rows = list(csv.DictReader(source))
         self.assertEqual(float(rows[-1]["nursery_food_energy"]), 64)
         lines = (first / "checkpoint.eco").read_text().splitlines()
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_31")
+        del lines[15]  # Version 31 adds the reduction cooldown and deadline.
+        lines[0] = "NEUROEVO_ECOSYSTEM_30"
+        legacy = first / "v30.eco"
+        legacy.write_text("\n".join(lines) + "\n")
+        old = self.run_world("nutrition_v30", "--resume", legacy, "--steps", 1)
+        summary = json.loads((old / "summary.json").read_text())
+        self.assertEqual(summary["nursery"]["food_reduction_delay"], 0)
+        self.assertEqual(summary["nursery"]["food_reductions"], 1)
+        self.assertEqual(summary["nursery"]["current_food_energy"], 64)
         del lines[14]
         lines[0] = "NEUROEVO_ECOSYSTEM_29"
         legacy = first / "v29.eco"
@@ -91,7 +105,8 @@ class EcosystemCliTests(unittest.TestCase):
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
         lines = (first / "checkpoint.eco").read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_30")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_31")
+        del lines[15]  # Version 31 adds the reduction cooldown and deadline.
         del lines[14]  # Version 30 adds nursery nutrition policy and crossing state.
         del lines[13]  # Version 29 adds storm mode and damage rate.
         for i in range(24, 24 + int(lines[23])):

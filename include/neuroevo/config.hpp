@@ -172,6 +172,7 @@ struct EcosystemConfig {
     // Reduce nutrition once per upward population crossing; zero disables it.
     std::size_t nursery_food_population_threshold = 50;
     double nursery_food_energy_factor = 0.8;
+    double nursery_food_reduction_delay = 1000; // Simulation seconds between reductions; 0 disables cooldown.
 
     // World size, population and seed
     std::size_t width = 100, height = 100, initial_creatures = 48, max_population = 300;

@@ -11,14 +11,16 @@ void EcosystemWorld::update_nursery_food_energy(double event_time)
     const auto population = static_cast<std::size_t>(std::count_if(creatures.begin(), creatures.end(),
         [&](const auto& c) { return in_nursery(c.position); }));
     const bool above = population > config.nursery_food_population_threshold;
-    if (above && !nursery_above_food_threshold) {
+    if (above && !nursery_above_food_threshold && event_time + 1e-9 >= nursery_food_reduction_ready_at) {
         nursery_food_current_energy *= config.nursery_food_energy_factor;
         ++nursery_food_reductions;
+        nursery_food_reduction_ready_at = event_time + config.nursery_food_reduction_delay;
         for (auto& r : resources)
             if (r.kind == FoodKind::Graze && !r.shelter_food && in_nursery(r.position))
                 r.energy_per_unit = nursery_food_current_energy;
         events.push_back({event_time, "nursery_food_energy_reduced", 0, 0, 0, nursery_food_current_energy});
     }
+    // Track even ignored crossings: cooldown expiry alone must never trigger a reduction.
     nursery_above_food_threshold = above;
 }
 

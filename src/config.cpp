@@ -108,6 +108,7 @@ void EcosystemConfig::validate() const
 {
     brain.validate_model();
     positive(nursery_food_energy_factor, "Nursery food energy factor");
+    positive(nursery_food_reduction_delay, "Nursery food reduction delay", true);
     if (nursery_food_energy_factor > 1)
         throw std::invalid_argument("Nursery food energy factor must be in (0,1]");
     probability(mutation.izhikevich_intrinsic_probability, "Izhikevich intrinsic mutation probability");
