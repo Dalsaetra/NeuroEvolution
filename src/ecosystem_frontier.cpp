@@ -55,6 +55,7 @@ void EcosystemWorld::generate_nursery_frontier()
         for (std::size_t i=v.size(); i>1; --i) std::swap(v[i-1],v[rng.uniform_index(i)]);
     };
     shuffle(outside,map_rng);
+    if (config.food_distribution == FoodDistribution::FieldsAndTrees) place_food_sources();
     std::vector<Vec2> shelter_centers;
     std::size_t placed=0;
     const auto low=config.shelter_size/2, high=config.shelter_size-1-low;
@@ -64,7 +65,8 @@ void EcosystemWorld::generate_nursery_frontier()
         if (x<low+1 || y<low+1 || x+high+1>=config.width || y+high+1>=config.height) continue;
         bool clear=true;
         for (std::size_t yy=y-low; yy<=y+high; ++yy) for (std::size_t xx=x-low; xx<=x+high; ++xx)
-            if (in_nursery(pos(yy*config.width+xx)) || terrain[yy*config.width+xx]==Terrain::Wall || terrain[yy*config.width+xx]==Terrain::Shelter) clear=false;
+            if (in_nursery(pos(yy*config.width+xx)) || terrain[yy*config.width+xx]==Terrain::Wall || terrain[yy*config.width+xx]==Terrain::Shelter
+                || reserved_for_food(pos(yy*config.width+xx),2)) clear=false;
         if (!clear) continue;
         for (std::size_t yy=y-low; yy<=y+high; ++yy) for (std::size_t xx=x-low; xx<=x+high; ++xx)
             terrain[yy*config.width+xx]=Terrain::Shelter;
@@ -108,6 +110,7 @@ void EcosystemWorld::generate_nursery_frontier()
         bool clear=true;
         for(int step=0;step<count;++step) {
             const Vec2 p{double(x)+.5,double(y)+.5};
+            if (reserved_for_food(p,1)) {clear=false;break;}
             if(x<2 || y<2 || x+2>=int(config.width) || y+2>=int(config.height)
                 || (x+3>=int(x0) && x<=int(x1)+3 && y+3>=int(y0) && y<=int(y1)+3)) {clear=false;break;}
             // Keep food centers and their immediate approaches free.
@@ -154,26 +157,29 @@ void EcosystemWorld::generate_nursery_frontier()
         food({double(x)+0.5,double(y)+0.5},FoodKind::Graze,config.nursery_food_energy,
             config.nursery_food_capacity,config.nursery_food_regrowth);
     fruit_a_rich=config.food_assignment<0 ? map_rng.chance(0.5) : config.food_assignment==0;
-    std::vector<unsigned char> occupied(terrain.size());
-    const auto next = [&](bool allow_shelter) {
-        for(const auto cell:outside) {
-            if(occupied[cell] || terrain[cell]==Terrain::Wall
-                || (!allow_shelter && terrain[cell]==Terrain::Shelter))continue;
-            occupied[cell]=1;return pos(cell);
+    if (config.food_distribution == FoodDistribution::FieldsAndTrees) generate_source_food();
+    else {
+        std::vector<unsigned char> occupied(terrain.size());
+        const auto next = [&](bool allow_shelter) {
+            for(const auto cell:outside) {
+                if(occupied[cell] || terrain[cell]==Terrain::Wall
+                    || (!allow_shelter && terrain[cell]==Terrain::Shelter))continue;
+                occupied[cell]=1;return pos(cell);
+            }
+            throw std::invalid_argument("Too many frontier resources");
+        };
+        // Reserve open ground for restricted foods before placing flexible grazing.
+        for (std::size_t i=0; i<config.fruit_patches; ++i) {
+            const bool a=i%2==0;
+            food(next(false),a?FoodKind::FruitA:FoodKind::FruitB,a==fruit_a_rich?config.rich_fruit_energy:config.poor_fruit_energy,
+                config.fruit_capacity,config.fruit_regrowth);
         }
-        throw std::invalid_argument("Too many frontier resources");
-    };
-    // Reserve open ground for restricted foods before placing flexible grazing.
-    for (std::size_t i=0; i<config.fruit_patches; ++i) {
-        const bool a=i%2==0;
-        food(next(false),a?FoodKind::FruitA:FoodKind::FruitB,a==fruit_a_rich?config.rich_fruit_energy:config.poor_fruit_energy,
-            config.fruit_capacity,config.fruit_regrowth);
+        for (std::size_t i=0; i<config.pods; ++i)
+            food(next(false),FoodKind::Pod,config.pod_energy,config.pod_capacity,config.pod_regrowth);
+        for (std::size_t i=0; i<config.grazing_patches; ++i)
+            food(next(true),FoodKind::Graze,config.graze_energy,config.graze_capacity,config.graze_regrowth);
     }
-    for (std::size_t i=0; i<config.pods; ++i)
-        food(next(false),FoodKind::Pod,config.pod_energy,config.pod_capacity,config.pod_regrowth);
-    for (std::size_t i=0; i<config.grazing_patches; ++i)
-        food(next(true),FoodKind::Graze,config.graze_energy,config.graze_capacity,config.graze_regrowth);
-    // Ordinary grazing now supplies frontier shelters; no low-quality patches.
+    // Food placement is independent of founder count.
     Random spawn_rng(config.seed ^ 0x66726f6e74696572ULL);
     shuffle(spawning,spawn_rng);
     if (config.initial_creatures>spawning.size()) throw std::invalid_argument("Too many founders for nursery");

@@ -8,6 +8,17 @@ namespace neuroevo {
 // Tune new runs here, then rebuild. Checkpoints preserve their own settings.
 enum class Terrain { Ground, Rough, Wall, Shelter };
 enum class FoodKind { Graze, FruitA, FruitB, Pod, Meat };
+enum class FoodDistribution { Scattered, FieldsAndTrees };
+const char* food_distribution_name(FoodDistribution preset);
+struct FoodSourceConfig {
+    std::size_t fields = 3, fruit_trees = 18, pod_trees = 3;
+    std::size_t fruit_sites = 8, pod_sites = 5;
+    double field_radius = 12, field_spacing = 1.5, source_gap = 5;
+    double field_energy = 25, field_capacity = 3, field_regrowth = 0.04;
+    double tree_radius = 3;
+    // Total biomass/second per tree, shared by its sites; fruit ripens in batches.
+    double fruit_production = 0.4, pod_production = 0.12;
+};
 enum class PodState { Closed, Open, Refilling };
 enum class ControllerKind { Spiking, Reactive, Random };
 enum class NeuronModel { Lif, Izhikevich, FilteredLif };
@@ -115,7 +126,7 @@ struct MutationConfig {
     };
     bool balance_structural_pairs = true;
     bool allow_birth_motifs = false;
-    double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.12;
+    double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.24;
     double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.4;
 
     // Direct Brain::mutate controls. Births derive these from the profiles above.
@@ -150,14 +161,14 @@ struct MutationConfig {
 
 struct EcosystemConfig {
     // Body, diet and predation
-    double carnivore_basal_fraction = 0.2; // Basal-rate multiplier at full carnivory.
+    double carnivore_basal_fraction = 0.5; // Basal-rate multiplier at full carnivory.
     bool predation = true;
-    bool shelter_predation_damage = true; // Allow damage to targets in ordinary shelters; nursery stays protected.
+    bool shelter_predation_damage = false; // Allow damage to targets in ordinary shelters; nursery stays protected.
     double founder_mass = 1.0, founder_carnivory = 0.4;
     double health_per_mass = 20, body_energy_per_mass = 60;
     double attack_range = 1.6, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
-    double healing_rate = 0.1, healing_cost = 2;
+    double healing_rate = 0.1, healing_cost = 10.0;
     double meat_energy = 60, meat_decay = 0.0002, carcass_recovery = 0.95;
     double nursery_meat_decay = 0.005; // Biomass/second inside nursery; meat_decay applies outside.
 
@@ -165,19 +176,19 @@ struct EcosystemConfig {
     bool nursery_frontier = true; // Disable only for controlled mechanics experiments.
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 3;
-    std::size_t shelter_size = 7;
     std::size_t nursery_food_patches = 16;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
     double nursery_food_energy = 100, nursery_food_capacity = 2, nursery_food_regrowth = 0;
     // Reduce nutrition once per upward population crossing; zero disables it.
-    std::size_t nursery_food_population_threshold = 50;
+    std::size_t nursery_food_population_threshold = 60;
     double nursery_food_energy_factor = 0.8;
     double nursery_food_reduction_delay = 1000; // Simulation seconds between reductions; 0 disables cooldown.
 
     // World size, population and seed
-    std::size_t width = 100, height = 100, initial_creatures = 48, max_population = 300;
-    std::size_t shelters = 24, grazing_patches = 250, fruit_patches = 80, pods = 120;
+    std::size_t width = 140, height = 140, initial_creatures = 48, max_population = 300;
+    std::size_t shelters = 40, shelter_size = 9;
+    std::size_t grazing_patches = 250, fruit_patches = 80, pods = 120;
     std::uint64_t seed = 8;
 
     // Motion and local senses
@@ -192,8 +203,10 @@ struct EcosystemConfig {
     double rough_multiplier = 1.5, ingestion_rate = 1.0, digestion_delay = 3.0;
 
     // Food nutrition, renewal and decay
+    FoodDistribution food_distribution = FoodDistribution::FieldsAndTrees;
+    FoodSourceConfig food_sources;
     double graze_capacity = 3, fruit_capacity = 4, pod_capacity = 10;
-    double graze_energy = 30, poor_fruit_energy = 20, rich_fruit_energy = 60, pod_energy = 120;
+    double graze_energy = 40, poor_fruit_energy = 30, rich_fruit_energy = 70, pod_energy = 120;
     // Optional passive biomass/second, also active with relocation. Pods need refill growth.
     double graze_regrowth = 0, fruit_regrowth = 0, pod_regrowth = 0.08;
     bool outdoor_food_relocates = true;
@@ -208,7 +221,7 @@ struct EcosystemConfig {
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
     double storm_cost = 5.0, phase_offset = 0;
     bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
-    double storm_damage = 0.4; // Health/second at mass 1; divided by body mass.
+    double storm_damage = 0.4; // Health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;

@@ -59,7 +59,7 @@ void storm_health()
     for(auto& c:w.creatures)c.health=10;
     const auto initial=ledger(w);w.step({{},{},{},{}});
     near(w.creatures[0].health,9,"Storm health damage missing or healed immediately");
-    near(w.creatures[1].health,9.5,"Storm health damage ignored mass");
+    near(w.creatures[1].health,9,"Storm health damage must be independent of mass");
     near(w.creatures[2].health,11,"Nursery failed to protect from storm damage");
     near(w.creatures[3].health,11,"Shelter failed to protect from storm damage");
     near(w.creatures[0].damage_pulse,1,"Storm did not set damage feedback");
@@ -87,9 +87,24 @@ void storm_health()
     }
 }
 
+void storm_survival_scales_linearly()
+{
+    auto w=empty();
+    w.config.storms_enabled=true;
+    w.config.phase_offset=w.config.calm_duration+w.config.warning_duration;
+    w.config.storm_health_damage=true;w.config.storm_damage=10;
+    add(w,{3,3},0,{0.5,0});add(w,{5,3},0,{1,0});add(w,{7,3},0,{2,0});
+    for(int step=1;step<=40;++step) {
+        w.step(std::vector<EcoAction>(w.creatures.size()));
+        const std::size_t expected=(step<10 ? 1 : 0)+(step<20 ? 1 : 0)+(step<40 ? 1 : 0);
+        require(w.creatures.size()==expected,"Storm survival time must scale linearly with mass");
+    }
+    require(w.totals.deaths==3 && w.totals.predation_deaths==0,"Storm survival deaths misclassified");
+}
+
 void shelter_damage()
 {
-    require(EcosystemConfig{}.shelter_predation_damage,"Shelter damage must default to enabled");
+    // Exercise both shelter policies independently of the tunable default.
     for(bool enabled:{false,true}) for(bool attacker_inside:{false,true})
         for(bool target_inside:{false,true}) for(bool lethal:{false,true}) {
         auto w=empty();w.config.shelter_predation_damage=enabled;
@@ -546,6 +561,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { storm_health(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { storm_health(); storm_survival_scales_linearly(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

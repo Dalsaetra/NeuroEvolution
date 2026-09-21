@@ -180,6 +180,7 @@ EcosystemWorld make_ancestral_nursery(EcosystemConfig config)
     config.fruit_patches = 100;
     config.calm_duration = 100000.0;
     config.nursery_frontier = false;
+    config.food_distribution = FoodDistribution::Scattered;
     config.shelter_size = 3;
     config.controller = ControllerKind::Spiking;
 

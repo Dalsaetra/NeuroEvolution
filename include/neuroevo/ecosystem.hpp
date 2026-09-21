@@ -19,6 +19,14 @@ struct EcoAction {
     double forward = 0, left = 0, right = 0, forage = 0, call = 0, attack = 0;
 };
 struct DigestivePacket { double due = 0, energy = 0; FoodKind kind = FoodKind::Graze; };
+enum class FoodSourceKind { Field, FruitTree, PodTree };
+const char* to_string(FoodSourceKind value);
+struct FoodSource {
+    std::uint64_t id = 0;
+    FoodSourceKind kind = FoodSourceKind::Field;
+    Vec2 position;
+    double radius = 0, phase = 0;
+};
 struct EcoResource {
     std::uint64_t id = 0;
     FoodKind kind = FoodKind::Graze;
@@ -29,6 +37,8 @@ struct EcoResource {
     bool shelter_food = false; // Low-quality graze; shares the existing graze sensory channel.
     PodState pod_state = PodState::Closed;
     double progress = 0, opened_at = 0;
+    std::uint64_t source_id = 0; // Zero for scattered, nursery food and carcasses.
+    double ripening_remaining = -1; // Fruit is unavailable until this timer reaches zero.
 };
 struct EcoCreature {
     BodyGenes body;
@@ -77,6 +87,7 @@ public:
     EcosystemConfig config;
     std::vector<Terrain> terrain;
     std::vector<EcoResource> resources;
+    std::vector<FoodSource> food_sources;
     std::vector<EcoCreature> creatures;
     std::vector<EcoEvent> events; // Events produced by the most recent step only.
     EcoTotals totals;
@@ -96,6 +107,10 @@ public:
     bool sheltered(Vec2 position) const;
     bool in_nursery(Vec2 position) const;
     void generate_nursery_frontier();
+    void place_food_sources();
+    bool reserved_for_food(Vec2 position, double margin = 0) const;
+    void generate_source_food();
+    void renew_source_food(double end, bool storm);
     bool relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures);
     void update_nursery_food_energy(double event_time);
     bool relocate_outdoor_food(EcoResource& resource);

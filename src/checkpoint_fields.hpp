@@ -30,6 +30,11 @@ template<class... T> void write(std::ostream& s, const T&... v)
     if (!s) throw std::runtime_error("Failed to write checkpoint");
 }
 template<class... T> void read(std::istream& s, T&... v) { (read_value(s, v), ...); }
+template<class T> auto food_source_fields(T& c) {
+    return std::tie(c.fields,c.fruit_trees,c.pod_trees,c.fruit_sites,c.pod_sites,
+        c.field_radius,c.field_spacing,c.source_gap,c.field_energy,c.field_capacity,
+        c.field_regrowth,c.tree_radius,c.fruit_production,c.pod_production);
+}
 template<class T> auto brain_fields(T& c) {
     return std::tie(c.input_count,c.hidden_count,c.output_count,c.dt,
         c.membrane_tau,c.threshold,c.reset_potential,c.refractory_time,c.input_gain,c.synaptic_gain,

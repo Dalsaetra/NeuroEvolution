@@ -107,6 +107,20 @@ void EcosystemConfig::set_predation(bool enabled)
 void EcosystemConfig::validate() const
 {
     brain.validate_model();
+    if (food_distribution != FoodDistribution::Scattered && food_distribution != FoodDistribution::FieldsAndTrees)
+        throw std::invalid_argument("Invalid food distribution preset");
+    const auto& fs=food_sources;
+    if (fs.fields > 100 || fs.fruit_trees > 1000 || fs.pod_trees > 1000
+        || fs.fruit_sites < 1 || fs.fruit_sites > 32 || fs.pod_sites < 1 || fs.pod_sites > 32)
+        throw std::invalid_argument("Invalid food source or tree site count");
+    positive(fs.field_radius,"Field radius");positive(fs.field_spacing,"Field spacing");
+    positive(fs.source_gap,"Food source gap",true);positive(fs.tree_radius,"Tree radius");
+    positive(fs.field_energy,"Field energy");positive(fs.field_capacity,"Field capacity");
+    positive(fs.field_regrowth,"Field regrowth",true);
+    positive(fs.fruit_production,"Fruit tree production");positive(fs.pod_production,"Pod tree production");
+    if (fs.field_spacing < 1 || fs.field_spacing > 2 || fs.field_radius < fs.field_spacing
+        || fs.field_radius > 100 || fs.tree_radius < 2 || fs.tree_radius > 30)
+        throw std::invalid_argument("Fields require spacing 1..2 and radius spacing..100; tree radius must be 2..30");
     positive(nursery_food_energy_factor, "Nursery food energy factor");
     positive(nursery_food_reduction_delay, "Nursery food reduction delay", true);
     if (nursery_food_energy_factor > 1)

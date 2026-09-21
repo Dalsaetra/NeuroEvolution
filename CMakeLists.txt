@@ -14,6 +14,7 @@ add_library(neuroevo_core
     src/ecosystem_predation.cpp
     src/ecosystem_ancestor.cpp
     src/ecosystem_frontier.cpp
+    src/ecosystem_food_sources.cpp
     src/ecosystem_sensing.cpp
     src/ecosystem_io.cpp
 )
@@ -35,7 +36,7 @@ target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 enable_testing()
 foreach(test IN ITEMS sensory_mutation pruning ecosystem_predation ecosystem_frontier
         ecosystem_calibration ecosystem_mechanics ecosystem_sensing ecosystem_checkpoint
-        ecosystem_ancestor ecosystem_dynamic_food autapse izhikevich filtered_lif)
+        ecosystem_ancestor ecosystem_dynamic_food ecosystem_food_sources autapse izhikevich filtered_lif)
     add_executable(neuroevo_${test} tests/${test}.cpp)
     target_link_libraries(neuroevo_${test} PRIVATE neuroevo_core)
     add_test(NAME neuroevo_${test} COMMAND neuroevo_${test})

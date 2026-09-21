@@ -15,6 +15,36 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    def test_fields_and_trees_default_and_resume(self):
+        path = self.root / "source_default"
+        result = subprocess.run([str(EXECUTABLE), "--out", str(path), "--steps", "5", "--creatures", "1",
+            "--record-every", "1", "--record-brains", "0", "--record-observations", "0",
+            "--detailed-tail-seconds", "0"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        records = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
+        metadata = records[0]
+        self.assertEqual(metadata["food_distribution"], "fields-and-trees")
+        self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("field"), 3)
+        self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("pod-tree"), 3)
+        source_ids = {s["id"] for s in metadata["food_sources"]}
+        self.assertTrue(all(r["source_id"] in source_ids for r in metadata["resources"] if r["source_id"]))
+        self.assertTrue(any(r["ripening_remaining"] > 0 for r in records[1]["resources"]))
+        resumed = self.run_world("source_resume", "--resume", path / "checkpoint.eco", "--steps", 1)
+        saved = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(saved["food_sources"], metadata["food_sources"])
+        self.assertEqual(saved["food_distribution"], "fields-and-trees")
+        self.assertEqual(json.loads((resumed / "summary.json").read_text())["food_distribution"], "fields-and-trees")
+        result = subprocess.run([str(EXECUTABLE), "--resume", str(path / "checkpoint.eco"),
+            "--food-distribution", "scattered"], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_scattered_preset_remains_available(self):
+        path = self.run_world("legacy_food", "--food-distribution", "scattered", "--steps", 1, "--creatures", 1)
+        metadata = json.loads((path / "ecosystem.jsonl").read_text().splitlines()[0])
+        self.assertEqual(metadata["food_distribution"], "scattered")
+        self.assertEqual(metadata["food_sources"], [])
+        self.assertTrue(all(r["source_id"] == 0 for r in metadata["resources"]))
+
     @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows PowerShell launcher test")
     def test_launcher_uses_release_binary_with_stale_single_config_binary(self):
         repo = self.root / "launcher repo"
@@ -62,7 +92,7 @@ class EcosystemCliTests(unittest.TestCase):
             summary = json.loads((resumed / "summary.json").read_text())
             self.assertEqual(metadata["shelter_predation_damage"], bool(enabled))
             self.assertEqual(summary["predation"]["shelter_predation_damage"], bool(enabled))
-            lines = (first / "checkpoint.eco").read_text().splitlines()
+            lines = self.legacy_checkpoint_lines(first / "checkpoint.eco")
             self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
             del lines[17]  # Version 33 adds initial ancestor mutation policy.
             del lines[16]  # Version 32 adds ordinary shelter damage policy.
@@ -91,7 +121,7 @@ class EcosystemCliTests(unittest.TestCase):
         with (resumed / "ecosystem_stats.csv").open() as source:
             rows = list(csv.DictReader(source))
         self.assertEqual(float(rows[-1]["nursery_food_energy"]), 64)
-        lines = (first / "checkpoint.eco").read_text().splitlines()
+        lines = self.legacy_checkpoint_lines(first / "checkpoint.eco")
         self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
         del lines[17]  # Version 33 adds initial ancestor mutation policy.
         del lines[16]  # Version 32 adds ordinary shelter damage policy.
@@ -126,7 +156,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(metadata["outdoor_food_respawn_delay"], 5)
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertEqual(summary["mutation"]["add_autapse_probability"], 0.37)
-        lines = (first / "checkpoint.eco").read_text().splitlines()
+        lines = self.legacy_checkpoint_lines(first / "checkpoint.eco")
         self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
         del lines[17]  # Version 33 adds initial ancestor mutation policy.
         del lines[16]  # Version 32 adds ordinary shelter damage policy.
@@ -157,10 +187,20 @@ class EcosystemCliTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def legacy_checkpoint_lines(self, path):
+        """Strip the v34 source extension before historical-format migration tests."""
+        lines = path.read_text().splitlines()
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_34")
+        extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
+        lines = lines[:extension] + ["END_ECOSYSTEM"]
+        lines[0] = "NEUROEVO_ECOSYSTEM_33"
+        return lines
+
     def run_world(self, name, *arguments):
         path = self.root / name
+        defaults = [] if "--resume" in arguments else ["--food-distribution", "scattered"]
         completed = subprocess.run(
-            [str(EXECUTABLE), "--out", str(path), *map(str, arguments)],
+            [str(EXECUTABLE), "--out", str(path), *defaults, *map(str, arguments)],
             text=True, capture_output=True, timeout=90,
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
@@ -326,7 +366,7 @@ class EcosystemCliTests(unittest.TestCase):
         resumed = self.run_world("varied_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
         summary = json.loads((resumed / "summary.json").read_text())
         self.assertTrue(summary["mutate_initial_ancestors"])
-        lines = (first / "checkpoint.eco").read_text().splitlines()
+        lines = self.legacy_checkpoint_lines(first / "checkpoint.eco")
         self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_33")
         del lines[17]
         lines[0] = "NEUROEVO_ECOSYSTEM_32"

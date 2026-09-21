@@ -63,6 +63,9 @@ int main(int argc, char** argv)
         neuroevo::EcosystemConfig cfg;
         const neuroevo::RunConfig run;
         std::map<std::string,std::size_t*> sizes{
+            {"--grazing-fields",&cfg.food_sources.fields},{"--fruit-trees",&cfg.food_sources.fruit_trees},
+            {"--pod-trees",&cfg.food_sources.pod_trees},{"--fruit-sites",&cfg.food_sources.fruit_sites},
+            {"--pod-sites",&cfg.food_sources.pod_sites},
             {"--nursery-size",&cfg.nursery_size},
             {"--nursery-food-patches",&cfg.nursery_food_patches},
             {"--nursery-food-population-threshold",&cfg.nursery_food_population_threshold},
@@ -74,6 +77,11 @@ int main(int argc, char** argv)
             {"--pods",&cfg.pods},{"--hidden",&cfg.brain.hidden_count},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
+            {"--field-radius",&cfg.food_sources.field_radius},{"--field-spacing",&cfg.food_sources.field_spacing},
+            {"--food-source-gap",&cfg.food_sources.source_gap},{"--field-energy",&cfg.food_sources.field_energy},
+            {"--field-capacity",&cfg.food_sources.field_capacity},{"--field-regrowth",&cfg.food_sources.field_regrowth},
+            {"--tree-radius",&cfg.food_sources.tree_radius},{"--fruit-tree-production",&cfg.food_sources.fruit_production},
+            {"--pod-tree-production",&cfg.food_sources.pod_production},
             {"--founder-mass",&cfg.founder_mass},
             {"--founder-carnivory",&cfg.founder_carnivory},
             {"--health-per-mass",&cfg.health_per_mass},
@@ -162,6 +170,7 @@ int main(int argc, char** argv)
         std::string resume,founders,starting_genomes,founder_brain=cfg.sparse_ancestor ? "sparse-ancestor" : "random",habitat=cfg.nursery_frontier ? "nursery-frontier" : "generated";
         bool predation_explicit=false;
         bool founder_brain_explicit=false;
+        bool food_distribution_explicit=false;
         std::optional<neuroevo::NeuronModel> neuron_model;
         std::optional<double> brain_dt_override;
         std::optional<double> synaptic_gain_override;
@@ -178,6 +187,15 @@ int main(int argc, char** argv)
                 std::cout << "Nursery ecosystem with independent spiking brains\nTune include/neuroevo/config.hpp and rebuild to change defaults.\n\n"
                     "Usage: neuroevo_ecosystem --creatures 24 --steps 4800 --out runs/my_ecosystem\n\n"
                     "  --steps N                 World steps to run (additional steps with --resume)\n"
+                    "  --food-distribution X    fields-and-trees (default) or scattered; saved in checkpoints\n"
+                    "  --grazing-fields N       Large persistent fields (nursery-frontier only)\n"
+                    "  --fruit-trees N          Static fruit sources; --fruit-sites N per tree\n"
+                    "  --pod-trees N            Static pod sources; --pod-sites N per tree\n"
+                    "  --field-radius X         Reserved field radius; --field-spacing X grid spacing\n"
+                    "  --field-energy X         Grazing nutrition; --field-capacity/--field-regrowth per area\n"
+                    "  --tree-radius X          Growing radius; --food-source-gap X empty source separation\n"
+                    "  --fruit-tree-production X  Biomass/second shared across each tree's sites\n"
+                    "  --pod-tree-production X    Biomass/second shared across each pod tree's sites\n"
                     "  --record-every N          Save a replay frame every N steps\n"
                     "  --record-brains 0|1       Record neural activity\n"
                     "  --record-observations 0|1 Record sensory values per creature\n"
@@ -225,7 +243,7 @@ int main(int argc, char** argv)
                     "  --nursery-food-reduction-delay X  Seconds between reductions (default 1000); requires a new crossing\n"
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
                     "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
-                    "  --storm-damage X         Health damage/second at mass 1\n"
+                    "  --storm-damage X         Health damage/second independent of mass\n"
                     "  --nursery-meat-decay X    Meat biomass lost/second inside nursery; --meat-decay applies outside\n"
                     "  --founders FILE           Copy/reset living brains from a checkpoint into a new world\n"
                     "  --starting-genomes DIR    Sample surviving genome IDs uniformly, with replacement, from DIR/checkpoint.eco\n"
@@ -268,6 +286,12 @@ int main(int argc, char** argv)
             else {
                 config_changed=true;
                 if (arg == "--seed") cfg.seed=integer(value,arg);
+                else if (arg == "--food-distribution") {
+                    if(value!="scattered" && value!="fields-and-trees")
+                        throw std::invalid_argument("--food-distribution requires scattered or fields-and-trees");
+                    cfg.food_distribution=value=="scattered"?neuroevo::FoodDistribution::Scattered:neuroevo::FoodDistribution::FieldsAndTrees;
+                    food_distribution_explicit=true;
+                }
                 else if (arg == "--neuron-model") {
                     if (value!="lif" && value!="izhikevich" && value!="filtered-lif")
                         throw std::invalid_argument("--neuron-model requires lif, izhikevich, or filtered-lif");
@@ -359,6 +383,9 @@ int main(int argc, char** argv)
             founder_brain="sparse-ancestor";
         }
         cfg.nursery_frontier=habitat=="nursery-frontier";
+        if(!cfg.nursery_frontier && !food_distribution_explicit)cfg.food_distribution=neuroevo::FoodDistribution::Scattered;
+        if(!cfg.nursery_frontier && cfg.food_distribution==neuroevo::FoodDistribution::FieldsAndTrees)
+            throw std::invalid_argument("fields-and-trees requires --habitat nursery-frontier");
         if (!resume.empty() && (config_changed || !founders.empty()))
             throw std::invalid_argument("--resume restores the full configuration; use a new world with --founders to change it");
         if (!founders.empty() && founder_brain_explicit)
@@ -578,6 +605,8 @@ int main(int argc, char** argv)
         summary << "{\n  \"status\":\"" << status << "\",\n  \"steps_run\":" << world.step_index-starting_step
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
             << ",\n  \"mutate_initial_ancestors\":" << (world.config.mutate_initial_ancestors?"true":"false")
+            << ",\n  \"food_distribution\":\"" << neuroevo::food_distribution_name(world.config.food_distribution) << "\""
+            << ",\n  \"food_source_count\":" << world.food_sources.size()
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
             << ",\"shelter_predation_damage\":" << (world.config.shelter_predation_damage?"true":"false")

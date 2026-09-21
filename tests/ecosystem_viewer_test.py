@@ -238,6 +238,17 @@ class EcosystemReplayTests(unittest.TestCase):
     def test_playback_handles_births_deaths_and_missing_brain_activity(self) -> None:
         metadata = {**self.metadata(), "terrain": [0] * 6, "resources": [], "brains": [], "input_labels": [],
                     "predation": True, "attack_range": 0.8, "attack_degrees": 60}
+        metadata["food_sources"] = [
+            {"id": 1, "kind": "field", "x": 1, "y": 1, "radius": .4, "phase": 0},
+            {"id": 2, "kind": "fruit-tree", "x": 2, "y": 1, "radius": .3, "phase": 1},
+            {"id": 3, "kind": "pod-tree", "x": 2.5, "y": 1, "radius": .2, "phase": 2},
+        ]
+        metadata["field_spacing"] = 1.5
+        metadata["resources"] = [
+            {"id": 10, "source_id": 1, "kind": "graze", "x": 1, "y": 1, "capacity": 2},
+            {"id": 11, "source_id": 2, "kind": "fruit-a", "x": 2, "y": 1, "capacity": 4},
+            {"id": 12, "source_id": 3, "kind": "pod", "x": 2.5, "y": 1, "capacity": 10},
+        ]
         creature = {"id": 1, "x": 1, "y": 1, "energy": 50, "age": 0,
                     "mass": 1.5, "carnivory": 0.3, "health": 20, "max_health": 30, "attack": 0.5}
         child = {**creature, "id": 2, "parent": 1, "generation": 1,
@@ -250,6 +261,12 @@ class EcosystemReplayTests(unittest.TestCase):
         frames = [{"time": i, "creatures": creatures, "resources": [], "events": [], "totals": {}}
                   for i, creatures in enumerate(([creature], [child], []))]
         frames[1]["resources"] = [{"id": 99, "kind": "meat", "x": 1.5, "y": 1, "stock": 1, "capacity": 2, "value": 20}]
+        for frame in frames:
+            frame["resources"] += [
+                {"id": 10, "stock": .5, "ripening_remaining": -1},
+                {"id": 11, "stock": 0, "ripening_remaining": 30},
+                {"id": 12, "stock": 2, "state": "refilling"},
+            ]
         payload = {"name": "lifecycle test", "metadata": metadata, "frames": frames,
                    "stats": [{"time": 0, "population": 1, "net_energy": -3},
                              {"time": 2, "population": 0, "net_energy": 2}]}

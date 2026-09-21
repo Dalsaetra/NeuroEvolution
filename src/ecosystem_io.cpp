@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_33");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_34");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -123,6 +123,13 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     }
     checkpoint::write(s,events.size());
     for (const auto& e : events) write_event(s,e);
+    checkpoint::write(s,"FOOD_SOURCES_1",config.food_distribution);
+    checkpoint::write_tuple(s,checkpoint::food_source_fields(config.food_sources));
+    checkpoint::write(s,food_sources.size());
+    for(const auto& source:food_sources)
+        checkpoint::write(s,source.id,source.kind,source.position.x,source.position.y,source.radius,source.phase);
+    checkpoint::write(s,resources.size());
+    for(const auto& r:resources)checkpoint::write(s,r.source_id,r.ripening_remaining);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -130,7 +137,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool ancestor_mutation_version = version == "NEUROEVO_ECOSYSTEM_33";
+    const bool source_version = version == "NEUROEVO_ECOSYSTEM_34";
+    const bool ancestor_mutation_version = source_version || version == "NEUROEVO_ECOSYSTEM_33";
     const bool shelter_damage_version = ancestor_mutation_version || version == "NEUROEVO_ECOSYSTEM_32";
     const bool nursery_cooldown_version = shelter_damage_version || version == "NEUROEVO_ECOSYSTEM_31";
     const bool nursery_nutrition_version = nursery_cooldown_version || version == "NEUROEVO_ECOSYSTEM_30";
@@ -144,6 +152,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.food_distribution=FoodDistribution::Scattered; // Historical worlds keep their original renewal rules.
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
     checkpoint::read_tuple(s,checkpoint::calibrated_brain_fields(cfg.brain));
@@ -258,6 +267,36 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     }
     w.events.resize(checkpoint::count(s,1000000));
     for (auto& e : w.events) read_event(s,e);
+    if(source_version) {
+        checkpoint::marker(s,"FOOD_SOURCES_1");
+        checkpoint::read(s,w.config.food_distribution);
+        checkpoint::read_tuple(s,checkpoint::food_source_fields(w.config.food_sources));
+        w.config.validate();
+        w.food_sources.resize(checkpoint::count(s,2100));
+        for(std::size_t i=0;i<w.food_sources.size();++i) {
+            auto& source=w.food_sources[i];
+            checkpoint::read(s,source.id,source.kind,source.position.x,source.position.y,source.radius,source.phase);
+            if(source.id!=i+1 || source.kind<FoodSourceKind::Field || source.kind>FoodSourceKind::PodTree
+                || source.radius<=0 || !w.traversable(source.position) || w.sheltered(source.position)
+                || w.config.food_distribution!=FoodDistribution::FieldsAndTrees)
+                throw std::runtime_error("Invalid food source checkpoint");
+        }
+        if(checkpoint::count(s,1000000)!=w.resources.size())throw std::runtime_error("Food source resource count mismatch");
+        for(auto& r:w.resources) {
+            checkpoint::read(s,r.source_id,r.ripening_remaining);
+            if(r.source_id>w.food_sources.size() || (r.ripening_remaining < 0 && r.ripening_remaining!=-1)
+                || (!r.source_id && r.ripening_remaining!=-1))throw std::runtime_error("Invalid source resource state");
+            if(!r.source_id)continue;
+            const auto& source=w.food_sources[static_cast<std::size_t>(r.source_id-1)];
+            const bool fruit=r.kind==FoodKind::FruitA || r.kind==FoodKind::FruitB;
+            if(w.sheltered(r.position) || length(r.position-source.position)>source.radius+1e-8
+                || r.shelter_food || (source.kind==FoodSourceKind::Field && r.kind!=FoodKind::Graze)
+                || (source.kind==FoodSourceKind::FruitTree && !fruit)
+                || (source.kind==FoodSourceKind::PodTree && r.kind!=FoodKind::Pod)
+                || (fruit && (r.regrowth<=0 || (r.ripening_remaining>=0 && r.stock>1e-8)))
+                || (!fruit && r.ripening_remaining!=-1))throw std::runtime_error("Invalid food source membership");
+        }
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -339,10 +378,19 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
     array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity),[&](const std::string& v){ quoted(s,v); });
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
+    s << ",\"food_distribution\":\"" << food_distribution_name(w.config.food_distribution) << "\""
+      << ",\"field_spacing\":" << w.config.food_sources.field_spacing
+      << ",\"food_sources\":";
+    array(s,w.food_sources,[&](const FoodSource& source) {
+        s << "{\"id\":" << source.id << ",\"kind\":\"" << to_string(source.kind)
+          << "\",\"x\":" << source.position.x << ",\"y\":" << source.position.y
+          << ",\"radius\":" << source.radius << ",\"phase\":" << source.phase << '}';
+    });
     s << ",\"resources\":";
     array(s,w.resources,[&](const EcoResource& r){
         s << "{\"id\":" << r.id << ",\"kind\":"; quoted(s,to_string(r.kind));
         s << ",\"shelter_food\":" << (r.shelter_food ? "true" : "false");
+        s << ",\"source_id\":" << r.source_id << ",\"regrowth\":" << r.regrowth;
         s << ",\"x\":" << r.position.x << ",\"y\":" << r.position.y << ",\"capacity\":" << r.capacity
           << ",\"value\":" << r.energy_per_unit << '}';
     });
@@ -418,7 +466,8 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
             s << ",\"kind\":\"meat\",\"capacity\":" << r.capacity << ",\"value\":" << r.energy_per_unit;
         else if (w.in_nursery(r.position))
             s << ",\"value\":" << r.energy_per_unit;
-        s << ",\"stock\":" << r.stock << ",\"progress\":" << r.progress << ",\"state\":";
+        s << ",\"stock\":" << r.stock << ",\"ripening_remaining\":" << r.ripening_remaining
+          << ",\"progress\":" << r.progress << ",\"state\":";
         quoted(s,to_string(r.pod_state)); s << '}';
     });
     s << ",\"events\":";

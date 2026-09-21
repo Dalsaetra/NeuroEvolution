@@ -10,7 +10,7 @@ void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 std::string save(const EcosystemWorld& w){std::ostringstream s;w.save_checkpoint(s);return s.str();}
 void optional_regrowth() {
     for(bool nursery:{false,true}) for(bool relocate:{false,true}) {
-        EcosystemConfig cfg;cfg.width=cfg.height=80;cfg.initial_creatures=0;cfg.storms_enabled=false;
+        auto cfg=scattered_config();cfg.width=cfg.height=80;cfg.initial_creatures=0;cfg.storms_enabled=false;
         cfg.nursery_food_relocates=cfg.outdoor_food_relocates=relocate;
         cfg.nursery_food_decay=cfg.graze_decay=cfg.fruit_decay=0;
         EcosystemWorld w(cfg,false);
@@ -20,7 +20,7 @@ void optional_regrowth() {
         check(std::abs(w.resources[0].stock-0.6)<1e-9,"Relocation disabled explicit passive regrowth");
         w.resources[0].stock=0.99;w.step();check(w.resources[0].stock==1,"Regrowth exceeded capacity");
     }
-    EcosystemConfig cfg;cfg.width=cfg.height=80;cfg.initial_creatures=0;cfg.nursery_food_regrowth=0.7;
+    auto cfg=scattered_config();cfg.width=cfg.height=80;cfg.initial_creatures=0;cfg.nursery_food_regrowth=0.7;
     EcosystemWorld w(cfg);
     for(const auto& r:w.resources)if(w.in_nursery(r.position))
         check(r.regrowth==0.7,"Moving nursery food lost configured regrowth");
@@ -28,7 +28,7 @@ void optional_regrowth() {
 
 void respawn_delays() {
     for (bool relocate : {false,true}) for (auto kind : {FoodKind::Graze,FoodKind::FruitA,FoodKind::FruitB}) {
-        EcosystemConfig cfg; cfg.width=cfg.height=80; cfg.initial_creatures=0; cfg.dt=0.1; cfg.storms_enabled=false;
+        auto cfg=scattered_config(); cfg.width=cfg.height=80; cfg.initial_creatures=0; cfg.dt=0.1; cfg.storms_enabled=false;
         cfg.nursery_food_relocates=cfg.outdoor_food_relocates=relocate;
         cfg.nursery_food_respawn_delay=0.2; cfg.outdoor_food_respawn_delay=0.4;
         cfg.nursery_food_decay=cfg.graze_decay=cfg.fruit_decay=0;
@@ -51,7 +51,7 @@ void respawn_delays() {
         check(w.resources[0].stock==0 && w.resources[0].respawn_at>0.6,"Second depletion reused old deadline");
     }
     for (bool nursery : {false,true}) {
-        EcosystemConfig cfg; cfg.width=cfg.height=80; cfg.initial_creatures=0; cfg.dt=0.1;
+        auto cfg=scattered_config(); cfg.width=cfg.height=80; cfg.initial_creatures=0; cfg.dt=0.1;
         cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0.2;
         cfg.nursery_food_decay=cfg.graze_decay=0.01;
         EcosystemWorld w(cfg,false);
@@ -62,14 +62,14 @@ void respawn_delays() {
         w.step(); check(w.resources[0].stock==1,"Decay cooldown did not expire");
     }
     for (bool nursery : {false,true}) {
-        auto cfg=EcosystemConfig{};
+        auto cfg=scattered_config();
         if(nursery)cfg.nursery_food_respawn_delay=-1;else cfg.outdoor_food_respawn_delay=-1;
         bool rejected=false;try{cfg.validate();}catch(const std::invalid_argument&){rejected=true;}
         check(rejected,"Negative respawn delay accepted");
     }
 }
 void population_nutrition() {
-    EcosystemConfig cfg; cfg.initial_creatures=51; cfg.reproduction=false;
+    auto cfg=scattered_config(); cfg.initial_creatures=51; cfg.reproduction=false;
     cfg.storms_enabled=false; cfg.nursery_food_decay=0;
     cfg.nursery_food_energy=80; cfg.nursery_food_population_threshold=50;
     cfg.nursery_food_energy_factor=0.8;
@@ -120,9 +120,9 @@ void population_nutrition() {
     }
 }
 void population_nutrition_cooldown() {
-    check(EcosystemConfig{}.nursery_food_reduction_delay==1000,"Default nutrition cooldown changed");
+    check(scattered_config().nursery_food_reduction_delay==1000,"Default nutrition cooldown changed");
     for (double dt : {0.1,0.2}) {
-        EcosystemConfig cfg;cfg.initial_creatures=2;cfg.nursery_food_population_threshold=1;
+        auto cfg=scattered_config();cfg.initial_creatures=2;cfg.nursery_food_population_threshold=1;
         cfg.reproduction=false;cfg.storms_enabled=false;cfg.nursery_food_reduction_delay=1;cfg.dt=dt;
         EcosystemWorld w(cfg);
         std::fill(w.terrain.begin(),w.terrain.end(),Terrain::Ground);
@@ -163,7 +163,7 @@ void population_nutrition_cooldown() {
         step(w);check(w.nursery_food_reductions==1,"New world did not allow its first reduction");
     }
     for(double delay:{-1.0,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
-        EcosystemConfig cfg;cfg.nursery_food_reduction_delay=delay;bool rejected=false;
+        auto cfg=scattered_config();cfg.nursery_food_reduction_delay=delay;bool rejected=false;
         try{cfg.validate();}catch(const std::invalid_argument&){rejected=true;}
         check(rejected,"Invalid nutrition cooldown accepted");
     }
@@ -174,7 +174,7 @@ int main(){try{
     optional_regrowth();
     respawn_delays();
     for(bool frontier:{false,true}) {
-        auto cfg=frontier?EcosystemConfig{}:controlled_config();
+        auto cfg=frontier?scattered_config():controlled_config();
         cfg.initial_creatures=0;cfg.reproduction=false;
         cfg.nursery_food_respawn_delay=cfg.outdoor_food_respawn_delay=0;
         EcosystemWorld w(cfg);
@@ -291,7 +291,7 @@ int main(){try{
         check(w.creatures[0].energy>=energy,"Shelter supply fails to cover basal plus feeding costs");
         check(length(w.resources[0].position-shelter.position)==0,"Shelter food moved");
     }
-    auto bad=EcosystemConfig{};bad.graze_decay=bad.ingestion_rate;
+    auto bad=scattered_config();bad.graze_decay=bad.ingestion_rate;
     bool rejected=false;try{bad.validate();}catch(const std::invalid_argument&){rejected=true;}
     check(rejected,"Decay must be slower than eating");
     std::cout<<"Dynamic food passed\n";

@@ -236,6 +236,8 @@ bool EcosystemWorld::line_of_sight(Vec2 from, Vec2 to) const
 void EcosystemWorld::generate_world()
 {
     config.validate();
+    if(!config.nursery_frontier && config.food_distribution==FoodDistribution::FieldsAndTrees)
+        throw std::invalid_argument("Fields and trees require a nursery-frontier world");
     map_rng = Random(mix(config.seed ^ 0x6d6170ULL));
     mutation_rng = Random(mix(config.seed ^ 0x6d7574617465ULL));
     conflict_rng = Random(mix(config.seed ^ 0x746965ULL));
@@ -251,6 +253,7 @@ void EcosystemWorld::generate_world()
     events.clear();
     creatures.clear();
     resources.clear();
+    food_sources.clear();
     terrain.assign(config.width * config.height, Terrain::Ground);
     if (config.nursery_frontier) { generate_nursery_frontier(); return; }
     std::vector<std::size_t> interior;
@@ -553,6 +556,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         double nearest = config.interaction_range + epsilon;
         std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
         for (std::size_t r = 0; r < resources.size(); ++r) {
+            if(resources[r].source_id && resources[r].ripening_remaining>=0)continue;
             if (dietary_efficiency(creature, resources[r].kind) <= 0) continue;
             if (config.extended_senses && (resources[r].stock <= epsilon
                 || (resources[r].kind == FoodKind::Pod && resources[r].pod_state == PodState::Refilling))) continue;
@@ -645,6 +649,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 
     // Depletion starts one cooldown, retained across retries and checkpoints.
     const auto respawn_ready = [&](EcoResource& resource) {
+        if(resource.source_id)return true; // Persistent sources own their growth/ripening cycle.
         if (resource.kind == FoodKind::Meat || resource.kind == FoodKind::Pod) return true;
         if (resource.stock > epsilon) { resource.respawn_at = -1; return true; }
         if (resource.respawn_at < 0) resource.respawn_at = end + (in_nursery(resource.position)
@@ -679,7 +684,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     }
 
     if (config.outdoor_food_relocates) for (auto& resource : resources) {
-        if (resource.kind == FoodKind::Meat || resource.kind == FoodKind::Pod || resource.shelter_food || in_nursery(resource.position)) continue;
+        if (resource.source_id || resource.kind == FoodKind::Meat || resource.kind == FoodKind::Pod || resource.shelter_food || in_nursery(resource.position)) continue;
         const double decay = resource.kind == FoodKind::Graze ? config.graze_decay : config.fruit_decay;
         const double spoiled = std::min(resource.stock, decay * config.dt);
         resource.stock -= spoiled;
@@ -709,7 +714,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (auto& creature : creatures) {
         const bool exposed = storm && !sheltered(creature.position);
         if (exposed && config.storm_health_damage && creature.health > 0) {
-            const double damage = std::min(creature.health, config.storm_damage * config.dt / creature.body.mass);
+            const double damage = std::min(creature.health, config.storm_damage * config.dt);
             creature.health -= damage;
             creature.damage_pulse += damage;
             totals.damage += damage;
@@ -867,6 +872,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     // 6. Regrowth uses the weather at interval start and appears at its end.
     // Open/closed pods do not grow: only refilling pods regenerate biomass.
     for (auto& resource : resources) {
+        if (resource.source_id) continue;
         if (resource.kind == FoodKind::Meat) continue;
         if (storm && !in_nursery(resource.position) && !resource.shelter_food) continue;
         if (resource.kind == FoodKind::Pod && resource.pod_state != PodState::Refilling) continue;
@@ -880,6 +886,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             resource.progress = 0;
         }
     }
+    renew_source_food(end,storm);
     ++step_index;
     if (population > 0 && creatures.empty())
         events.push_back({end, "extinction", 0, 0, 0, 0});

@@ -74,7 +74,7 @@ void initial_ancestor_variation()
     require(EcosystemConfig{}.mutate_initial_ancestors,"Initial ancestor mutation should default to enabled");
     const auto saved=[](const EcosystemWorld& w){std::ostringstream s;w.save_checkpoint(s);return s.str();};
     for(bool frontier:{false,true}) {
-        EcosystemConfig cfg;cfg.initial_creatures=12;cfg.nursery_frontier=frontier;cfg.reproduction=false;
+        EcosystemConfig cfg;cfg.initial_creatures=12;cfg.nursery_frontier=frontier;cfg.food_distribution=FoodDistribution::Scattered;cfg.reproduction=false;
         cfg.mutation.mass_mutation_probability=cfg.mutation.carnivory_mutation_probability=1;
         EcosystemWorld varied(cfg), repeated(cfg);
         require(saved(varied)==saved(repeated),"Founder mutations are not seed-reproducible");
