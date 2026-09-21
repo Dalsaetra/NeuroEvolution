@@ -104,6 +104,18 @@ void EcosystemConfig::set_predation(bool enabled)
     brain.output_count = enabled ? eco_predation_output_count : eco_output_count;
 }
 
+std::array<double,3> MutationConfig::inheritance_probabilities(double scale) const
+{
+    if (!meta_mutation_enabled) return {copy_probability,slight_probability,1-copy_probability-slight_probability};
+    const double x=std::clamp(scale,min_mutation_scale,max_mutation_scale);
+    if (x<=1) {
+        const double t=(x-min_mutation_scale)/(1-min_mutation_scale);
+        return {0.75-0.25*t,0.25+0.20*t,0.05*t};
+    }
+    const double t=(x-1)/(max_mutation_scale-1);
+    return {0.5*(1-t),0.45+0.05*t,0.05+0.45*t};
+}
+
 void EcosystemConfig::validate() const
 {
     brain.validate_model();
@@ -261,6 +273,9 @@ void EcosystemConfig::validate() const
         throw std::invalid_argument("Mutation sensitivity bounds are reversed or outside [0,2]");
     for (const auto value : {mutation.copy_probability, mutation.slight_probability,
             mutation.disconnected_neuron_prune_probability}) probability(value, "Inheritance probability");
+    if (!std::isfinite(mutation.meta_mutation_probability) || mutation.meta_mutation_probability<0 || mutation.meta_mutation_probability>1)
+        throw std::invalid_argument("Meta mutation probability must be 0..1");
+    positive(mutation.meta_mutation_sigma, "Meta mutation sigma", true);
     if (mutation.copy_probability + mutation.slight_probability > 1)
         throw std::invalid_argument("Copy and slight inheritance probabilities must sum to at most one");
     if (!std::isfinite(mutation.structural_edit_probability) || (mutation.structural_edit_probability < 0 && mutation.structural_edit_probability != -1)

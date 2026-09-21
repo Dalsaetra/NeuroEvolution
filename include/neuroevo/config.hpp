@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -103,6 +104,11 @@ struct MutationConfig {
     double izhikevich_intrinsic_probability = 0.0;
     double izhikevich_log_sigma = 0.05;
     // Copy / slight / strong inheritance; strong is the remaining probability.
+    // Evolved scale uses fixed probability knots at 0.5, 1, and 2.
+    bool meta_mutation_enabled = true;
+    double meta_mutation_probability = 0.10, meta_mutation_sigma = 0.10;
+    static constexpr double min_mutation_scale = 0.5, max_mutation_scale = 2.0;
+    std::array<double,3> inheritance_probabilities(double scale) const; // copy, slight, strong
     double copy_probability = 0.50;
     double slight_probability = 0.45;
     double disconnected_neuron_prune_probability = 0.25;

@@ -409,6 +409,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (std::size_t i = 0; i < creatures.size(); ++i) {
         if (!traversable(creatures[i].position)) throw std::runtime_error("A creature begins the step inside a wall or outside the world");
         if (!std::isfinite(creatures[i].heading) || !std::isfinite(creatures[i].energy)) throw std::runtime_error("Creature heading and energy must be finite");
+        if (!std::isfinite(creatures[i].mutation_scale) || creatures[i].mutation_scale<MutationConfig::min_mutation_scale
+            || creatures[i].mutation_scale>MutationConfig::max_mutation_scale) throw std::runtime_error("Invalid inherited mutation scale");
         if (config.predation && (!std::isfinite(creatures[i].body.mass)
             || creatures[i].body.mass < eco_min_mass || creatures[i].body.mass > eco_max_mass
             || !std::isfinite(creatures[i].body.carnivory) || creatures[i].body.carnivory < 0 || creatures[i].body.carnivory > 1
@@ -815,9 +817,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             // Preserve successful genomes while retaining mostly local exploration.
             // One draw selects the configured copy / slight / strong mixture.
             const double inheritance = mutation_rng.uniform(0.0, 1.0);
-            const bool exact_inheritance = inheritance < config.mutation.copy_probability;
+            const auto probabilities=config.mutation.inheritance_probabilities(parent.mutation_scale);
+            const bool exact_inheritance = inheritance < probabilities[0];
             child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
-            child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= config.mutation.copy_probability + config.mutation.slight_probability, mutation_rng);
+            child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= probabilities[0] + probabilities[1], mutation_rng);
             child.health = max_health(child);
             const double body_cost = config.predation ? config.body_energy_per_mass * child.body.mass : 0.0;
             const double birth_cost = config.reproduction_cost + body_cost;
@@ -831,9 +834,18 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.energy = config.offspring_energy;
             child.controller = parent.controller;
             child.brain = parent.brain;
-            if (!exact_inheritance) child.brain.mutate(inheritance < config.mutation.copy_probability + config.mutation.slight_probability
+            if (!exact_inheritance) child.brain.mutate(inheritance < probabilities[0] + probabilities[1]
                 ? detail::slight_mutation(config.mutation)
                 : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation));
+            child.mutation_scale=parent.mutation_scale;
+            if (config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
+                && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
+                // Log-space clamping avoids overflowing exp with a large configured sigma.
+                const double log_scale=std::log(parent.mutation_scale)+mutation_rng.normal(0,config.mutation.meta_mutation_sigma);
+                child.mutation_scale=std::exp(std::clamp(log_scale,
+                    std::log(MutationConfig::min_mutation_scale),std::log(MutationConfig::max_mutation_scale)));
+                if (child.mutation_scale!=parent.mutation_scale) child.genome_id=child.id;
+            }
             // Independent birth cleanup also applies to the copy inheritance case.
             if (mutation_rng.uniform(0.0, 1.0) < config.mutation.disconnected_neuron_prune_probability
                 && child.brain.remove_disconnected_hidden_neuron(mutation_rng))

@@ -42,6 +42,7 @@ struct EcoResource {
 };
 struct EcoCreature {
     BodyGenes body;
+    double mutation_scale = 1.0; // Inherited reproductive strategy, independent of body mechanics.
     double health = 20, damage_pulse = 0;
     std::uint64_t id = 0, parent_id = 0, generation = 0;
     Vec2 position;

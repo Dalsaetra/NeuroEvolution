@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_34");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_35");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -130,6 +130,10 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
         checkpoint::write(s,source.id,source.kind,source.position.x,source.position.y,source.radius,source.phase);
     checkpoint::write(s,resources.size());
     for(const auto& r:resources)checkpoint::write(s,r.source_id,r.ripening_remaining);
+    checkpoint::write(s,"META_MUTATION_1");
+    checkpoint::write(s,config.mutation.meta_mutation_enabled,config.mutation.meta_mutation_probability,config.mutation.meta_mutation_sigma);
+    checkpoint::write(s,creatures.size());
+    for (const auto& c:creatures) checkpoint::write(s,c.id,c.mutation_scale);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -137,7 +141,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool source_version = version == "NEUROEVO_ECOSYSTEM_34";
+    const bool meta_version = version == "NEUROEVO_ECOSYSTEM_35";
+    const bool source_version = meta_version || version == "NEUROEVO_ECOSYSTEM_34";
     const bool ancestor_mutation_version = source_version || version == "NEUROEVO_ECOSYSTEM_33";
     const bool shelter_damage_version = ancestor_mutation_version || version == "NEUROEVO_ECOSYSTEM_32";
     const bool nursery_cooldown_version = shelter_damage_version || version == "NEUROEVO_ECOSYSTEM_31";
@@ -152,6 +157,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.mutation.meta_mutation_enabled=false; // Preserve historical reproduction policy.
     cfg.food_distribution=FoodDistribution::Scattered; // Historical worlds keep their original renewal rules.
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
@@ -297,6 +303,17 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
                 || (!fruit && r.ripening_remaining!=-1))throw std::runtime_error("Invalid food source membership");
         }
     }
+    if (meta_version) {
+        checkpoint::marker(s,"META_MUTATION_1");
+        checkpoint::read(s,w.config.mutation.meta_mutation_enabled,w.config.mutation.meta_mutation_probability,w.config.mutation.meta_mutation_sigma);
+        if (checkpoint::count(s,w.creatures.size())!=w.creatures.size()) throw std::runtime_error("Mutation scale count mismatch");
+        for (auto& c:w.creatures) {
+            std::uint64_t id;checkpoint::read(s,id,c.mutation_scale);
+            if (id!=c.id || c.mutation_scale<MutationConfig::min_mutation_scale || c.mutation_scale>MutationConfig::max_mutation_scale)
+                throw std::runtime_error("Invalid inherited mutation scale");
+        }
+        w.config.validate();
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -325,6 +342,9 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"mutate_initial_ancestors\":" << (w.config.mutate_initial_ancestors ? "true" : "false")
       << ",\"founder_mass\":" << w.config.founder_mass
       << ",\"founder_carnivory\":" << w.config.founder_carnivory
+      << ",\"meta_mutation_enabled\":" << (w.config.mutation.meta_mutation_enabled ? "true" : "false")
+      << ",\"meta_mutation_probability\":" << w.config.mutation.meta_mutation_probability
+      << ",\"meta_mutation_sigma\":" << w.config.mutation.meta_mutation_sigma
       << ",\"health_per_mass\":" << w.config.health_per_mass
       << ",\"body_energy_per_mass\":" << w.config.body_energy_per_mass
       << ",\"attack_range\":" << w.config.attack_range
@@ -417,6 +437,7 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     array(s,w.creatures,[&](const EcoCreature& c){
         s << "{\"id\":" << c.id << ",\"parent\":" << c.parent_id << ",\"generation\":" << c.generation
           << ",\"x\":" << c.position.x << ",\"y\":" << c.position.y << ",\"heading\":" << c.heading
+          << ",\"mutation_scale\":" << c.mutation_scale
           << ",\"mass\":" << c.body.mass << ",\"carnivory\":" << c.body.carnivory
           << ",\"health\":" << c.health << ",\"max_health\":" << w.max_health(c)
           << ",\"damage\":" << c.damage_pulse << ",\"attack\":" << c.action.attack
@@ -487,7 +508,7 @@ void write_ecosystem_stats_header(std::ostream& s)
          "founder_births,descendant_births,births_first_100s,natural_spiking_breeders,mature_offspring,"
          "nursery_population,frontier_population,attacking,healing,body_construction,external_body_energy,"
          "carcass_energy,meat_spoiled_energy,damage,predation_deaths,mean_mass,mean_carnivory,mean_health_fraction,meat_biomass,"
-         "nursery_food_energy,nursery_food_reductions\n";
+         "nursery_food_energy,nursery_food_reductions,mean_mutation_scale,min_mutation_scale,max_mutation_scale\n";
 }
 void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
 {
@@ -506,6 +527,8 @@ void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
       << t.births_first_100s << ',' << t.natural_spiking_breeders << ',' << t.mature_offspring;
     const auto nursery = std::count_if(w.creatures.begin(),w.creatures.end(),[&](const auto& c){return w.in_nursery(c.position);});
     double mass=0,carnivory=0,health=0,meat=0;
+    double scale_sum=0,scale_min=w.creatures.empty()?0:MutationConfig::max_mutation_scale,scale_max=0;
+    for(const auto& c:w.creatures){scale_sum+=c.mutation_scale;scale_min=std::min(scale_min,c.mutation_scale);scale_max=std::max(scale_max,c.mutation_scale);}
     for (const auto& c:w.creatures) { mass+=c.body.mass; carnivory+=c.body.carnivory; health+=c.health/w.max_health(c); }
     for (const auto& r:w.resources) if (r.kind==FoodKind::Meat) meat+=r.stock;
     const double population=static_cast<double>(std::max<std::size_t>(1,w.creatures.size()));
@@ -519,6 +542,7 @@ void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
       << ',' << t.damage
       << ',' << t.predation_deaths
       << ',' << mass/population << ',' << carnivory/population << ',' << health/population << ',' << meat
-      << ',' << w.nursery_food_current_energy << ',' << w.nursery_food_reductions << '\n';
+      << ',' << w.nursery_food_current_energy << ',' << w.nursery_food_reductions
+      << ',' << scale_sum/population << ',' << scale_min << ',' << scale_max << '\n';
 }
 } // namespace neuroevo

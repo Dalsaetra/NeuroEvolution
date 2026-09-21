@@ -155,6 +155,8 @@ int main(int argc, char** argv)
             {"--mutate-neuron-prob",&cfg.mutation.mutate_neuron_probability},
             {"--mutate-add-synapse-prob",&cfg.mutation.add_synapse_probability},
             {"--mutate-add-neuron-prob",&cfg.mutation.add_neuron_probability},
+            {"--meta-mutation-probability",&cfg.mutation.meta_mutation_probability},
+            {"--meta-mutation-sigma",&cfg.mutation.meta_mutation_sigma},
             {"--mutate-add-autapse-prob",&cfg.mutation.add_autapse_probability},
             {"--mutate-reciprocal-motif-prob",&cfg.mutation.add_reciprocal_motif_probability},
             {"--mutate-remove-synapse-prob",&cfg.mutation.remove_synapse_probability}};
@@ -242,6 +244,7 @@ int main(int argc, char** argv)
                     "  --nursery-food-energy-factor X  Multiply nursery nutrition per crossing (default 0.8)\n"
                     "  --nursery-food-reduction-delay X  Seconds between reductions (default 1000); requires a new crossing\n"
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
+                    "  --meta-mutation 0|1 / --meta-mutation-probability X / --meta-mutation-sigma X\n"
                     "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
                     "  --storm-damage X         Health damage/second independent of mass\n"
                     "  --nursery-meat-decay X    Meat biomass lost/second inside nursery; --meat-decay applies outside\n"
@@ -315,6 +318,7 @@ int main(int argc, char** argv)
                 else if (arg == "--storm-health-damage") cfg.storm_health_damage=boolean(value,arg);
                 else if (arg == "--shelter-predation-damage") cfg.shelter_predation_damage=boolean(value,arg);
                 else if (arg == "--mutate-initial-ancestors") cfg.mutate_initial_ancestors=boolean(value,arg);
+                else if (arg == "--meta-mutation") cfg.mutation.meta_mutation_enabled=boolean(value,arg);
                 else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
@@ -451,6 +455,7 @@ int main(int argc, char** argv)
                     world.creatures[i].health = world.max_health(world.creatures[i]);
                     world.totals.external_body_energy += world.config.body_energy_per_mass * world.creatures[i].body.mass;
                 }
+                world.creatures[i].mutation_scale=source_creature.mutation_scale;
                 world.creatures[i].brain=neuroevo::Brain::from_components(brain_config,std::move(neurons),std::move(synapses));
                 world.creatures[i].brain.reset_state();
                 const auto entry=genome_ids.emplace(source_creature.genome_id,world.creatures[i].id);
@@ -677,6 +682,9 @@ int main(int argc, char** argv)
             << ",\"pod_energy\":" << world.config.pod_energy << "}"
             << ",\n  \"mutation\":{\"copy_probability\":" << world.config.mutation.copy_probability
             << ",\"slight_probability\":" << world.config.mutation.slight_probability
+            << ",\"meta_mutation_enabled\":" << (world.config.mutation.meta_mutation_enabled ? "true" : "false")
+            << ",\"meta_mutation_probability\":" << world.config.mutation.meta_mutation_probability
+            << ",\"meta_mutation_sigma\":" << world.config.mutation.meta_mutation_sigma
             << ",\"weight_sigma\":" << world.config.mutation.weight_sigma
             << ",\"bias_sigma\":" << world.config.mutation.bias_sigma
             << ",\"threshold_sigma\":" << world.config.mutation.threshold_sigma

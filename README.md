@@ -176,3 +176,5 @@ Checkpoint format **24** stores the neuron model, intrinsic parameters, recovery
 - [Performance and exact-output benchmarking](docs/performance.md)
 
 [ROADMAP.md](ROADMAP.md) describes the development direction; [EXPLORATION.md](EXPLORATION.md) contains ongoing experiment notes.
+
+Inherited mutation rates: see [meta mutation](docs/meta-mutation.md) for the copy/slight/strong probability curve and global gene-mutation controls.
