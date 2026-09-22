@@ -157,7 +157,19 @@ void EcosystemWorld::generate_nursery_frontier()
         food({double(x)+0.5,double(y)+0.5},FoodKind::Graze,config.nursery_food_energy,
             config.nursery_food_capacity,config.nursery_food_regrowth);
     fruit_a_rich=config.food_assignment<0 ? map_rng.chance(0.5) : config.food_assignment==0;
-    if (config.food_distribution == FoodDistribution::FieldsAndTrees) generate_source_food();
+    if (config.food_distribution == FoodDistribution::FieldsAndTrees) {
+        generate_source_food();
+        // Use the historical scattered-graze lifecycle. Ordinary shelters and
+        // exposed floor are equally eligible; nursery food keeps its own quota.
+        for (std::size_t i=0;i<config.background_food_patches;++i) {
+            EcoResource r;r.id=resources.size()+1;r.position={-100,-100};
+            r.kind=FoodKind::Graze;r.capacity=config.graze_capacity;
+            r.stock=r.capacity*food_age_rng.uniform(0.0,1.0);
+            r.energy_per_unit=config.background_food_energy;r.regrowth=config.graze_regrowth;
+            if (!relocate_outdoor_food(r)) throw std::invalid_argument("Too many background food patches for available floor");
+            resources.push_back(r);
+        }
+    }
     else {
         std::vector<unsigned char> occupied(terrain.size());
         const auto next = [&](bool allow_shelter) {

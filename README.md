@@ -1,5 +1,10 @@
 # NeuroEvolution
 
+Fresh fields-and-trees worlds include sparse background grazing inside and outside
+ordinary shelters. Storm damage ramps up and down, with exposed harvesting falling
+to 50% at the midpoint. See [background food and weather](docs/background-food-and-weather.md)
+for defaults, controls, and checkpoint compatibility.
+
 A C++17 ecosystem in which creatures survive, feed, reproduce, and inherit mutated spiking brains and body traits. The nursery and frontier habitat is the default foundation for development. Evolution happens through reproduction in the shared world.
 
 ## Build and run

@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_36");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_37");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -134,6 +134,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,config.mutation.meta_mutation_enabled,config.mutation.meta_mutation_probability,config.mutation.meta_mutation_sigma,config.mutation.min_mutation_scale);
     checkpoint::write(s,creatures.size());
     for (const auto& c:creatures) checkpoint::write(s,c.id,c.mutation_scale);
+    checkpoint::write(s,"BACKGROUND_WEATHER_1",config.background_food_patches,config.background_food_energy,config.storm_ramp);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -141,7 +142,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool meta_floor_version = version == "NEUROEVO_ECOSYSTEM_36";
+    const bool background_weather_version = version == "NEUROEVO_ECOSYSTEM_37";
+    const bool meta_floor_version = background_weather_version || version == "NEUROEVO_ECOSYSTEM_36";
     const bool meta_version = meta_floor_version || version == "NEUROEVO_ECOSYSTEM_35";
     const bool source_version = meta_version || version == "NEUROEVO_ECOSYSTEM_34";
     const bool ancestor_mutation_version = source_version || version == "NEUROEVO_ECOSYSTEM_33";
@@ -158,6 +160,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.background_food_patches=0;
+    cfg.storm_ramp=false; // Historical checkpoints retain flat damage and the harvest cutoff.
     cfg.mutation.meta_mutation_enabled=false; // Preserve historical reproduction policy.
     cfg.mutation.min_mutation_scale=0.5;
     cfg.food_distribution=FoodDistribution::Scattered; // Historical worlds keep their original renewal rules.
@@ -317,6 +321,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         }
         w.config.validate();
     }
+    if (background_weather_version) {
+        checkpoint::marker(s,"BACKGROUND_WEATHER_1");
+        checkpoint::read(s,w.config.background_food_patches,w.config.background_food_energy,w.config.storm_ramp);
+        w.config.validate();
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -403,6 +412,9 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"food_distribution\":\"" << food_distribution_name(w.config.food_distribution) << "\""
+      << ",\"background_food_patches\":" << w.config.background_food_patches
+      << ",\"background_food_energy\":" << w.config.background_food_energy
+      << ",\"storm_ramp\":" << (w.config.storm_ramp ? "true" : "false")
       << ",\"field_spacing\":" << w.config.food_sources.field_spacing
       << ",\"food_sources\":";
     array(s,w.food_sources,[&](const FoodSource& source) {
@@ -432,7 +444,8 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     s << std::setprecision(10);
     s << "{\"type\":\"frame\",\"step\":" << w.step_index << ",\"time\":" << w.time()
       << ",\"weather\":"; quoted(s,to_string(w.weather()));
-    s << ",\"cue\":" << w.storm_cue() << ",\"capacity_limited\":" << (w.capacity_limited ? "true" : "false")
+    s << ",\"storm_intensity\":" << w.storm_intensity()
+      << ",\"cue\":" << w.storm_cue() << ",\"capacity_limited\":" << (w.capacity_limited ? "true" : "false")
       << ",\"nursery_food_energy\":" << w.nursery_food_current_energy
       << ",\"nursery_food_reductions\":" << w.nursery_food_reductions
       << ",\"totals\":"; totals_json(s,w.totals);

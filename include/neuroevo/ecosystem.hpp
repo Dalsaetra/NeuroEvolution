@@ -108,6 +108,7 @@ public:
     double time() const;
     WeatherPhase weather() const;
     double storm_cue() const;
+    double storm_intensity() const;
     Terrain terrain_at(Vec2 position) const;
     bool sheltered(Vec2 position) const;
     bool in_nursery(Vec2 position) const;

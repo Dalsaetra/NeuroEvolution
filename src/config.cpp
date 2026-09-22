@@ -124,6 +124,8 @@ void EcosystemConfig::validate() const
     if (food_distribution != FoodDistribution::Scattered && food_distribution != FoodDistribution::FieldsAndTrees)
         throw std::invalid_argument("Invalid food distribution preset");
     const auto& fs=food_sources;
+    if (background_food_patches > 1000000) throw std::invalid_argument("Too many background food patches");
+    positive(background_food_energy,"Background food energy");
     if (fs.fields > 100 || fs.fruit_trees > 1000 || fs.pod_trees > 1000
         || fs.fruit_sites < 1 || fs.fruit_sites > 32 || fs.pod_sites < 1 || fs.pod_sites > 32)
         throw std::invalid_argument("Invalid food source or tree site count");

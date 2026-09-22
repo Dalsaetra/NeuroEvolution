@@ -213,6 +213,9 @@ struct EcosystemConfig {
     // Food nutrition, renewal and decay
     FoodDistribution food_distribution = FoodDistribution::FieldsAndTrees;
     FoodSourceConfig food_sources;
+    // Additional scattered graze in fields-and-trees worlds, including ordinary shelters.
+    std::size_t background_food_patches = 250;
+    double background_food_energy = 10; // Uses same capacity as graze_capacity
     double graze_capacity = 3, fruit_capacity = 4, pod_capacity = 10;
     double graze_energy = 40, poor_fruit_energy = 30, rich_fruit_energy = 70, pod_energy = 120;
     // Optional passive biomass/second, also active with relocation. Pods need refill growth.
@@ -229,7 +232,8 @@ struct EcosystemConfig {
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
     double storm_cost = 5.0, phase_offset = 0;
     bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
-    double storm_damage = 0.35; // Health/second independent of mass; health capacity scales with mass.
+    bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
+    double storm_damage = 0.5; // Peak health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;

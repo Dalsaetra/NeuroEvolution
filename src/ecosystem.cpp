@@ -183,6 +183,14 @@ double EcosystemWorld::storm_cue() const
     return std::clamp((phase_time(*this) - config.calm_duration) / config.warning_duration, 0.0, 1.0);
 }
 
+double EcosystemWorld::storm_intensity() const
+{
+    if (weather() != WeatherPhase::Storm) return 0;
+    if (!config.storm_ramp) return 1;
+    const double progress = (phase_time(*this) - config.calm_duration - config.warning_duration) / config.storm_duration;
+    return std::clamp(1.0 - std::abs(2.0 * progress - 1.0), 0.0, 1.0);
+}
+
 Terrain EcosystemWorld::terrain_at(Vec2 position) const
 {
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || position.x < 0 || position.y < 0
@@ -442,6 +450,11 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     const double start = time(), end = start + config.dt;
     const auto initial_weather = weather();
     const bool storm = initial_weather == WeatherPhase::Storm;
+    const double intensity = storm_intensity();
+    const auto harvest_effectiveness = [&](const EcoCreature& creature) {
+        if (!storm || sheltered(creature.position)) return 1.0;
+        return config.storm_ramp ? 1.0 - 0.5 * intensity : 0.0;
+    };
     const std::uint64_t tie_seed = conflict_rng.next_u64();
 
     // 1. All controllers see the same positions, previous actions and feedback.
@@ -601,9 +614,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (std::size_t i = 0; i < population; ++i) {
         const auto& creature = creatures[i];
         if (creature.action.forage <= 0 || creature.energy <= 0 || (config.predation && creature.health <= 0)) continue;
-        // Foraging intent and its energy cost remain, but exposed creatures
-        // cannot harvest during the storm interval. Use post-movement shelter.
-        if (storm && !sheltered(creature.position)) continue;
+        // Use post-movement shelter. Historical checkpoints retain the full cutoff.
+        if (harvest_effectiveness(creature) <= 0) continue;
         std::size_t target = resources.size();
         double nearest = config.interaction_range + epsilon;
         std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
@@ -641,8 +653,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         if (resource.kind == FoodKind::Pod && resource.pod_state == PodState::Closed) {
             double work = 0;
             for (const auto i : consumers) {
-                const double contribution = creatures[i].action.forage * config.dt;
-                work += creatures[i].action.forage;
+                const double effort = creatures[i].action.forage * harvest_effectiveness(creatures[i]);
+                const double contribution = effort * config.dt;
+                work += effort;
                 creatures[i].pod_work += contribution;
                 events.push_back({end, "pod_work", creatures[i].id, 0, resource.id, contribution});
             }
@@ -668,7 +681,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             // Low-carnivory passers-by can only take small bites. Apply this
             // before shared allocation so they cannot strip a corpse at full speed.
             const double meat_rate = resource.kind == FoodKind::Meat ? creatures[i].body.carnivory : 1.0;
-            return action.forage * config.ingestion_rate * config.dt * efficiency * meat_rate;
+            return action.forage * config.ingestion_rate * config.dt * efficiency * meat_rate * harvest_effectiveness(creatures[i]);
         };
         double requested = 0;
         for (const auto i : consumers) requested += demand(i);
@@ -766,7 +779,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (auto& creature : creatures) {
         const bool exposed = storm && !sheltered(creature.position);
         if (exposed && config.storm_health_damage && creature.health > 0) {
-            const double damage = std::min(creature.health, config.storm_damage * config.dt);
+            const double damage = std::min(creature.health, config.storm_damage * intensity * config.dt);
             creature.health -= damage;
             creature.damage_pulse += damage;
             totals.damage += damage;
@@ -798,7 +811,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         const double foraging = config.forage_cost * creature.action.forage * config.dt;
         const double calling = config.call_cost * creature.action.call * config.dt;
         const double neural = (config.neuron_cost * static_cast<double>(stats.neuron_count) + config.synapse_cost * static_cast<double>(stats.synapse_count)) * config.dt + config.spike_cost * static_cast<double>(creature.step_spikes);
-        const double exposure = exposed && !config.storm_health_damage ? config.storm_cost * config.dt
+        const double exposure = exposed && !config.storm_health_damage ? config.storm_cost * intensity * config.dt
             / (config.predation ? creature.body.mass : 1.0) : 0;
         if (exposed) creature.exposed_time += config.dt;
         const double requested_cost = metabolism + movement + turning + foraging + calling + neural + exposure;

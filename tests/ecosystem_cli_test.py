@@ -59,6 +59,7 @@ class EcosystemCliTests(unittest.TestCase):
         checkpoint = source / "checkpoint.eco"
         lines = checkpoint.read_text().splitlines()
         lines[0] = "NEUROEVO_ECOSYSTEM_35"
+        lines = [line for line in lines if not line.startswith("BACKGROUND_WEATHER_1")]
         marker = next(i for i, line in enumerate(lines) if line.startswith("META_MUTATION_1"))
         lines[marker + 1] = " ".join(lines[marker + 1].split()[:3])
         lines[marker + 3] = lines[marker + 3].split()[0] + " 0.75"
@@ -78,6 +79,10 @@ class EcosystemCliTests(unittest.TestCase):
         records = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
         metadata = records[0]
         self.assertEqual(metadata["food_distribution"], "fields-and-trees")
+        self.assertEqual(metadata["background_food_patches"], 250)
+        self.assertEqual(metadata["background_food_energy"], 10)
+        self.assertTrue(metadata["storm_ramp"])
+        self.assertEqual(records[1]["storm_intensity"], 0)
         self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("field"), 3)
         self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("pod-tree"), 3)
         source_ids = {s["id"] for s in metadata["food_sources"]}
@@ -87,6 +92,8 @@ class EcosystemCliTests(unittest.TestCase):
         saved = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(saved["food_sources"], metadata["food_sources"])
         self.assertEqual(saved["food_distribution"], "fields-and-trees")
+        self.assertEqual(saved["background_food_patches"], 250)
+        self.assertTrue(saved["storm_ramp"])
         self.assertEqual(json.loads((resumed / "summary.json").read_text())["food_distribution"], "fields-and-trees")
         result = subprocess.run([str(EXECUTABLE), "--resume", str(path / "checkpoint.eco"),
             "--food-distribution", "scattered"], capture_output=True, text=True, timeout=10)
@@ -98,6 +105,21 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(metadata["food_distribution"], "scattered")
         self.assertEqual(metadata["food_sources"], [])
         self.assertTrue(all(r["source_id"] == 0 for r in metadata["resources"]))
+
+    def test_background_weather_overrides_and_resume(self):
+        path = self.run_world("background_override", "--food-distribution", "fields-and-trees",
+                              "--background-food-patches", 17, "--background-food-energy", 7,
+                              "--storm-ramp", 0, "--steps", 1, "--creatures", 1,
+                              "--detailed-tail-seconds", 0)
+        resumed = self.run_world("background_override_resume", "--resume", path / "checkpoint.eco", "--steps", 1)
+        for run in (path, resumed):
+            metadata = json.loads((run / "ecosystem.jsonl").read_text().splitlines()[0])
+            summary = json.loads((run / "summary.json").read_text())
+            for record in (metadata, summary):
+                self.assertEqual(record["background_food_patches"], 17)
+                self.assertEqual(record["background_food_energy"], 7)
+                self.assertFalse(record["storm_ramp"])
+            self.assertEqual(sum(r["source_id"] == 0 and r["value"] == 7 for r in metadata["resources"]), 17)
 
     @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "Windows PowerShell launcher test")
     def test_launcher_uses_release_binary_with_stale_single_config_binary(self):
@@ -244,7 +266,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_36")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_37")
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]
         lines[0] = "NEUROEVO_ECOSYSTEM_33"

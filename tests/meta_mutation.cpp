@@ -76,6 +76,7 @@ int main() try {
     auto historical_world=fixture(8,0.75,1);
     historical_world.config.mutation.min_mutation_scale=0.5;
     auto version35=saved(historical_world);
+    version35.erase(version35.find("BACKGROUND_WEATHER_1"));version35+="END_ECOSYSTEM\n";
     version35.replace(0,21,"NEUROEVO_ECOSYSTEM_35");
     const auto line_start=version35.find('\n',version35.find("META_MUTATION_1"))+1;
     const auto line_end=version35.find('\n',line_start);

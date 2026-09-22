@@ -4,13 +4,15 @@
 namespace neuroevo {
 inline EcosystemConfig scattered_config()
 {
-    EcosystemConfig c;c.mutation.meta_mutation_enabled=false;c.food_distribution=FoodDistribution::Scattered;return c;
+    EcosystemConfig c;c.mutation.meta_mutation_enabled=false;c.food_distribution=FoodDistribution::Scattered;
+    c.background_food_patches=0;c.storm_ramp=false;return c;
 }
 // Explicit small-world conditions for mechanics tests. Production defaults are
 // exercised separately in the nursery and CLI tests.
 inline EcosystemConfig controlled_config()
 {
     EcosystemConfig c;c.mutation.meta_mutation_enabled=false;
+    c.background_food_patches=0;c.storm_ramp=false;
     c.food_distribution = FoodDistribution::Scattered;
     c.nursery_frontier = false;
     c.nursery_food_respawn_delay = c.outdoor_food_respawn_delay = 0;

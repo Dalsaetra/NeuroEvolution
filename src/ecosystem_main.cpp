@@ -63,6 +63,7 @@ int main(int argc, char** argv)
         neuroevo::EcosystemConfig cfg;
         const neuroevo::RunConfig run;
         std::map<std::string,std::size_t*> sizes{
+            {"--background-food-patches",&cfg.background_food_patches},
             {"--grazing-fields",&cfg.food_sources.fields},{"--fruit-trees",&cfg.food_sources.fruit_trees},
             {"--pod-trees",&cfg.food_sources.pod_trees},{"--fruit-sites",&cfg.food_sources.fruit_sites},
             {"--pod-sites",&cfg.food_sources.pod_sites},
@@ -77,6 +78,7 @@ int main(int argc, char** argv)
             {"--pods",&cfg.pods},{"--hidden",&cfg.brain.hidden_count},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
+            {"--background-food-energy",&cfg.background_food_energy},
             {"--field-radius",&cfg.food_sources.field_radius},{"--field-spacing",&cfg.food_sources.field_spacing},
             {"--food-source-gap",&cfg.food_sources.source_gap},{"--field-energy",&cfg.food_sources.field_energy},
             {"--field-capacity",&cfg.food_sources.field_capacity},{"--field-regrowth",&cfg.food_sources.field_regrowth},
@@ -194,6 +196,9 @@ int main(int argc, char** argv)
                     "  --threads N               Controller workers: 0=auto (up to 8), 1=serial\n"
                     "  --spatial-index 0|1       Exact spatial broad phase (default 1)\n"
                     "  --food-distribution X    fields-and-trees (default) or scattered; saved in checkpoints\n"
+                    "  --background-food-patches N  Extra scattered graze in fields-and-trees worlds (250; 0 disables)\n"
+                    "  --background-food-energy X   Background graze energy per biomass (10)\n"
+                    "  --storm-ramp 0|1         Triangular storm intensity and 50% minimum harvesting (default 1)\n"
                     "  --grazing-fields N       Large persistent fields (nursery-frontier only)\n"
                     "  --fruit-trees N          Static fruit sources; --fruit-sites N per tree\n"
                     "  --pod-trees N            Static pod sources; --pod-sites N per tree\n"
@@ -326,6 +331,7 @@ int main(int argc, char** argv)
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
                 else if (arg == "--storm-health-damage") cfg.storm_health_damage=boolean(value,arg);
+                else if (arg == "--storm-ramp") cfg.storm_ramp=boolean(value,arg);
                 else if (arg == "--shelter-predation-damage") cfg.shelter_predation_damage=boolean(value,arg);
                 else if (arg == "--mutate-initial-ancestors") cfg.mutate_initial_ancestors=boolean(value,arg);
                 else if (arg == "--meta-mutation") cfg.mutation.meta_mutation_enabled=boolean(value,arg);
@@ -623,6 +629,9 @@ int main(int argc, char** argv)
             << ",\n  \"founder_brain\":\"" << (resume.empty()?founder_brain:"checkpoint") << "\""
             << ",\n  \"mutate_initial_ancestors\":" << (world.config.mutate_initial_ancestors?"true":"false")
             << ",\n  \"food_distribution\":\"" << neuroevo::food_distribution_name(world.config.food_distribution) << "\""
+            << ",\n  \"background_food_patches\":" << world.config.background_food_patches
+            << ",\n  \"background_food_energy\":" << world.config.background_food_energy
+            << ",\n  \"storm_ramp\":" << (world.config.storm_ramp ? "true" : "false")
             << ",\n  \"food_source_count\":" << world.food_sources.size()
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
