@@ -4,7 +4,7 @@ A C++17 ecosystem in which creatures survive, feed, reproduce, and inherit mutat
 
 ## Build and run
 
-Requires CMake 3.24+, a C++17 compiler, and Python 3.11+ for replay generation. Replay tools use only the standard library; optional experiment plots require NumPy and Matplotlib. Node.js is optional and enables the viewer's JavaScript test.
+Requires CMake 3.24+, a C++17 compiler with OpenMP support (MSVC and GCC work), and Python 3.11+ for replay generation. Replay tools use only the standard library; optional experiment plots require NumPy and Matplotlib. Node.js is optional and enables the viewer's JavaScript test.
 
 ```powershell
 .\scripts\build.ps1
@@ -12,6 +12,15 @@ Requires CMake 3.24+, a C++17 compiler, and Python 3.11+ for replay generation. 
 ```
 
 Build scripts show brief progress by default and retain full diagnostics when warnings or failures occur. Use `scripts/build.ps1 -VerboseBuild` or `scripts/ecosystem.ps1 -Build -VerboseBuild` for full build output.
+
+Sensing and brain updates run in parallel by default for populations of at least
+32, using up to eight workers. Set `-Threads 4` in `scripts/ecosystem.ps1`, or
+`--threads 4` on the executable, to choose a worker count. `-Threads 1` selects
+serial execution; `0` selects automatic execution. This also works when resuming
+a checkpoint. Worker counts do not change the biological state or checkpoint
+format. Exact spatial filtering also reduces creature overlap, sensing, collision
+and attack searches; `--spatial-index 0` retains the all-pairs reference path.
+See [performance measurements and verification](docs/performance.md).
 
 The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 86 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
 

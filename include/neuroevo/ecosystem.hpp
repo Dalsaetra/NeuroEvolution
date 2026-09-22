@@ -85,6 +85,10 @@ struct EcoTotals {
 class EcosystemWorld {
 public:
     explicit EcosystemWorld(EcosystemConfig config = {}, bool generate = true);
+    // Execution options only: not serialized or part of the biological state.
+    // Zero chooses up to eight workers; one is the serial reference path.
+    int worker_threads = 1;
+    bool spatial_index = true;
     EcosystemConfig config;
     std::vector<Terrain> terrain;
     std::vector<EcoResource> resources;
@@ -130,8 +134,10 @@ public:
     // Empty actions means each living creature runs its own controller/brain.
     // Supplied actions must match the population at the beginning of the step.
     void step(const std::vector<EcoAction>& actions = {});
-    std::vector<double> observe(std::size_t creature_index) const;
-    EcoAction control(std::size_t creature_index);
+    std::vector<double> observe(std::size_t creature_index,
+        const std::vector<std::size_t>* neighbours = nullptr) const;
+    EcoAction control(std::size_t creature_index,
+        const std::vector<std::size_t>* neighbours = nullptr);
     void save_checkpoint(std::ostream& stream) const;
     static EcosystemWorld load_checkpoint(std::istream& stream);
 };

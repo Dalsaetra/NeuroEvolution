@@ -108,8 +108,10 @@ std::array<double,3> MutationConfig::inheritance_probabilities(double scale) con
 {
     if (!meta_mutation_enabled) return {copy_probability,slight_probability,1-copy_probability-slight_probability};
     const double x=std::clamp(scale,min_mutation_scale,max_mutation_scale);
-    if (x<=1) {
-        const double t=(x-min_mutation_scale)/(1-min_mutation_scale);
+    if (x<1) {
+        // Historical checkpoints allowed scales down to 0.5. Keep that fixed
+        // interpolation anchor, independent of the configured clamping floor.
+        const double t=(x-0.5)/0.5;
         return {0.75-0.25*t,0.25+0.20*t,0.05*t};
     }
     const double t=(x-1)/(max_mutation_scale-1);
@@ -276,6 +278,8 @@ void EcosystemConfig::validate() const
     if (!std::isfinite(mutation.meta_mutation_probability) || mutation.meta_mutation_probability<0 || mutation.meta_mutation_probability>1)
         throw std::invalid_argument("Meta mutation probability must be 0..1");
     positive(mutation.meta_mutation_sigma, "Meta mutation sigma", true);
+    if (!std::isfinite(mutation.min_mutation_scale) || mutation.min_mutation_scale<0.5 || mutation.min_mutation_scale>1)
+        throw std::invalid_argument("Minimum mutation scale must be between 0.5 and 1");
     if (mutation.copy_probability + mutation.slight_probability > 1)
         throw std::invalid_argument("Copy and slight inheritance probabilities must sum to at most one");
     if (!std::isfinite(mutation.structural_edit_probability) || (mutation.structural_edit_probability < 0 && mutation.structural_edit_probability != -1)

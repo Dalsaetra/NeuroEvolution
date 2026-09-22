@@ -15,6 +15,20 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    def test_parallel_tail_and_resume(self):
+        flags = ("--creatures", 48, "--neuron-model", "filtered-lif", "--steps", 10,
+                 "--record-every", 1, "--detailed-tail-seconds", 1, "--tail-record-every", 1)
+        serial = self.run_world("serial", *flags, "--threads", 1, "--spatial-index", 0)
+        parallel = self.run_world("parallel", *flags, "--threads", 4)
+        for name in ("initial.eco", "checkpoint.eco", "ecosystem.jsonl", "ecosystem_tail.jsonl",
+                     "events.csv", "ecosystem_stats.csv"):
+            self.assertEqual((serial / name).read_bytes(), (parallel / name).read_bytes(), name)
+        resumed = self.run_world("parallel_resume", "--resume", parallel / "checkpoint.eco",
+                                 "--steps", 10, "--threads", 2, "--detailed-tail-seconds", 0)
+        whole = self.run_world("serial_whole", *flags, "--steps", 20, "--threads", 1,
+                               "--spatial-index", 0, "--detailed-tail-seconds", 0)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+
     def test_meta_mutation_configuration_and_import(self):
         args = ("--creatures", 1, "--no-reproduction", "--meta-mutation", 1,
                 "--meta-mutation-probability", 0.3, "--meta-mutation-sigma", 0.2)
@@ -26,6 +40,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertTrue(metadata["meta_mutation_enabled"])
         self.assertEqual(metadata["meta_mutation_probability"], 0.3)
         self.assertEqual(metadata["meta_mutation_sigma"], 0.2)
+        self.assertEqual(metadata["mutation_scale_floor"], 1.0)
         lines = (first / "checkpoint.eco").read_text().splitlines()
         marker = next(i for i, line in enumerate(lines) if line.startswith("META_MUTATION_1"))
         creature_id = lines[marker + 3].split()[0]
@@ -38,6 +53,21 @@ class EcosystemCliTests(unittest.TestCase):
         with (imported / "ecosystem_stats.csv").open() as stream:
             rows = list(csv.DictReader(stream))
         self.assertAlmostEqual(float(rows[-1]["mean_mutation_scale"]), 1.7)
+
+    def test_import_historical_meta_scale_uses_new_floor(self):
+        source = self.run_world("old_meta_source", "--creatures", 1, "--steps", 1)
+        checkpoint = source / "checkpoint.eco"
+        lines = checkpoint.read_text().splitlines()
+        lines[0] = "NEUROEVO_ECOSYSTEM_35"
+        marker = next(i for i, line in enumerate(lines) if line.startswith("META_MUTATION_1"))
+        lines[marker + 1] = " ".join(lines[marker + 1].split()[:3])
+        lines[marker + 3] = lines[marker + 3].split()[0] + " 0.75"
+        checkpoint.write_text("\n".join(lines) + "\n")
+        imported = self.run_world("floored_import", "--starting-genomes", source,
+                                  "--creatures", 1, "--steps", 1)
+        records = [json.loads(line) for line in (imported / "ecosystem.jsonl").read_text().splitlines()]
+        self.assertEqual(records[0]["mutation_scale_floor"], 1.0)
+        self.assertEqual(records[1]["creatures"][0]["mutation_scale"], 1.0)
 
     def test_fields_and_trees_default_and_resume(self):
         path = self.root / "source_default"
@@ -85,7 +115,7 @@ class EcosystemCliTests(unittest.TestCase):
         output = repo / "output"
         result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-File",
             str(repo / "scripts" / "ecosystem.ps1"), "-Steps", "1", "-DetailedTailSeconds", "1",
-            "-KeepJsonl", "-RunDir", str(output)], capture_output=True, text=True, timeout=60)
+            "-Threads", "2", "-KeepJsonl", "-RunDir", str(output)], capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((output / "ecosystem.html").exists())
         self.assertTrue((output / "ecosystem_tail.html").exists())
@@ -214,7 +244,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_35")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_36")
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]
         lines[0] = "NEUROEVO_ECOSYSTEM_33"

@@ -162,6 +162,8 @@ int main(int argc, char** argv)
             {"--mutate-remove-synapse-prob",&cfg.mutation.remove_synapse_probability}};
         std::size_t steps=run.steps,record_every=run.record_every,tail_record_every=run.tail_record_every,companions=0;
         double detailed_tail_seconds=run.detailed_tail_seconds;
+        int worker_threads=run.worker_threads;
+        bool spatial_index=true;
         int typed_food_override=-1;
         double remove_neuron_override=0;
         bool remove_neuron_explicit=false;
@@ -189,6 +191,8 @@ int main(int argc, char** argv)
                 std::cout << "Nursery ecosystem with independent spiking brains\nTune include/neuroevo/config.hpp and rebuild to change defaults.\n\n"
                     "Usage: neuroevo_ecosystem --creatures 24 --steps 4800 --out runs/my_ecosystem\n\n"
                     "  --steps N                 World steps to run (additional steps with --resume)\n"
+                    "  --threads N               Controller workers: 0=auto (up to 8), 1=serial\n"
+                    "  --spatial-index 0|1       Exact spatial broad phase (default 1)\n"
                     "  --food-distribution X    fields-and-trees (default) or scattered; saved in checkpoints\n"
                     "  --grazing-fields N       Large persistent fields (nursery-frontier only)\n"
                     "  --fruit-trees N          Static fruit sources; --fruit-sites N per tree\n"
@@ -264,6 +268,12 @@ int main(int argc, char** argv)
             const std::string value=argv[++i];
             if (arg == "--out") out=value;
             else if (arg == "--steps") steps=integer(value,arg);
+            else if (arg == "--threads") {
+                const auto count=integer(value,arg);
+                if (count>256) throw std::invalid_argument("--threads must be 0..256");
+                worker_threads=static_cast<int>(count);
+            }
+            else if (arg == "--spatial-index") spatial_index=boolean(value,arg);
             else if (arg == "--typed-food-proximity") typed_food_override=boolean(value,arg);
             else if (arg == "--mutate-rewire-synapse-prob") {
                 rewire_override=number(value,arg);
@@ -404,6 +414,8 @@ int main(int argc, char** argv)
         if (!founders.empty()) cfg.mutate_initial_ancestors=false;
         auto world=resume.empty()?(habitat=="ancestor-nursery"
             ?neuroevo::make_ancestral_nursery(cfg):neuroevo::EcosystemWorld(cfg)):load(resume);
+        world.worker_threads=worker_threads;
+        world.spatial_index=spatial_index;
         if (typed_food_override>=0) world.config.typed_food_proximity=typed_food_override!=0;
         if (remove_neuron_explicit) world.config.mutation.remove_neuron_probability=remove_neuron_override;
         if (rewire_override>=0) world.config.mutation.rewire_synapse_probability=rewire_override;
@@ -455,7 +467,7 @@ int main(int argc, char** argv)
                     world.creatures[i].health = world.max_health(world.creatures[i]);
                     world.totals.external_body_energy += world.config.body_energy_per_mass * world.creatures[i].body.mass;
                 }
-                world.creatures[i].mutation_scale=source_creature.mutation_scale;
+                world.creatures[i].mutation_scale=std::max(world.config.mutation.min_mutation_scale,source_creature.mutation_scale);
                 world.creatures[i].brain=neuroevo::Brain::from_components(brain_config,std::move(neurons),std::move(synapses));
                 world.creatures[i].brain.reset_state();
                 const auto entry=genome_ids.emplace(source_creature.genome_id,world.creatures[i].id);
@@ -685,6 +697,7 @@ int main(int argc, char** argv)
             << ",\"meta_mutation_enabled\":" << (world.config.mutation.meta_mutation_enabled ? "true" : "false")
             << ",\"meta_mutation_probability\":" << world.config.mutation.meta_mutation_probability
             << ",\"meta_mutation_sigma\":" << world.config.mutation.meta_mutation_sigma
+            << ",\"mutation_scale_floor\":" << world.config.mutation.min_mutation_scale
             << ",\"weight_sigma\":" << world.config.mutation.weight_sigma
             << ",\"bias_sigma\":" << world.config.mutation.bias_sigma
             << ",\"threshold_sigma\":" << world.config.mutation.threshold_sigma

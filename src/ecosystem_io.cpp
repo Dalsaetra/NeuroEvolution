@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_35");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_36");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -131,7 +131,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,resources.size());
     for(const auto& r:resources)checkpoint::write(s,r.source_id,r.ripening_remaining);
     checkpoint::write(s,"META_MUTATION_1");
-    checkpoint::write(s,config.mutation.meta_mutation_enabled,config.mutation.meta_mutation_probability,config.mutation.meta_mutation_sigma);
+    checkpoint::write(s,config.mutation.meta_mutation_enabled,config.mutation.meta_mutation_probability,config.mutation.meta_mutation_sigma,config.mutation.min_mutation_scale);
     checkpoint::write(s,creatures.size());
     for (const auto& c:creatures) checkpoint::write(s,c.id,c.mutation_scale);
     checkpoint::write(s,"END_ECOSYSTEM");
@@ -141,7 +141,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool meta_version = version == "NEUROEVO_ECOSYSTEM_35";
+    const bool meta_floor_version = version == "NEUROEVO_ECOSYSTEM_36";
+    const bool meta_version = meta_floor_version || version == "NEUROEVO_ECOSYSTEM_35";
     const bool source_version = meta_version || version == "NEUROEVO_ECOSYSTEM_34";
     const bool ancestor_mutation_version = source_version || version == "NEUROEVO_ECOSYSTEM_33";
     const bool shelter_damage_version = ancestor_mutation_version || version == "NEUROEVO_ECOSYSTEM_32";
@@ -158,6 +159,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
     cfg.mutation.meta_mutation_enabled=false; // Preserve historical reproduction policy.
+    cfg.mutation.min_mutation_scale=0.5;
     cfg.food_distribution=FoodDistribution::Scattered; // Historical worlds keep their original renewal rules.
     checkpoint::read_tuple(s,checkpoint::world_config_fields(cfg));
     checkpoint::read_tuple(s,checkpoint::brain_fields(cfg.brain));
@@ -306,10 +308,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (meta_version) {
         checkpoint::marker(s,"META_MUTATION_1");
         checkpoint::read(s,w.config.mutation.meta_mutation_enabled,w.config.mutation.meta_mutation_probability,w.config.mutation.meta_mutation_sigma);
+        if (meta_floor_version) checkpoint::read(s,w.config.mutation.min_mutation_scale);
         if (checkpoint::count(s,w.creatures.size())!=w.creatures.size()) throw std::runtime_error("Mutation scale count mismatch");
         for (auto& c:w.creatures) {
             std::uint64_t id;checkpoint::read(s,id,c.mutation_scale);
-            if (id!=c.id || c.mutation_scale<MutationConfig::min_mutation_scale || c.mutation_scale>MutationConfig::max_mutation_scale)
+            if (id!=c.id || c.mutation_scale<w.config.mutation.min_mutation_scale || c.mutation_scale>MutationConfig::max_mutation_scale)
                 throw std::runtime_error("Invalid inherited mutation scale");
         }
         w.config.validate();
@@ -345,6 +348,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"meta_mutation_enabled\":" << (w.config.mutation.meta_mutation_enabled ? "true" : "false")
       << ",\"meta_mutation_probability\":" << w.config.mutation.meta_mutation_probability
       << ",\"meta_mutation_sigma\":" << w.config.mutation.meta_mutation_sigma
+      << ",\"mutation_scale_floor\":" << w.config.mutation.min_mutation_scale
       << ",\"health_per_mass\":" << w.config.health_per_mass
       << ",\"body_energy_per_mass\":" << w.config.body_energy_per_mass
       << ",\"attack_range\":" << w.config.attack_range

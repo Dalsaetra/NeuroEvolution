@@ -1,5 +1,6 @@
 param(
     [ValidateRange(1, 100000000)][int]$Steps,
+    [ValidateRange(0, 256)][int]$Threads,
     [ValidateRange(1, 100000)][int]$Creatures,
     [ValidateRange(0, 2147483647)][int]$Seed,
     [string]$RunDir = "",
@@ -101,7 +102,7 @@ if ($Resume -or $StartingGenomes) {
 }
 Write-Host "Executable: $Executable"
 $SimulationArguments = @("--out", $RunPath)
-foreach ($Setting in @(@("Steps", "--steps"), @("Creatures", "--creatures"), @("Seed", "--seed"),
+foreach ($Setting in @(@("Steps", "--steps"), @("Threads", "--threads"), @("Creatures", "--creatures"), @("Seed", "--seed"),
     @("FoodDistribution", "--food-distribution"),
     @("Controller", "--controller"), @("FounderBrain", "--founder-brain"), @("NeuronModel", "--neuron-model"), @("BrainDt", "--brain-dt"), @("SynapticGain", "--synaptic-gain"), @("DetailedTailSeconds", "--detailed-tail-seconds"), @("TailRecordEvery", "--tail-record-every"))) {
     if ($PSBoundParameters.ContainsKey($Setting[0])) {

@@ -24,6 +24,9 @@ target_include_directories(neuroevo_core
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+find_package(OpenMP REQUIRED COMPONENTS CXX)
+target_link_libraries(neuroevo_core PUBLIC OpenMP::OpenMP_CXX)
+
 if(MSVC)
     target_compile_options(neuroevo_core PRIVATE /W4 /permissive-)
 else()
@@ -34,7 +37,7 @@ add_executable(neuroevo_ecosystem src/ecosystem_main.cpp)
 target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
-foreach(test IN ITEMS meta_mutation sensory_mutation pruning ecosystem_predation ecosystem_frontier
+foreach(test IN ITEMS ecosystem_parallel meta_mutation sensory_mutation pruning ecosystem_predation ecosystem_frontier
         ecosystem_calibration ecosystem_mechanics ecosystem_sensing ecosystem_checkpoint
         ecosystem_ancestor ecosystem_dynamic_food ecosystem_food_sources autapse izhikevich filtered_lif)
     add_executable(neuroevo_${test} tests/${test}.cpp)

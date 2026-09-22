@@ -1,6 +1,7 @@
 #include "neuroevo/ecosystem.hpp"
 #include "ecosystem_terrain.hpp"
 #include "ecosystem_mutation.hpp"
+#include "ecosystem_spatial.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,8 @@
 #include <numeric>
 #include <stdexcept>
 #include <utility>
+#include <exception>
+#include <omp.h>
 
 namespace neuroevo {
 namespace {
@@ -404,19 +407,33 @@ void EcosystemWorld::generate_world()
 
 void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 {
+    if (worker_threads < 0 || worker_threads > 256) throw std::invalid_argument("Worker threads must be 0..256");
+    if (creatures.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        throw std::invalid_argument("Population exceeds the controller loop index range");
     if (!supplied_actions.empty() && supplied_actions.size() != creatures.size()) throw std::invalid_argument("Supplied actions must match the starting population");
     if (terrain.size() != config.width * config.height) throw std::runtime_error("Terrain dimensions do not match the world configuration");
     for (std::size_t i = 0; i < creatures.size(); ++i) {
         if (!traversable(creatures[i].position)) throw std::runtime_error("A creature begins the step inside a wall or outside the world");
         if (!std::isfinite(creatures[i].heading) || !std::isfinite(creatures[i].energy)) throw std::runtime_error("Creature heading and energy must be finite");
-        if (!std::isfinite(creatures[i].mutation_scale) || creatures[i].mutation_scale<MutationConfig::min_mutation_scale
+        if (!std::isfinite(creatures[i].mutation_scale) || creatures[i].mutation_scale<config.mutation.min_mutation_scale
             || creatures[i].mutation_scale>MutationConfig::max_mutation_scale) throw std::runtime_error("Invalid inherited mutation scale");
         if (config.predation && (!std::isfinite(creatures[i].body.mass)
             || creatures[i].body.mass < eco_min_mass || creatures[i].body.mass > eco_max_mass
             || !std::isfinite(creatures[i].body.carnivory) || creatures[i].body.carnivory < 0 || creatures[i].body.carnivory > 1
             || !std::isfinite(creatures[i].health) || creatures[i].health > max_health(creatures[i]) + epsilon))
             throw std::runtime_error("Invalid creature body or health");
-        for (std::size_t j = 0; j < i; ++j) {
+    }
+    std::vector<Vec2> snapshot;
+    snapshot.reserve(creatures.size());
+    for (const auto& creature : creatures) snapshot.push_back(creature.position);
+    const detail::CreatureIndex sensing_index(snapshot);
+    for (std::size_t i = 0; i < creatures.size(); ++i) {
+        const auto neighbours = spatial_index ? sensing_index.nearby(snapshot[i], 2 * config.radius)
+                                             : std::vector<std::size_t>{};
+        const auto count = spatial_index ? neighbours.size() : i;
+        for (std::size_t candidate = 0; candidate < count; ++candidate) {
+            const auto j = spatial_index ? neighbours[candidate] : candidate;
+            if (j >= i) continue;
             if (squared(creatures[i].position - creatures[j].position) < 4 * config.radius * config.radius - epsilon) throw std::runtime_error("Creatures overlap at the start of a step");
         }
     }
@@ -429,13 +446,26 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 
     // 1. All controllers see the same positions, previous actions and feedback.
     // Their only private writes during this stage are neural state and noise.
-    std::vector<EcoAction> actions;
-    actions.reserve(population);
-    for (std::size_t i = 0; i < population; ++i) {
-        creatures[i].step_spikes = 0;
-        actions.push_back(bounded_action(supplied_actions.empty() ? control(i) : supplied_actions[i], config.communication));
-        if (!config.predation) actions.back().attack = 0;
+    std::vector<EcoAction> actions(population);
+    std::vector<std::exception_ptr> errors(population);
+    const int workers = worker_threads == 0 ? std::min(8, omp_get_num_procs()) : worker_threads;
+    const double sensory_range = std::max({config.vision_range, config.hearing_range,
+        2 * config.radius + std::max(1e-5, 0.2 * config.radius)});
+    // OpenMP reuses its worker team. All shared geometry/actions remain frozen
+    // until the barrier; each iteration writes only its creature and output slot.
+#pragma omp parallel for schedule(dynamic, 4) num_threads(workers) if(workers > 1 && population >= 32 && supplied_actions.empty())
+    for (int index = 0; index < static_cast<int>(population); ++index) {
+        const auto i = static_cast<std::size_t>(index);
+        try {
+            creatures[i].step_spikes = 0;
+            const auto neighbours = spatial_index && supplied_actions.empty()
+                ? sensing_index.nearby(snapshot[i], sensory_range) : std::vector<std::size_t>{};
+            actions[i] = bounded_action(supplied_actions.empty()
+                ? control(i, spatial_index ? &neighbours : nullptr) : supplied_actions[i], config.communication);
+            if (!config.predation) actions[i].attack = 0;
+        } catch (...) { errors[i] = std::current_exception(); }
     }
+    for (const auto& error : errors) if (error) std::rethrow_exception(error);
     std::vector<Vec2> beginning(population), displacements(population);
     double largest_displacement = 0;
     for (std::size_t i = 0; i < population; ++i) {
@@ -473,12 +503,24 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                 proposed[i] = positions[i] + delta * low;
             }
         }
+        // Each path moves at most max_motion from its starting point. This
+        // conservative radius also covers later passes where a path is stopped.
+        double max_motion = 0;
+        for (std::size_t i = 0; i < population; ++i)
+            max_motion = std::max(max_motion, length(proposed[i] - positions[i]));
+        const detail::CreatureIndex movement_index(positions);
+        std::vector<std::vector<std::size_t>> collision_candidates(population);
+        if (spatial_index) for (std::size_t i = 0; i < population; ++i)
+            collision_candidates[i] = movement_index.nearby(positions[i], diameter + 2 * max_motion);
         bool changed;
         do {
             changed = false;
             std::fill(newly_blocked.begin(), newly_blocked.end(), static_cast<unsigned char>(0));
             for (std::size_t i = 0; i < population; ++i) {
-                for (std::size_t j = i + 1; j < population; ++j) {
+                const auto count = spatial_index ? collision_candidates[i].size() : population;
+                for (std::size_t candidate = spatial_index ? 0 : i + 1; candidate < count; ++candidate) {
+                    const auto j = spatial_index ? collision_candidates[i][candidate] : candidate;
+                    if (j <= i) continue;
                     if (paths_collide(positions[i], proposed[i], positions[j], proposed[j], diameter)) {
                         if (!blocked[i] && squared(proposed[i] - positions[i]) > 0) newly_blocked[i] = 1;
                         if (!blocked[j] && squared(proposed[j] - positions[j]) > 0) newly_blocked[j] = 1;
@@ -498,6 +540,10 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     // Paid, continuous attack effort. Select from an immutable geometry/liveness
     // snapshot, then accumulate hits in stable attacker order before applying damage.
     if (config.predation) {
+        std::vector<Vec2> attack_positions;
+        attack_positions.reserve(population);
+        for (const auto& creature : creatures) attack_positions.push_back(creature.position);
+        const detail::CreatureIndex attack_index(attack_positions);
         std::vector<std::size_t> attackers(population);
         std::iota(attackers.begin(), attackers.end(), 0);
         std::sort(attackers.begin(), attackers.end(), [&](auto a, auto b) { return creatures[a].id < creatures[b].id; });
@@ -509,7 +555,11 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             std::size_t target = population;
             double nearest = config.attack_range + epsilon;
             std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
-            for (std::size_t j = 0; j < population; ++j) {
+            const auto neighbours = spatial_index ? attack_index.nearby(c.position, config.attack_range + epsilon)
+                                                 : std::vector<std::size_t>{};
+            const auto count = spatial_index ? neighbours.size() : population;
+            for (std::size_t candidate = 0; candidate < count; ++candidate) {
+                const auto j = spatial_index ? neighbours[candidate] : candidate;
                 if (i == j || creatures[j].health <= 0) continue;
                 const auto delta = creatures[j].position - c.position;
                 const double distance = length(delta);
@@ -843,7 +893,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                 // Log-space clamping avoids overflowing exp with a large configured sigma.
                 const double log_scale=std::log(parent.mutation_scale)+mutation_rng.normal(0,config.mutation.meta_mutation_sigma);
                 child.mutation_scale=std::exp(std::clamp(log_scale,
-                    std::log(MutationConfig::min_mutation_scale),std::log(MutationConfig::max_mutation_scale)));
+                    std::log(config.mutation.min_mutation_scale),std::log(MutationConfig::max_mutation_scale)));
                 if (child.mutation_scale!=parent.mutation_scale) child.genome_id=child.id;
             }
             // Independent birth cleanup also applies to the copy inheritance case.

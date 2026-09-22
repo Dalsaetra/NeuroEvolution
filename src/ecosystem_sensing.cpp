@@ -144,7 +144,8 @@ EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConf
 
 } // namespace
 
-std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
+std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
+    const std::vector<std::size_t>* neighbours) const
 {
     const EcoCreature& self = creatures.at(creature_index);
     std::vector<double> inputs(config.brain.input_count, 0.0);
@@ -287,7 +288,9 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
         food = std::max(food, inputs[eco_meat_offset + eco_sectors + sector]);
     }
 
-    for (std::size_t index = 0; index < creatures.size(); ++index) {
+    const auto count = neighbours ? neighbours->size() : creatures.size();
+    for (std::size_t candidate = 0; candidate < count; ++candidate) {
+        const auto index = neighbours ? (*neighbours)[candidate] : candidate;
         if (index == creature_index) continue;
         const EcoCreature& other = creatures[index];
         const Vec2 delta = other.position - self.position;
@@ -342,10 +345,11 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index) const
     return inputs;
 }
 
-EcoAction EcosystemWorld::control(std::size_t creature_index)
+EcoAction EcosystemWorld::control(std::size_t creature_index,
+    const std::vector<std::size_t>* neighbours)
 {
     EcoCreature& creature = creatures.at(creature_index);
-    std::vector<double> inputs = observe(creature_index);
+    std::vector<double> inputs = observe(creature_index, neighbours);
     creature.step_spikes = 0;
     if (creature.controller != ControllerKind::Spiking) {
         return baseline_action(inputs, config, creature.controller, creature.neural_rng, creature.body.carnivory);

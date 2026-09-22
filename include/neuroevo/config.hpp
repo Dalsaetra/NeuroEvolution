@@ -104,10 +104,12 @@ struct MutationConfig {
     double izhikevich_intrinsic_probability = 0.0;
     double izhikevich_log_sigma = 0.05;
     // Copy / slight / strong inheritance; strong is the remaining probability.
-    // Evolved scale uses fixed probability knots at 0.5, 1, and 2.
+    // New runs evolve between the standard mixture (1) and the upper knot (2).
+    // The checkpoint carries the floor so historical runs retain their policy.
     bool meta_mutation_enabled = true;
     double meta_mutation_probability = 0.10, meta_mutation_sigma = 0.10;
-    static constexpr double min_mutation_scale = 0.5, max_mutation_scale = 2.0;
+    double min_mutation_scale = 1.0;
+    static constexpr double max_mutation_scale = 2.0;
     std::array<double,3> inheritance_probabilities(double scale) const; // copy, slight, strong
     double copy_probability = 0.50;
     double slight_probability = 0.45;
@@ -192,7 +194,7 @@ struct EcosystemConfig {
     double nursery_food_reduction_delay = 1000; // Simulation seconds between reductions; 0 disables cooldown.
 
     // World size, population and seed
-    std::size_t width = 140, height = 140, initial_creatures = 48, max_population = 300;
+    std::size_t width = 140, height = 140, initial_creatures = 48, max_population = 500;
     std::size_t shelters = 40, shelter_size = 9;
     std::size_t grazing_patches = 250, fruit_patches = 80, pods = 120;
     std::uint64_t seed = 8;
@@ -227,7 +229,7 @@ struct EcosystemConfig {
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
     double storm_cost = 5.0, phase_offset = 0;
     bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
-    double storm_damage = 0.4; // Health/second independent of mass; health capacity scales with mass.
+    double storm_damage = 0.35; // Health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;
@@ -254,6 +256,7 @@ struct EcosystemConfig {
 // Execution and recording defaults. These apply to each invocation, including
 // resume; biological configuration and RNG state come from the checkpoint.
 struct RunConfig {
+    int worker_threads = 0; // Auto: up to eight; one disables parallel controllers.
     std::size_t steps = 4800;
     std::size_t record_every = 500;
     bool record_brains = false;

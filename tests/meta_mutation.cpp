@@ -21,7 +21,8 @@ EcosystemWorld fixture(std::uint64_t seed,double scale,double meta_probability) 
 }
 int main() try {
     MutationConfig m;
-    for(const auto& row: {std::array<double,4>{0.5,.75,.25,0}, {0.75,.625,.35,.025},
+    near(m.min_mutation_scale,1);
+    for(const auto& row: {std::array<double,4>{0.5,.5,.45,.05}, {0.75,.5,.45,.05},
             {1,.5,.45,.05}, {1.5,.25,.475,.275}, {2,0,.5,.5}}) {
         auto p=m.inheritance_probabilities(row[0]);
         for(int i=0;i<3;++i)near(p[i],row[i+1]);
@@ -32,20 +33,20 @@ int main() try {
     }
     bool copy_gene_changed=false,lower=false,upper=false;
     for(std::uint64_t seed=1;seed<=120;++seed) {
-        auto unchanged=fixture(seed,.5,0),changed=fixture(seed,.5,1);
+        auto unchanged=fixture(seed,1,0),changed=fixture(seed,1,1);
         unchanged.step({{}});changed.step({{}});
         require(changed.creatures.size()==2 && unchanged.creatures.size()==2,"Birth missing");
         const auto& a=unchanged.creatures[1];const auto& b=changed.creatures[1];
-        near(a.mutation_scale,.5);near(changed.creatures[0].mutation_scale,.5);
-        require(b.mutation_scale>=.5 && b.mutation_scale<=2,"Meta gene out of bounds");
+        near(a.mutation_scale,1);near(changed.creatures[0].mutation_scale,1);
+        require(b.mutation_scale>=1 && b.mutation_scale<=2,"Meta gene out of bounds");
         // Child's meta mutation must not change the already selected birth branch.
         require(a.brain.synapses().size()==b.brain.synapses().size(),"Child scale affected its own mutation");
         for(std::size_t i=0;i<a.brain.synapses().size();++i)near(a.brain.synapses()[i].weight,b.brain.synapses()[i].weight);
-        if(a.genome_id==1 && b.mutation_scale!=.5) {
+        if(a.genome_id==1 && b.mutation_scale!=1) {
             require(b.genome_id==b.id,"Changed meta gene retained clone identity");copy_gene_changed=true;
         }
         auto extreme=fixture(seed,1,1);extreme.config.mutation.meta_mutation_sigma=100;extreme.step({{}});
-        lower|=extreme.creatures[1].mutation_scale==.5;upper|=extreme.creatures[1].mutation_scale==2;
+        lower|=extreme.creatures[1].mutation_scale==1;upper|=extreme.creatures[1].mutation_scale==2;
         auto maximum=fixture(seed,2,0);maximum.step({{}});
         require(maximum.creatures[1].genome_id!=1,"Maximum scale selected copy");
     }
@@ -58,7 +59,7 @@ int main() try {
     require(!legacy.config.mutation.meta_mutation_enabled,"Old checkpoint enabled meta mutation");near(legacy.creatures[0].mutation_scale,1);
     auto zero=fixture(9,1.7,1);zero.config.mutation.meta_mutation_sigma=0;zero.step({{}});
     near(zero.creatures[1].mutation_scale,1.7);
-    for(double bad : {0.,2.1}) {
+    for(double bad : {0.,0.5,0.999,2.1}) {
         auto invalid=fixture(1,bad,0);bool rejected=false;
         try{invalid.step({{}});}catch(const std::runtime_error&){rejected=true;}
         require(rejected,"Out-of-range reproductive gene accepted without predation");
@@ -70,5 +71,27 @@ int main() try {
         bool rejected=false;try{c.validate();}catch(const std::invalid_argument&){rejected=true;}
         require(rejected,"Invalid meta probability accepted");
     }
+    // Version 35 did not store its 0.5 floor. Loading it must preserve that
+    // historical mixture and exact continuation, even after saving as v36.
+    auto historical_world=fixture(8,0.75,1);
+    historical_world.config.mutation.min_mutation_scale=0.5;
+    auto version35=saved(historical_world);
+    version35.replace(0,21,"NEUROEVO_ECOSYSTEM_35");
+    const auto line_start=version35.find('\n',version35.find("META_MUTATION_1"))+1;
+    const auto line_end=version35.find('\n',line_start);
+    std::istringstream fields(version35.substr(line_start,line_end-line_start));
+    std::string enabled,probability,sigma;
+    fields>>enabled>>probability>>sigma;
+    version35.replace(line_start,line_end-line_start,enabled+" "+probability+" "+sigma);
+    std::istringstream input35(version35);
+    auto restored35=EcosystemWorld::load_checkpoint(input35);
+    near(restored35.config.mutation.min_mutation_scale,0.5);
+    auto mix=restored35.config.mutation.inheritance_probabilities(0.75);
+    near(mix[0],.625);near(mix[1],.35);near(mix[2],.025);
+    historical_world.step({{}});restored35.step({{}});
+    require(saved(historical_world)==saved(restored35),"Historical meta floor continuation changed");
+    std::istringstream roundtrip(saved(restored35));
+    auto restored36=EcosystemWorld::load_checkpoint(roundtrip);
+    near(restored36.config.mutation.min_mutation_scale,0.5);
     std::cout<<"Meta mutation tests passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
