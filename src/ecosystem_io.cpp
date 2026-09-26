@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_43");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_44");
     // Read capacity-affecting settings before constructing/validating the world.
     checkpoint::write(s,"MASS_ALLOMETRY_1");
     checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
@@ -156,6 +156,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     for(const auto& c:creatures)
         checkpoint::write(s,c.id,c.body.eye_separation_degrees,c.gestation?c.gestation->body.eye_separation_degrees:0.0);
     checkpoint::write(s,"STORM_ENERGY_1",config.storm_energy_drain);
+    checkpoint::write(s,"ATTACK_COST_1",config.attack_cost_mass_exponent);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -163,7 +164,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool storm_energy_version = version == "NEUROEVO_ECOSYSTEM_43";
+    const bool attack_cost_version = version == "NEUROEVO_ECOSYSTEM_44";
+    const bool storm_energy_version = attack_cost_version || version == "NEUROEVO_ECOSYSTEM_43";
     const bool eyes_version = storm_energy_version || version == "NEUROEVO_ECOSYSTEM_42";
     const bool allometry_version = eyes_version || version == "NEUROEVO_ECOSYSTEM_41" || version == "NEUROEVO_ECOSYSTEM_40";
     const bool gestation_version = allometry_version || version == "NEUROEVO_ECOSYSTEM_39";
@@ -420,6 +422,12 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::marker(s,"STORM_ENERGY_1");
         checkpoint::read(s,w.config.storm_energy_drain);
     }
+    w.config.attack_cost_mass_exponent=0; // Historical attacks had a mass-independent energy cost.
+    if(attack_cost_version) {
+        checkpoint::marker(s,"ATTACK_COST_1");
+        checkpoint::read(s,w.config.attack_cost_mass_exponent);
+        w.config.validate();
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -498,6 +506,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"ingestion_mass_exponent\":" << w.config.ingestion_mass_exponent
       << ",\"pod_mass_exponent\":" << w.config.pod_mass_exponent
       << ",\"attack_mass_exponent\":" << w.config.attack_mass_exponent
+      << ",\"attack_cost_mass_exponent\":" << w.config.attack_cost_mass_exponent
       << ",\"metabolism_mass_exponent\":" << w.config.metabolism_mass_exponent
       << ",\"energy_mass_exponent\":" << w.config.energy_mass_exponent
       << ",\"speed_mass_exponent\":" << w.config.speed_mass_exponent

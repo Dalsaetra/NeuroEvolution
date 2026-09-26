@@ -103,7 +103,7 @@ void combined_drains()
     near(w.totals.exposure,8,"Combined energy triangle integral wrong");
     check(saved(w)==saved(resumed),"Combined storm checkpoint continuation changed");
     for(bool health:{false,true}) {
-        auto legacy=fixture(2);legacy.config.storm_health_damage=health;legacy.config.storm_energy_drain=!health;
+        auto legacy=fixture(2);legacy.config.attack_cost_mass_exponent=0;legacy.config.storm_health_damage=health;legacy.config.storm_energy_drain=!health;
         auto old=saved(legacy);old.erase(old.find("STORM_ENERGY_1"));old+="END_ECOSYSTEM\n";
         old.replace(0,21,"NEUROEVO_ECOSYSTEM_42");
         std::istringstream stream(old);auto restored=EcosystemWorld::load_checkpoint(stream);
@@ -115,7 +115,7 @@ void checkpoint_compatibility()
 {
     auto w=fixture(2);std::istringstream input(saved(w));auto resumed=EcosystemWorld::load_checkpoint(input);
     for(int i=0;i<110;++i){w.step({{}});resumed.step({{}});check(saved(w)==saved(resumed),"Ramped weather continuation diverged");}
-    w=fixture(2);w.config.storm_ramp=false;w.config.mutation.eye_mutation_probability=0;
+    w=fixture(2);w.config.storm_ramp=false;w.config.attack_cost_mass_exponent=0;w.config.mutation.eye_mutation_probability=0;
     auto old=without_allometry_header(saved(w));old.replace(0,21,"NEUROEVO_ECOSYSTEM_36");old.erase(old.find("BACKGROUND_WEATHER_1"));old+="END_ECOSYSTEM\n";
     std::istringstream legacy(old);auto restored=EcosystemWorld::load_checkpoint(legacy);
     check(!restored.config.storm_ramp && restored.config.background_food_patches==0,"Old checkpoint adopted new ecology");

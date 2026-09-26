@@ -60,12 +60,25 @@ void strength()
         auto w=fixture();add(w,m,diet);add(w,1,0,{4.6,4});EcoAction a;a.attack=1;
         w.step({a,{}});
         near(w.totals.damage,w.config.attack_damage*w.config.dt*std::pow(m,2./3.)*(w.config.attack_base_fraction+(1-w.config.attack_base_fraction)*diet),"Attack lost mass or diet scaling");
-        near(w.totals.attacking,w.config.attack_cost*w.config.dt,"Attack cost changed");
+        const double cost=w.config.attack_cost*w.config.dt*std::pow(m,2./3.);
+        near(w.totals.attacking,cost,"Attack cost lost mass scaling");
+        auto limited=fixture();add(limited,m,diet);add(limited,1,0,{4.6,4});
+        limited.creatures[0].energy=cost/2;limited.step({a,{}});
+        near(limited.totals.attacking,cost/2,"Energy-limited attack overcharged");
+        near(limited.totals.damage,w.totals.damage/2,"Energy-limited damage used the unscaled cost");
+        auto miss=fixture();add(miss,m,diet);miss.step({a});
+        near(miss.totals.attacking,cost,"Miss did not pay mass-scaled cost");
         auto pod=fixture();add(pod,m,diet);food(pod,FoodKind::Pod);pod.step({eat()});
         near(pod.resources[0].progress,diet<1?.1*std::pow(m,2./3.):0,"Pod mass exponent or dietary eligibility changed");
     }
     auto pod=fixture();add(pod,.5);add(pod,2,0,{4,4.8});food(pod,FoodKind::Pod);pod.step({eat(),eat()});
     near(pod.resources[0].progress,.4*(std::pow(.5,2./3.)+std::pow(2.,2./3.))/2,"Cooperative pod work lost strength or cooperation");
+    auto custom=fixture();custom.config.attack_cost_mass_exponent=1;add(custom,2,1);add(custom,1,0,{4.6,4});
+    EcoAction attack;attack.attack=1;custom.step({attack,{}});
+    near(custom.totals.attacking,2*custom.config.attack_cost*custom.config.dt,"Custom attack cost exponent ignored");
+    near(custom.totals.damage,custom.config.attack_damage*custom.config.dt*std::pow(2.,2./3.),"Cost exponent multiplied full-effort damage");
+    auto legacy=fixture();legacy.config.mass_allometry=false;add(legacy,2,1);legacy.step({attack});
+    near(legacy.totals.attacking,legacy.config.attack_cost*legacy.config.dt,"Disabled allometry scaled attack cost");
 }
 void reserves()
 {
@@ -100,12 +113,13 @@ void checkpoint()
 {
     auto w=fixture();add(w,2);w.creatures[0].energy=400;
     w.config.ingestion_mass_exponent=.9;w.config.pod_mass_exponent=.6;w.config.attack_mass_exponent=.7;
+    w.config.attack_cost_mass_exponent=.8;
     w.config.metabolism_mass_exponent=.8;w.config.energy_mass_exponent=1.1;
     w.config.speed_mass_exponent=.3;w.config.acceleration_mass_exponent=-.6;w.config.max_acceleration=2;
     w.step({move()});std::istringstream input(saved(w));auto copy=EcosystemWorld::load_checkpoint(input);
     check(saved(w)==saved(copy),"Checkpoint lost allometry configuration or large reserves");
     for(int i=0;i<20;++i){w.step({move()});copy.step({move()});check(saved(w)==saved(copy),"Acceleration continuation diverged");}
-    w=fixture();w.config.mass_allometry=false;w.config.mutation.eye_mutation_probability=0;add(w,2);
+    w=fixture();w.config.mass_allometry=false;w.config.attack_cost_mass_exponent=0;w.config.mutation.eye_mutation_probability=0;add(w,2);
     auto old=without_allometry_header(saved(w));old.replace(0,21,"NEUROEVO_ECOSYSTEM_39");
     std::istringstream legacy(old);copy=EcosystemWorld::load_checkpoint(legacy);
     check(!copy.config.mass_allometry,"Legacy checkpoint enabled allometry");

@@ -597,7 +597,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                     target = j; nearest = distance; best_tie = tie;
                 }
             }
-            const double paid = std::min(c.energy, config.attack_cost * c.action.attack * config.dt);
+            const double attack_cost = config.attack_cost * (config.mass_allometry
+                ? std::pow(c.body.mass, config.attack_cost_mass_exponent) : 1.0);
+            const double paid = std::min(c.energy, attack_cost * c.action.attack * config.dt);
             c.energy -= paid; c.energy_spent += paid; totals.attacking += paid;
             if (target != population) {
                 // Protection follows the target's post-movement position, including
@@ -608,7 +610,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                 const bool protected_target = in_nursery(target_position)
                     || (!config.shelter_predation_damage && sheltered(target_position));
                 const double hit = protected_target ? 0.0
-                    : config.attack_damage * diet_strength * paid / config.attack_cost
+                    : config.attack_damage * diet_strength * paid / attack_cost
                         * (config.mass_allometry ? std::pow(c.body.mass, config.attack_mass_exponent) : 1.0);
                 damage[target] += hit;
                 events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit});

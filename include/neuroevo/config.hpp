@@ -179,17 +179,18 @@ struct EcosystemConfig {
     double founder_mass = 1.0, founder_carnivory = 0.4;
     double founder_eye_separation = 0.0;
     double health_per_mass = 20, body_energy_per_mass = 60;
-    double attack_range = 1.6, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
+    double attack_range = 1.0, attack_degrees = 45, attack_damage = 20, attack_cost = 10.0;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     // Mass is relative to a reference body of mass 1. Historical checkpoints disable these rules.
     bool mass_allometry = true;
     double ingestion_mass_exponent = 0.8;
     double pod_mass_exponent = 2.0 / 3.0, attack_mass_exponent = 2.0 / 3.0;
+    double attack_cost_mass_exponent = 2.0 / 3.0;
     double metabolism_mass_exponent = 0.75, energy_mass_exponent = 1.0;
     double speed_mass_exponent = 0.25, acceleration_mass_exponent = -0.5;
     double max_acceleration = 3.0; // Speed units/second at mass 1; also limits braking.
     double healing_rate = 0.1, healing_cost = 10.0;
-    double meat_energy = 60, meat_decay = 0.0002, carcass_recovery = 0.95;
+    double meat_energy = 60, meat_decay = 0.0005, carcass_recovery = 0.95;
     double nursery_meat_decay = 0.005; // Biomass/second inside nursery; meat_decay applies outside.
 
     // Nursery and frontier layout
@@ -244,9 +245,9 @@ struct EcosystemConfig {
 
     // Weather
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
-    double storm_cost = 5.0, phase_offset = 0;
+    double storm_cost = 2.0, phase_offset = 0;
     bool storm_health_damage = true; // Independent health drain; requires predation.
-    bool storm_energy_drain = false; // Can be enabled alongside health damage.
+    bool storm_energy_drain = true; // Can be enabled alongside health damage.
     bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
     double storm_damage = 0.5; // Peak health/second independent of mass; health capacity scales with mass.
 

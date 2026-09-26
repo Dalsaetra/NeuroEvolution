@@ -34,7 +34,7 @@ class EcosystemCliTests(unittest.TestCase):
 
     def test_mass_allometry_configuration_and_resume(self):
         values = dict(ingestion_mass_exponent=0.9, pod_mass_exponent=0.6,
-                      attack_mass_exponent=0.7, metabolism_mass_exponent=0.8,
+                      attack_mass_exponent=0.7, attack_cost_mass_exponent=0.9, metabolism_mass_exponent=0.8,
                       energy_mass_exponent=1.1, speed_mass_exponent=0.3,
                       acceleration_mass_exponent=-0.6, max_acceleration=2)
         flags = [item for key, value in values.items() for item in ("--" + key.replace("_", "-"), value)]
@@ -325,7 +325,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_43")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_44")
         del lines[1:3]  # Version 40's mass-allometry config preamble.
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]

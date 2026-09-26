@@ -13,6 +13,7 @@ New runs use mass allometry (`mass_allometry = true`), with mass 1 as the refere
 | Bite/harvesting rate | `m^0.8` | `ingestion_mass_exponent` |
 | Pod-opening strength | `m^(2/3)` | `pod_mass_exponent` |
 | Attack damage | `m^(2/3)` | `attack_mass_exponent` |
+| Attack energy cost | `m^(2/3)` | `attack_cost_mass_exponent` |
 | Basal maintenance | `m^0.75` | `metabolism_mass_exponent` |
 | Survival reserve capacity | `m^1` | `energy_mass_exponent` |
 | Maximum speed | `m^0.25` | `speed_mass_exponent` |
@@ -21,6 +22,8 @@ New runs use mass allometry (`mass_allometry = true`), with mass 1 as the refere
 Maximum health remains `health_per_mass * m`. Basal metabolism is `basal_cost * m^metabolism_mass_exponent * (1 - (1 - carnivore_basal_fraction) * carnivory)`. With linear reserves, basal fasting endurance at equal diet scales as `m^0.25`; movement, neural costs, injury, and other expenses change actual survival time. Collision radius remains fixed. The historical energy-drain storm mode still uses `storm_cost / m`.
 
 Attack damage per step is `attack_damage * m^attack_mass_exponent * (attack_base_fraction + (1 - attack_base_fraction) * carnivory) * effort * dt`. Thus body strength multiplies the existing carnivory advantage. Attacks choose the nearest visible creature in the configured forward cone and range. Misses consume energy; insufficient energy reduces effort. Post-movement hits resolve simultaneously, including mutual kills. Nursery targets are always protected.
+
+Attack energy cost per step is `attack_cost * m^attack_cost_mass_exponent * effort * dt`. Its default exponent matches damage (2/3), preserving damage per energy across masses at equal diet. Mass 0.5, 1, and 2 cost about 0.63, 1, and 1.59 times the reference. Misses and protected-target attacks still pay. Insufficient reserves reduce damage by the fraction of this scaled cost that was paid, without applying the mass bonus twice. Configure `--attack-cost-mass-exponent`; zero gives constant cost. Disabling mass allometry also restores constant cost. Version 44 checkpoints save the exponent; older checkpoints load zero to preserve their previous cost. New runs importing old genomes use the new defaults.
 
 Closed pods retain their cooperative opening rule: `min(2, sum(effort))^2`, multiplied by the effort-weighted mean of each worker's `m^pod_mass_exponent`. This gives a lone creature the configured mass exponent without squaring it or losing the benefit at the cooperation cap. Existing dietary eligibility is preserved: pure carnivores ignore pods, while plant-capable diets can open them. Plant digestion still decreases with carnivory.
 

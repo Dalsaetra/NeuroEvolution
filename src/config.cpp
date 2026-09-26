@@ -174,7 +174,7 @@ void EcosystemConfig::validate() const
     if (radius >= 0.5) throw std::invalid_argument("Creature radius must be less than half a terrain cell");
     positive(max_speed, "Maximum speed", true);
     positive(max_acceleration, "Maximum acceleration");
-    for (const auto exponent : {ingestion_mass_exponent, pod_mass_exponent, attack_mass_exponent,
+    for (const auto exponent : {ingestion_mass_exponent, pod_mass_exponent, attack_mass_exponent, attack_cost_mass_exponent,
              metabolism_mass_exponent, energy_mass_exponent, speed_mass_exponent, acceleration_mass_exponent})
         if (!std::isfinite(exponent) || exponent < -2 || exponent > 2)
             throw std::invalid_argument("Mass scaling exponents must be finite and between -2 and 2");

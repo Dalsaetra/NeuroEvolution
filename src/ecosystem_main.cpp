@@ -88,6 +88,7 @@ int main(int argc, char** argv)
             {"--ingestion-mass-exponent",&cfg.ingestion_mass_exponent},
             {"--pod-mass-exponent",&cfg.pod_mass_exponent},
             {"--attack-mass-exponent",&cfg.attack_mass_exponent},
+            {"--attack-cost-mass-exponent",&cfg.attack_cost_mass_exponent},
             {"--metabolism-mass-exponent",&cfg.metabolism_mass_exponent},
             {"--energy-mass-exponent",&cfg.energy_mass_exponent},
             {"--speed-mass-exponent",&cfg.speed_mass_exponent},
@@ -278,6 +279,7 @@ int main(int argc, char** argv)
                     "  --allocation-mutation-probability X / --allocation-mutation-sigma X\n"
                     "  --meta-mutation 0|1 / --meta-mutation-probability X / --meta-mutation-sigma X\n"
                     "  --storm-health-damage 0|1  Enable storm health drain independently\n"
+                    "  --attack-cost-mass-exponent X  Attack cost mass exponent (default 2/3)\n"
                     "  --storm-energy-drain 0|1  Enable storm energy drain (default 0)\n"
                     "  --storm-damage X         Health damage/second independent of mass\n"
                     "  --nursery-meat-decay X    Meat biomass lost/second inside nursery; --meat-decay applies outside\n"
@@ -678,6 +680,7 @@ int main(int argc, char** argv)
             << ",\"ingestion_mass_exponent\":" << world.config.ingestion_mass_exponent
             << ",\"pod_mass_exponent\":" << world.config.pod_mass_exponent
             << ",\"attack_mass_exponent\":" << world.config.attack_mass_exponent
+            << ",\"attack_cost_mass_exponent\":" << world.config.attack_cost_mass_exponent
             << ",\"metabolism_mass_exponent\":" << world.config.metabolism_mass_exponent
             << ",\"energy_mass_exponent\":" << world.config.energy_mass_exponent
             << ",\"speed_mass_exponent\":" << world.config.speed_mass_exponent
