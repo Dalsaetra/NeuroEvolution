@@ -59,7 +59,7 @@ class EcosystemCliTests(unittest.TestCase):
         checkpoint = source / "checkpoint.eco"
         lines = checkpoint.read_text().splitlines()
         lines[0] = "NEUROEVO_ECOSYSTEM_35"
-        lines = [line for line in lines if not line.startswith("BACKGROUND_WEATHER_1")]
+        lines = [line for line in lines if not line.startswith(("BACKGROUND_WEATHER_1", "MASS_ENERGY_1"))]
         marker = next(i for i, line in enumerate(lines) if line.startswith("META_MUTATION_1"))
         lines[marker + 1] = " ".join(lines[marker + 1].split()[:3])
         lines[marker + 3] = lines[marker + 3].split()[0] + " 0.75"
@@ -266,7 +266,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_37")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_38")
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]
         lines[0] = "NEUROEVO_ECOSYSTEM_33"

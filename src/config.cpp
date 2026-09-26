@@ -118,6 +118,13 @@ std::array<double,3> MutationConfig::inheritance_probabilities(double scale) con
     return {0.5*(1-t),0.45+0.05*t,0.05+0.45*t};
 }
 
+double EcosystemConfig::max_energy(double mass) const
+{
+    if (!predation || !mass_scaled_energy_capacity) return energy_capacity;
+    return energy_capacity * (reproduction_cost + body_energy_per_mass * mass)
+        / (reproduction_cost + body_energy_per_mass);
+}
+
 void EcosystemConfig::validate() const
 {
     brain.validate_model();
@@ -173,7 +180,7 @@ void EcosystemConfig::validate() const
     positive(interaction_range, "Interaction range");
     positive(energy_capacity, "Energy capacity");
     positive(founder_energy, "Founder energy");
-    if (founder_energy > energy_capacity) throw std::invalid_argument("Founder energy exceeds capacity");
+    if (founder_energy > max_energy(founder_mass)) throw std::invalid_argument("Founder energy exceeds capacity");
     for (const auto value : {basal_cost, movement_cost, turn_cost, forage_cost, call_cost, neuron_cost, synapse_cost, spike_cost,
              graze_regrowth, fruit_regrowth, pod_regrowth, pod_decay, storm_cost, maturity_age, reproduction_cooldown, digestion_delay}) positive(value, "An energy cost, duration or regrowth rate", true);
     for (const auto value : {graze_energy, poor_fruit_energy, rich_fruit_energy, pod_energy})
@@ -216,6 +223,9 @@ void EcosystemConfig::validate() const
              attack_damage, attack_cost, healing_cost, meat_energy}) positive(value, "Predation parameter");
     positive(nursery_food_respawn_delay, "Nursery food respawn delay", true);
     positive(outdoor_food_respawn_delay, "Outdoor food respawn delay", true);
+    if (!std::isfinite(max_energy(eco_min_mass)) || !std::isfinite(max_energy(eco_max_mass))
+        || max_energy(eco_min_mass)<=0 || offspring_energy>max_energy(eco_min_mass))
+        throw std::invalid_argument("Offspring reserve must fit the minimum body capacity");
     positive(storm_damage, "Storm damage", true);
     if (storm_health_damage && !predation) throw std::invalid_argument("Storm health damage requires predation/body mechanics");
     positive(meat_decay, "Outside meat decay", true);

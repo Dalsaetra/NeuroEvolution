@@ -340,6 +340,19 @@ vm.runInNewContext(`
  if(potentialSamples(2,1)[1].spiked!==false)throw Error('Non-spiking neuron marked as firing');
  M.calibrated_io=true;F[1].creatures[0].brain.neurons[0].threshold=2;
  if(potentialSamples(2,0)[1].threshold!==1)throw Error('Calibrated input must fire at phase 1');
+ const originalInput=F[1].creatures[0].observation;
+ F[1].creatures[0].observation=[0];
+ F[1].creatures[0].brain.potentials[0]=1;
+ potentialCache={};drawPotentialHistory(brainData(F[1].creatures[0]));
+ if(potentialCache.samples[1].input!==0||potentialCache.samples[1].value!==1)throw Error('Sensor input was confused with retained phase');
+ if(!$('potentialCaption').textContent.includes('Sensor input: 0 (off)'))throw Error('Inactive sensor not identified');
+ F[1].creatures[0].observation=[1];
+ potentialCache={};drawPotentialHistory(brainData(F[1].creatures[0]));
+ if(!$('potentialCaption').textContent.includes('Sensor input: 1'))throw Error('Reactivated sensor did not refresh');
+ F[1].creatures[0].observation=undefined;
+ potentialCache={};drawPotentialHistory(brainData(F[1].creatures[0]));
+ if(!$('potentialCaption').textContent.includes('Sensor input: not recorded'))throw Error('Missing input shown as zero');
+ F[1].creatures[0].observation=originalInput;F[1].creatures[0].brain.potentials[0]=0;
  M.calibrated_io=false;F[1].creatures[0].brain.neurons[0].threshold=1;
 
  const saved=F[1].creatures[0].brain.potentials;

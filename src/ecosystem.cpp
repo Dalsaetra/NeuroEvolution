@@ -790,7 +790,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         std::size_t pending = 0;
         for (const auto& packet : creature.digestion) {
             if (!killed && packet.due <= end + epsilon) {
-                const double gain = std::min(packet.energy, std::max(0.0, config.energy_capacity - creature.energy));
+                const double gain = std::min(packet.energy, std::max(0.0, config.max_energy(creature.body.mass) - creature.energy));
                 creature.energy += gain;
                 creature.energy_gained += gain;
                 creature.digestion_pulse += gain;

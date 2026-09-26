@@ -205,6 +205,8 @@ struct EcosystemConfig {
     double interaction_range = 1.0, interaction_degrees = 80.0;
 
     // Energy budget
+    bool mass_scaled_energy_capacity = true; // Scale reserve capacity like child construction cost.
+    double max_energy(double mass) const;
     double energy_capacity = 250, founder_energy = 90, basal_cost = 1.0;
     double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.005;
     double neuron_cost = 0.00001, synapse_cost = 0.000001, spike_cost = 0.000001;
@@ -233,11 +235,11 @@ struct EcosystemConfig {
     double storm_cost = 5.0, phase_offset = 0;
     bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
     bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
-    double storm_damage = 0.5; // Peak health/second independent of mass; health capacity scales with mass.
+    double storm_damage = 0.4; // Peak health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;
-    double offspring_energy = 60, reproduction_cooldown = 5;
+    double offspring_energy = 60, reproduction_cooldown = 20;
 
     // Neural interface and controllers
     double motor_gain = 1.0, actuator_tau = 0.30;

@@ -247,7 +247,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
             inputs[eco_meat_offset + sector] = 1;
             inputs[eco_meat_offset + eco_sectors + sector] = unit(1 - distance / config.vision_range);
             const double reference = config.carcass_recovery
-                * (config.body_energy_per_mass * eco_max_mass + config.energy_capacity) / config.meat_energy;
+                * (config.body_energy_per_mass * eco_max_mass + config.max_energy(eco_max_mass)) / config.meat_energy;
             inputs[eco_meat_offset + 2 * eco_sectors + sector] = unit(resource.stock / reference);
             continue;
         }
@@ -330,7 +330,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
         inputs[eco_health_offset] = unit(self.health / max_health(self));
         inputs[eco_health_offset + 1] = unit(self.damage_pulse / max_health(self));
     }
-    inputs[body_offset] = unit(self.energy / config.energy_capacity);
+    inputs[body_offset] = unit(self.energy / config.max_energy(self.body.mass));
     inputs[body_offset + 1] = config.max_speed > 0.0 ? unit(std::abs(self.speed) / maximum_speed(self)) : 0.0;
     inputs[body_offset + 2] = config.max_turn_rate > 0.0 ? unit(self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 3] = config.max_turn_rate > 0.0 ? unit(-self.turn / config.max_turn_rate) : 0.0;

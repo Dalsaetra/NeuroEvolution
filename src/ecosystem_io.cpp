@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_37");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_38");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -135,6 +135,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,creatures.size());
     for (const auto& c:creatures) checkpoint::write(s,c.id,c.mutation_scale);
     checkpoint::write(s,"BACKGROUND_WEATHER_1",config.background_food_patches,config.background_food_energy,config.storm_ramp);
+    checkpoint::write(s,"MASS_ENERGY_1",config.mass_scaled_energy_capacity);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -142,7 +143,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool background_weather_version = version == "NEUROEVO_ECOSYSTEM_37";
+    const bool mass_energy_version = version == "NEUROEVO_ECOSYSTEM_38";
+    const bool background_weather_version = mass_energy_version || version == "NEUROEVO_ECOSYSTEM_37";
     const bool meta_floor_version = background_weather_version || version == "NEUROEVO_ECOSYSTEM_36";
     const bool meta_version = meta_floor_version || version == "NEUROEVO_ECOSYSTEM_35";
     const bool source_version = meta_version || version == "NEUROEVO_ECOSYSTEM_34";
@@ -160,6 +162,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.mass_scaled_energy_capacity=false;
     cfg.background_food_patches=0;
     cfg.storm_ramp=false; // Historical checkpoints retain flat damage and the harvest cutoff.
     cfg.mutation.meta_mutation_enabled=false; // Preserve historical reproduction policy.
@@ -269,7 +272,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         if (c.id == 0 || c.id >= w.next_creature_id || !ids.insert(c.id).second
             || c.genome_id == 0 || c.genome_id >= w.next_creature_id
             || c.origin < CreatureOrigin::Founder || c.origin > CreatureOrigin::Birth
-            || c.energy <= 0 || c.energy > cfg.energy_capacity+1e-8 || c.age < 0
+            || c.energy <= 0 || c.age < 0
             || c.controller < ControllerKind::Spiking || c.controller > ControllerKind::Random
             || !w.traversable(c.position) || c.brain.config().input_count != cfg.brain.input_count
             || c.brain.config().output_count != cfg.brain.output_count
@@ -326,6 +329,13 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::read(s,w.config.background_food_patches,w.config.background_food_energy,w.config.storm_ramp);
         w.config.validate();
     }
+    if (mass_energy_version) {
+        checkpoint::marker(s,"MASS_ENERGY_1");
+        checkpoint::read(s,w.config.mass_scaled_energy_capacity);
+        w.config.validate();
+    }
+    for(const auto& c:w.creatures) if(c.energy>w.config.max_energy(c.body.mass)+1e-8)
+        throw std::runtime_error("Creature energy exceeds its body capacity");
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -389,6 +399,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"shelter_food_energy\":" << w.config.shelter_food_energy
       << ",\"shelter_food_capacity\":" << w.config.shelter_food_capacity
       << ",\"shelter_food_regrowth\":" << w.config.shelter_food_regrowth
+      << ",\"mass_scaled_energy_capacity\":" << (w.config.mass_scaled_energy_capacity ? "true" : "false")
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
       << ",\"food_energy\":{\"graze\":" << w.config.graze_energy
       << ",\"poor_fruit\":" << w.config.poor_fruit_energy << ",\"rich_fruit\":" << w.config.rich_fruit_energy
@@ -454,6 +465,7 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     array(s,w.creatures,[&](const EcoCreature& c){
         s << "{\"id\":" << c.id << ",\"parent\":" << c.parent_id << ",\"generation\":" << c.generation
           << ",\"x\":" << c.position.x << ",\"y\":" << c.position.y << ",\"heading\":" << c.heading
+          << ",\"max_energy\":" << w.config.max_energy(c.body.mass)
           << ",\"mutation_scale\":" << c.mutation_scale
           << ",\"mass\":" << c.body.mass << ",\"carnivory\":" << c.body.carnivory
           << ",\"health\":" << c.health << ",\"max_health\":" << w.max_health(c)

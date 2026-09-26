@@ -148,6 +148,10 @@ void test_sectors_and_contact()
     world.creatures[0].position = {0.25, 5.5};
     world.creatures[0].heading = pi;
     require(world.observe(0)[contact] == 1.0, "World boundaries must produce contact");
+    world.creatures[0].position = {3.5, 3.5};
+    const auto released = world.observe(0);
+    for (std::size_t i=0;i<4;++i)
+        require(released[contact+i] == 0, "Wall, boundary and creature contact must clear after moving away");
 }
 
 void test_nearest_and_hidden_information()

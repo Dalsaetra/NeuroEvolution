@@ -142,6 +142,33 @@ void shelter_damage()
     }
 }
 
+void mass_energy_capacity()
+{
+    for(double mass:{0.5,0.75,1.0,1.5,2.0}) {
+        auto w=empty();w.config.mass_scaled_energy_capacity=true;
+        w.config.energy_capacity=250;w.config.body_energy_per_mass=60;w.config.reproduction_cost=60;
+        w.config.reproduction_threshold=180;w.config.offspring_energy=60;
+        add(w,{3,3},0,{mass,0});
+        const double capacity=125*(1+mass);
+        near(w.config.max_energy(mass),capacity,"Mass energy capacity used wrong cost scaling");
+        require(capacity>w.config.reproduction_threshold,"Threshold exceeds capacity");
+        w.creatures[0].energy=capacity-1;
+        w.creatures[0].digestion.push_back({0,10,FoodKind::Graze});
+        const auto before=ledger(w);w.step({{}});
+        near(w.creatures[0].energy,capacity,"Digestion did not enforce individual capacity");
+        near(w.totals.discarded_energy,9,"Overflow energy not discarded");
+        near(ledger(w),before,"Capacity change created energy");
+        const auto energy_input=eco_sectors*eco_sector_channels+8;
+        near(w.observe(0)[energy_input],1,"Energy sensor did not normalize by mass capacity");
+        std::istringstream checkpoint(saved(w));auto resumed=EcosystemWorld::load_checkpoint(checkpoint);
+        require(saved(w)==saved(resumed),"Mass capacity checkpoint failed");
+        w.step({{}});resumed.step({{}});
+        require(saved(w)==saved(resumed),"Mass capacity resume diverged");
+    }
+    auto cfg=empty().config;cfg.mass_scaled_energy_capacity=true;cfg.set_predation(false);
+    near(cfg.max_energy(2),cfg.energy_capacity,"Non-predation capacity changed");
+}
+
 void combat()
 {
     const auto nursery_attack = [](double attacker_x, double target_x, bool protected_target, double damage_rate, bool shelter_damage) {
@@ -561,6 +588,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { storm_health(); storm_survival_scales_linearly(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { mass_energy_capacity(); storm_health(); storm_survival_scales_linearly(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

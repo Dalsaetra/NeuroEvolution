@@ -76,6 +76,27 @@ void sensory_rates_and_motor_impulse()
     }
 }
 
+void inactive_contact_retains_phase_without_firing()
+{
+    for (auto model : {NeuronModel::Lif, NeuronModel::FilteredLif, NeuronModel::Izhikevich}) {
+        BrainConfig c;
+        c.select_model(model);
+        c.input_count=1;c.hidden_count=0;c.output_count=1;
+        c.calibrated_io=true;c.background_activity_enabled=false;
+        Brain brain(c);
+        bool fired=false;
+        for (int i=0;i<237;++i) { brain.step({1}); fired |= brain.neurons()[0].spiked; }
+        require(fired,"Active contact must produce sensory spikes");
+        const double phase=brain.neurons()[0].potential;
+        require(phase>0 && phase<1,"Fixture must leave a fractional input phase");
+        for (int i=0;i<1000;++i) {
+            brain.step({0});
+            require(!brain.neurons()[0].spiked,"Inactive contact input must stop firing immediately");
+            require(brain.neurons()[0].potential==phase,"Zero input must preserve fractional rate-encoding phase");
+        }
+    }
+}
+
 EcosystemConfig small_config()
 {
     EcosystemConfig c = neuroevo::controlled_config();
@@ -118,7 +139,7 @@ void shelter_and_nutrition()
 
 int main()
 {
-    try { sensory_rates_and_motor_impulse(); shelter_and_nutrition(); reusable_brain_outputs();
+    try { sensory_rates_and_motor_impulse(); shelter_and_nutrition(); reusable_brain_outputs(); inactive_contact_retains_phase_without_firing();
         std::cout << "Calibrated sensorimotor interface passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
