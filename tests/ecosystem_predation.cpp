@@ -305,7 +305,7 @@ void general_food_senses()
             "Ancestor unexpectedly connects plant-only sensor");
     }
     require(food_connected,"Ancestor lacks general food wiring");
-    std::string old=saved(w); old.replace(0,std::string("NEUROEVO_ECOSYSTEM_27").size(),"NEUROEVO_ECOSYSTEM_26");
+    std::string old=without_allometry_header(saved(w)); old.replace(0,std::string("NEUROEVO_ECOSYSTEM_27").size(),"NEUROEVO_ECOSYSTEM_26");
     bool rejected=false;
     try { std::istringstream input(old); EcosystemWorld::load_checkpoint(input); }
     catch (const std::runtime_error& e) { rejected=std::string(e.what()).find("old food sensor layout")!=std::string::npos; }

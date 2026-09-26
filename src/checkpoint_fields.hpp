@@ -53,6 +53,11 @@ template<class T> auto model_fields(T& c) {
 }
 
 template<class T> auto filtered_fields(T& c) { return std::tie(c.synaptic_tau); }
+template<class T> auto allometry_fields(T& c) {
+    return std::tie(c.mass_allometry,c.ingestion_mass_exponent,c.pod_mass_exponent,c.attack_mass_exponent,
+        c.metabolism_mass_exponent,c.energy_mass_exponent,c.speed_mass_exponent,c.acceleration_mass_exponent,
+        c.max_acceleration);
+}
 template<class T> auto intrinsic_mutation_fields(T& c) {
     return std::tie(c.izhikevich_intrinsic_probability,c.izhikevich_log_sigma);
 }

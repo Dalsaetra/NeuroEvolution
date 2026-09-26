@@ -88,7 +88,7 @@ void checkpoint_compatibility()
     auto w=fixture(2);std::istringstream input(saved(w));auto resumed=EcosystemWorld::load_checkpoint(input);
     for(int i=0;i<110;++i){w.step({{}});resumed.step({{}});check(saved(w)==saved(resumed),"Ramped weather continuation diverged");}
     w=fixture(2);w.config.storm_ramp=false;
-    auto old=saved(w);old.replace(0,21,"NEUROEVO_ECOSYSTEM_36");old.erase(old.find("BACKGROUND_WEATHER_1"));old+="END_ECOSYSTEM\n";
+    auto old=without_allometry_header(saved(w));old.replace(0,21,"NEUROEVO_ECOSYSTEM_36");old.erase(old.find("BACKGROUND_WEATHER_1"));old+="END_ECOSYSTEM\n";
     std::istringstream legacy(old);auto restored=EcosystemWorld::load_checkpoint(legacy);
     check(!restored.config.storm_ramp && restored.config.background_food_patches==0,"Old checkpoint adopted new ecology");
     EcoAction a;a.forage=1;w.step({a});restored.step({a});

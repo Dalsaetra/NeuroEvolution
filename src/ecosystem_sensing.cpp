@@ -342,10 +342,10 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
     }
     inputs[eco_unsheltered_input] = 1.0 - inputs[body_offset + 4];
     inputs[body_offset + 5] = unit(storm_cue());
-    inputs[body_offset + 6] = unit(self.ingestion_pulse / (config.ingestion_rate * config.dt));
+    inputs[body_offset + 6] = unit(self.ingestion_pulse / (maximum_ingestion_rate(self) * config.dt));
     const double nutrition_scale = config.extended_senses
         ? std::max({config.graze_energy, config.poor_fruit_energy, config.rich_fruit_energy, config.pod_energy, config.predation ? config.meat_energy : 0.0}) : 12.0;
-    inputs[body_offset + 7] = unit(self.digestion_pulse / (nutrition_scale * config.ingestion_rate * config.dt));
+    inputs[body_offset + 7] = unit(self.digestion_pulse / (nutrition_scale * maximum_ingestion_rate(self) * config.dt));
     inputs[body_offset + 8] = self.age < 0.2 - epsilon ? 1.0 : 0.0;
     return inputs;
 }

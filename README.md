@@ -5,6 +5,12 @@ ordinary shelters. Storm damage ramps up and down, with exposed harvesting falli
 to 50% at the midpoint. See [background food and weather](docs/background-food-and-weather.md)
 for defaults, controls, and checkpoint compatibility.
 
+Fresh runs also use mass-dependent feeding, strength, maintenance, reserves, and
+movement: larger bodies eat and open pods faster, hit harder, store proportionally
+more energy, and have higher top speeds; smaller bodies accelerate faster.
+See [body scaling](docs/predation.md#bodies-and-combat) for formulas and configurable
+exponents. Existing checkpoints preserve their saved mechanics.
+
 A C++17 ecosystem in which creatures survive, feed, reproduce, and inherit mutated spiking brains and body traits. The nursery and frontier habitat is the default foundation for development. Evolution happens through reproduction in the shared world.
 
 ## Build and run

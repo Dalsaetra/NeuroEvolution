@@ -122,6 +122,7 @@ std::array<double,3> MutationConfig::inheritance_probabilities(double scale) con
 double EcosystemConfig::max_energy(double mass) const
 {
     if (!predation || !mass_scaled_energy_capacity) return energy_capacity;
+    if (mass_allometry) return energy_capacity * std::pow(mass, energy_mass_exponent);
     return energy_capacity * (reproduction_cost + body_energy_per_mass * mass)
         / (reproduction_cost + body_energy_per_mass);
 }
@@ -172,6 +173,11 @@ void EcosystemConfig::validate() const
     positive(radius, "Creature radius");
     if (radius >= 0.5) throw std::invalid_argument("Creature radius must be less than half a terrain cell");
     positive(max_speed, "Maximum speed", true);
+    positive(max_acceleration, "Maximum acceleration");
+    for (const auto exponent : {ingestion_mass_exponent, pod_mass_exponent, attack_mass_exponent,
+             metabolism_mass_exponent, energy_mass_exponent, speed_mass_exponent, acceleration_mass_exponent})
+        if (!std::isfinite(exponent) || exponent < -2 || exponent > 2)
+            throw std::invalid_argument("Mass scaling exponents must be finite and between -2 and 2");
     positive(max_turn_rate, "Maximum turn rate", true);
     positive(vision_range, "Vision range");
     positive(hearing_range, "Hearing range");
@@ -227,7 +233,8 @@ void EcosystemConfig::validate() const
     positive(nursery_food_respawn_delay, "Nursery food respawn delay", true);
     positive(outdoor_food_respawn_delay, "Outdoor food respawn delay", true);
     if (!std::isfinite(max_energy(eco_min_mass)) || !std::isfinite(max_energy(eco_max_mass))
-        || max_energy(eco_min_mass)<=0 || offspring_energy>max_energy(eco_min_mass))
+        || std::min(max_energy(eco_min_mass),max_energy(eco_max_mass))<=0
+        || offspring_energy>std::min(max_energy(eco_min_mass),max_energy(eco_max_mass)))
         throw std::invalid_argument("Offspring reserve must fit the minimum body capacity");
     if (!std::isfinite(founder_reproduction_allocation) || founder_reproduction_allocation<0 || founder_reproduction_allocation>1
         || !std::isfinite(mutation.allocation_mutation_probability) || mutation.allocation_mutation_probability<0 || mutation.allocation_mutation_probability>1)

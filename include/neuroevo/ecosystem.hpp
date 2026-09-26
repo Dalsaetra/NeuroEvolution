@@ -138,6 +138,7 @@ public:
     void initialize_ancestral_genome(EcoCreature& creature);
     double max_health(const EcoCreature& creature) const;
     double maximum_speed(const EcoCreature& creature) const;
+    double maximum_ingestion_rate(const EcoCreature& creature) const;
     double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;
     BodyGenes inherit_body(const BodyGenes& parent, bool strong, Random& rng) const;
     PendingOffspring conceive(const EcoCreature& parent);

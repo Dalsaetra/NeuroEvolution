@@ -178,6 +178,13 @@ struct EcosystemConfig {
     double health_per_mass = 20, body_energy_per_mass = 60;
     double attack_range = 1.6, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
+    // Mass is relative to a reference body of mass 1. Historical checkpoints disable these rules.
+    bool mass_allometry = true;
+    double ingestion_mass_exponent = 0.8;
+    double pod_mass_exponent = 2.0 / 3.0, attack_mass_exponent = 2.0 / 3.0;
+    double metabolism_mass_exponent = 0.75, energy_mass_exponent = 1.0;
+    double speed_mass_exponent = 0.25, acceleration_mass_exponent = -0.5;
+    double max_acceleration = 3.0; // Speed units/second at mass 1; also limits braking.
     double healing_rate = 0.1, healing_cost = 10.0;
     double meat_energy = 60, meat_decay = 0.0002, carcass_recovery = 0.95;
     double nursery_meat_decay = 0.005; // Biomass/second inside nursery; meat_decay applies outside.
@@ -207,7 +214,7 @@ struct EcosystemConfig {
     double interaction_range = 1.0, interaction_degrees = 80.0;
 
     // Energy budget
-    bool mass_scaled_energy_capacity = true; // Scale reserve capacity like child construction cost.
+    bool mass_scaled_energy_capacity = true; // Allometric reserves; legacy mode scales like child construction cost.
     double max_energy(double mass) const;
     double energy_capacity = 250, founder_energy = 90, basal_cost = 1.0;
     double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.005;
@@ -237,7 +244,7 @@ struct EcosystemConfig {
     double storm_cost = 5.0, phase_offset = 0;
     bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
     bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
-    double storm_damage = 0.4; // Peak health/second independent of mass; health capacity scales with mass.
+    double storm_damage = 0.5; // Peak health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     bool funded_reproduction = true;

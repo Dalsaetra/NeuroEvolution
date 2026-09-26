@@ -53,7 +53,7 @@ int main() try {
     require(copy_gene_changed && lower && upper,"Meta mutation paths not exercised");
     auto w=fixture(5,1.4,1);std::istringstream in(saved(w));auto resumed=EcosystemWorld::load_checkpoint(in);
     w.step({{}});resumed.step({{}});require(saved(w)==saved(resumed),"Meta mutation resume diverged");
-    auto old=saved(fixture(5,1,0));old.replace(0,21,"NEUROEVO_ECOSYSTEM_34");
+    auto old=without_allometry_header(saved(fixture(5,1,0)));old.replace(0,21,"NEUROEVO_ECOSYSTEM_34");
     old.erase(old.find("META_MUTATION_1"));old+="END_ECOSYSTEM\n";
     std::istringstream historical(old);auto legacy=EcosystemWorld::load_checkpoint(historical);
     require(!legacy.config.mutation.meta_mutation_enabled,"Old checkpoint enabled meta mutation");near(legacy.creatures[0].mutation_scale,1);
@@ -75,7 +75,7 @@ int main() try {
     // historical mixture and exact continuation, even after saving as v36.
     auto historical_world=fixture(8,0.75,1);
     historical_world.config.mutation.min_mutation_scale=0.5;
-    auto version35=saved(historical_world);
+    auto version35=without_allometry_header(saved(historical_world));
     version35.erase(version35.find("BACKGROUND_WEATHER_1"));version35+="END_ECOSYSTEM\n";
     version35.replace(0,21,"NEUROEVO_ECOSYSTEM_35");
     const auto line_start=version35.find('\n',version35.find("META_MUTATION_1"))+1;

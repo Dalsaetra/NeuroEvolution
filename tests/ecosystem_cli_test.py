@@ -15,6 +15,27 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    def test_mass_allometry_configuration_and_resume(self):
+        values = dict(ingestion_mass_exponent=0.9, pod_mass_exponent=0.6,
+                      attack_mass_exponent=0.7, metabolism_mass_exponent=0.8,
+                      energy_mass_exponent=1.1, speed_mass_exponent=0.3,
+                      acceleration_mass_exponent=-0.6, max_acceleration=2)
+        flags = [item for key, value in values.items() for item in ("--" + key.replace("_", "-"), value)]
+        args = ("--creatures", 1, "--no-reproduction", "--detailed-tail-seconds", 0, *flags)
+        first = self.run_world("mass", *args, "--steps", 3)
+        resumed = self.run_world("mass_resume", "--resume", first / "checkpoint.eco", "--steps", 3,
+                                 "--detailed-tail-seconds", 0)
+        whole = self.run_world("mass_whole", *args, "--steps", 6)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        metadata = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
+        summary = json.loads((resumed / "summary.json").read_text())["predation"]
+        self.assertTrue(metadata["mass_allometry"])
+        for key, value in values.items():
+            self.assertEqual(metadata[key], value)
+            self.assertEqual(summary[key], value)
+        legacy = self.run_world("mass_disabled", *args, "--mass-allometry", 0, "--steps", 1)
+        self.assertFalse(json.loads((legacy / "summary.json").read_text())["predation"]["mass_allometry"])
+
     def test_parallel_tail_and_resume(self):
         flags = ("--creatures", 48, "--neuron-model", "filtered-lif", "--steps", 10,
                  "--record-every", 1, "--detailed-tail-seconds", 1, "--tail-record-every", 1)
@@ -73,6 +94,7 @@ class EcosystemCliTests(unittest.TestCase):
         source = self.run_world("old_meta_source", "--creatures", 1, "--steps", 1)
         checkpoint = source / "checkpoint.eco"
         lines = checkpoint.read_text().splitlines()
+        del lines[1:3]  # Remove the v40 mass-allometry preamble.
         lines[0] = "NEUROEVO_ECOSYSTEM_35"
         gestation = next((i for i, line in enumerate(lines) if line.startswith("GESTATION_1")), len(lines)-1)
         lines = lines[:gestation] + ["END_ECOSYSTEM"]
@@ -283,7 +305,8 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_39")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_40")
+        del lines[1:3]  # Version 40's mass-allometry config preamble.
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]
         lines[0] = "NEUROEVO_ECOSYSTEM_33"

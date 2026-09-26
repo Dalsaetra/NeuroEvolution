@@ -491,7 +491,15 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         creature.ingestion_pulse = creature.digestion_pulse = 0;
         creature.turn = (actions[i].left - actions[i].right) * config.max_turn_rate;
         creature.heading = angle(creature.heading + creature.turn * config.dt);
-        const double distance = actions[i].forward * maximum_speed(creature) * (1 - 0.75 * actions[i].forage) * config.dt;
+        const double limit = maximum_speed(creature);
+        double speed = actions[i].forward * limit * (1 - 0.75 * actions[i].forage);
+        if (config.predation && config.mass_allometry) {
+            const double delta = config.max_acceleration * std::pow(creature.body.mass, config.acceleration_mass_exponent) * config.dt;
+            // Actual previous displacement is already checkpointed. Collisions reduce the next step's speed.
+            speed = std::clamp(speed, std::max(0.0, creature.speed - delta), creature.speed + delta);
+            speed = std::min(speed, limit);
+        }
+        const double distance = speed * config.dt;
         displacements[i] = Vec2{std::cos(creature.heading), std::sin(creature.heading)} * distance;
         largest_displacement = std::max(largest_displacement, distance);
         totals.spikes += creature.step_spikes;
@@ -598,7 +606,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                 const bool protected_target = in_nursery(target_position)
                     || (!config.shelter_predation_damage && sheltered(target_position));
                 const double hit = protected_target ? 0.0
-                    : config.attack_damage * diet_strength * paid / config.attack_cost;
+                    : config.attack_damage * diet_strength * paid / config.attack_cost
+                        * (config.mass_allometry ? std::pow(c.body.mass, config.attack_mass_exponent) : 1.0);
                 damage[target] += hit;
                 events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit});
             }
@@ -654,16 +663,21 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             resource.pod_state = PodState::Refilling;
         }
         if (resource.kind == FoodKind::Pod && resource.pod_state == PodState::Closed) {
-            double work = 0;
+            double work = 0, strength_work = 0;
             for (const auto i : consumers) {
                 const double effort = creatures[i].action.forage * harvest_effectiveness(creatures[i]);
                 const double contribution = effort * config.dt;
                 work += effort;
+                strength_work += effort * (config.predation && config.mass_allometry
+                    ? std::pow(creatures[i].body.mass, config.pod_mass_exponent) : 1.0);
                 creatures[i].pod_work += contribution;
                 events.push_back({end, "pod_work", creatures[i].id, 0, resource.id, contribution});
             }
+            // Keep the existing capped cooperative bonus; apply average strength separately so the cap
+            // neither erases large bodies' advantage nor squares their configured mass exponent.
+            const double strength = work > 0 ? strength_work / work : 1.0;
             work = std::min(2.0, work);
-            resource.progress = std::clamp(resource.progress + (work > 0 ? work * work : -config.pod_decay) * config.dt, 0.0, config.pod_work);
+            resource.progress = std::clamp(resource.progress + (work > 0 ? work * work * strength : -config.pod_decay) * config.dt, 0.0, config.pod_work);
             if (resource.progress + epsilon >= config.pod_work) {
                 resource.progress = config.pod_work;
                 resource.pod_state = PodState::Open;
@@ -684,7 +698,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             // Low-carnivory passers-by can only take small bites. Apply this
             // before shared allocation so they cannot strip a corpse at full speed.
             const double meat_rate = resource.kind == FoodKind::Meat ? creatures[i].body.carnivory : 1.0;
-            return action.forage * config.ingestion_rate * config.dt * efficiency * meat_rate * harvest_effectiveness(creatures[i]);
+            return action.forage * maximum_ingestion_rate(creatures[i]) * config.dt * efficiency * meat_rate * harvest_effectiveness(creatures[i]);
         };
         double requested = 0;
         for (const auto i : consumers) requested += demand(i);
@@ -816,7 +830,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         const double rough = terrain_at(creature.position) == Terrain::Rough ? config.rough_multiplier : 1;
         const double diet_metabolism = config.predation
             ? 1.0 - (1.0 - config.carnivore_basal_fraction) * creature.body.carnivory : 1.0;
-        const double metabolism = config.basal_cost * (config.predation ? creature.body.mass : 1.0)
+        const double metabolism = config.basal_cost * (config.predation
+            ? (config.mass_allometry ? std::pow(creature.body.mass, config.metabolism_mass_exponent) : creature.body.mass) : 1.0)
             * diet_metabolism * config.dt;
         const double movement = config.movement_cost * creature.action.forward * creature.action.forward * rough * config.dt;
         const double turning = config.turn_cost * std::abs(creature.action.left - creature.action.right) * config.dt;

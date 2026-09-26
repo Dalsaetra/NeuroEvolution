@@ -74,7 +74,10 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_39");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_40");
+    // Read capacity-affecting settings before constructing/validating the world.
+    checkpoint::write(s,"MASS_ALLOMETRY_1");
+    checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -154,7 +157,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool gestation_version = version == "NEUROEVO_ECOSYSTEM_39";
+    const bool allometry_version = version == "NEUROEVO_ECOSYSTEM_40";
+    const bool gestation_version = allometry_version || version == "NEUROEVO_ECOSYSTEM_39";
     const bool mass_energy_version = gestation_version || version == "NEUROEVO_ECOSYSTEM_38";
     const bool background_weather_version = mass_energy_version || version == "NEUROEVO_ECOSYSTEM_37";
     const bool meta_floor_version = background_weather_version || version == "NEUROEVO_ECOSYSTEM_36";
@@ -174,8 +178,13 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.mass_allometry=false;
     cfg.funded_reproduction=false;
     cfg.mass_scaled_energy_capacity=false;
+    if (allometry_version) {
+        checkpoint::marker(s,"MASS_ALLOMETRY_1");
+        checkpoint::read_tuple(s,std::tuple_cat(checkpoint::allometry_fields(cfg),std::tie(cfg.mass_scaled_energy_capacity)));
+    }
     cfg.background_food_patches=0;
     cfg.storm_ramp=false; // Historical checkpoints retain flat damage and the harvest cutoff.
     cfg.mutation.meta_mutation_enabled=false; // Preserve historical reproduction policy.
@@ -347,11 +356,12 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     }
     if (mass_energy_version) {
         checkpoint::marker(s,"MASS_ENERGY_1");
+        const bool capacity_mode=w.config.mass_scaled_energy_capacity;
         checkpoint::read(s,w.config.mass_scaled_energy_capacity);
+        if(allometry_version && capacity_mode!=w.config.mass_scaled_energy_capacity)
+            throw std::runtime_error("Inconsistent body capacity settings");
         w.config.validate();
     }
-    for(const auto& c:w.creatures) if(c.energy>w.config.max_energy(c.body.mass)+1e-8)
-        throw std::runtime_error("Creature energy exceeds its body capacity");
     if(gestation_version) {
         checkpoint::marker(s,"GESTATION_1");
         checkpoint::read(s,w.config.funded_reproduction,w.config.founder_reproduction_allocation,
@@ -379,6 +389,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
             } else if(c.reproductive_energy!=0)throw std::runtime_error("Reproductive energy without gestation");
         }
     }
+    for(const auto& c:w.creatures) if(c.energy>w.config.max_energy(c.body.mass)+1e-8)
+        throw std::runtime_error("Creature energy exceeds its body capacity");
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -448,6 +460,15 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"allocation_mutation_probability\":" << w.config.mutation.allocation_mutation_probability
       << ",\"allocation_mutation_sigma\":" << w.config.mutation.allocation_mutation_sigma
       << ",\"mass_scaled_energy_capacity\":" << (w.config.mass_scaled_energy_capacity ? "true" : "false")
+      << ",\"mass_allometry\":" << (w.config.mass_allometry ? "true" : "false")
+      << ",\"ingestion_mass_exponent\":" << w.config.ingestion_mass_exponent
+      << ",\"pod_mass_exponent\":" << w.config.pod_mass_exponent
+      << ",\"attack_mass_exponent\":" << w.config.attack_mass_exponent
+      << ",\"metabolism_mass_exponent\":" << w.config.metabolism_mass_exponent
+      << ",\"energy_mass_exponent\":" << w.config.energy_mass_exponent
+      << ",\"speed_mass_exponent\":" << w.config.speed_mass_exponent
+      << ",\"acceleration_mass_exponent\":" << w.config.acceleration_mass_exponent
+      << ",\"max_acceleration\":" << w.config.max_acceleration
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
       << ",\"food_energy\":{\"graze\":" << w.config.graze_energy
       << ",\"poor_fruit\":" << w.config.poor_fruit_energy << ",\"rich_fruit\":" << w.config.rich_fruit_energy

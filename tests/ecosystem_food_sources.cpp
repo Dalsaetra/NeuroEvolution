@@ -89,7 +89,7 @@ void harvesting_and_legacy()
     for(int i=0;i<4;++i){EcoResource r;r.id=i+1;r.position={4.1,.1*i+4};r.stock=r.capacity=10;r.energy_per_unit=1;w.resources.push_back(r);}
     w.next_resource_id=5;EcoAction a;a.forage=1;w.step({a});
     near(w.totals.consumed_biomass,cfg.ingestion_rate*cfg.dt,"Dense food multiplied ingestion rate");
-    auto old=saved(w);old.replace(0,std::string("NEUROEVO_ECOSYSTEM_34").size(),"NEUROEVO_ECOSYSTEM_33");
+    auto old=without_allometry_header(saved(w));old.replace(0,std::string("NEUROEVO_ECOSYSTEM_34").size(),"NEUROEVO_ECOSYSTEM_33");
     old.erase(old.find("FOOD_SOURCES_1"));old+="END_ECOSYSTEM\n";
     std::istringstream input(old);auto restored=EcosystemWorld::load_checkpoint(input);
     check(restored.config.food_distribution==FoodDistribution::Scattered && restored.food_sources.empty(),"Historical checkpoint adopted the new preset");

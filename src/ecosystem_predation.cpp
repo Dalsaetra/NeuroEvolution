@@ -20,7 +20,15 @@ double EcosystemWorld::max_health(const EcoCreature& c) const
 
 double EcosystemWorld::maximum_speed(const EcoCreature& c) const
 {
+    if (config.predation && config.mass_allometry)
+        return config.max_speed * std::pow(c.body.mass, config.speed_mass_exponent);
     return config.max_speed / (config.predation ? std::sqrt(c.body.mass) : 1.0);
+}
+
+double EcosystemWorld::maximum_ingestion_rate(const EcoCreature& c) const
+{
+    return config.ingestion_rate * (config.predation && config.mass_allometry
+        ? std::pow(c.body.mass, config.ingestion_mass_exponent) : 1.0);
 }
 
 double EcosystemWorld::dietary_efficiency(const EcoCreature& c, FoodKind kind) const

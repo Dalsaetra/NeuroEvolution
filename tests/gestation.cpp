@@ -92,7 +92,7 @@ int main() try {
     auto historical=fixture();historical.config.funded_reproduction=false;
     historical.config.brain.input_count=eco_reproduction_offset;
     historical.creatures[0].brain=make_sparse_ancestral_brain(historical.config);
-    auto old=saved(historical);old.erase(old.find("GESTATION_1"));old+="END_ECOSYSTEM\n";
+    auto old=without_allometry_header(saved(historical));old.erase(old.find("GESTATION_1"));old+="END_ECOSYSTEM\n";
     old.replace(0,21,"NEUROEVO_ECOSYSTEM_38");
     std::istringstream legacy_stream(old);auto legacy=EcosystemWorld::load_checkpoint(legacy_stream);
     check(!legacy.config.funded_reproduction,"Historical checkpoint changed reproduction mode");

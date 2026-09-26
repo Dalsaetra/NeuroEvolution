@@ -85,6 +85,14 @@ int main(int argc, char** argv)
             {"--tree-radius",&cfg.food_sources.tree_radius},{"--fruit-tree-production",&cfg.food_sources.fruit_production},
             {"--pod-tree-production",&cfg.food_sources.pod_production},
             {"--founder-mass",&cfg.founder_mass},
+            {"--ingestion-mass-exponent",&cfg.ingestion_mass_exponent},
+            {"--pod-mass-exponent",&cfg.pod_mass_exponent},
+            {"--attack-mass-exponent",&cfg.attack_mass_exponent},
+            {"--metabolism-mass-exponent",&cfg.metabolism_mass_exponent},
+            {"--energy-mass-exponent",&cfg.energy_mass_exponent},
+            {"--speed-mass-exponent",&cfg.speed_mass_exponent},
+            {"--acceleration-mass-exponent",&cfg.acceleration_mass_exponent},
+            {"--max-acceleration",&cfg.max_acceleration},
             {"--founder-carnivory",&cfg.founder_carnivory},
             {"--health-per-mass",&cfg.health_per_mass},
             {"--body-energy-per-mass",&cfg.body_energy_per_mass},
@@ -243,6 +251,11 @@ int main(int argc, char** argv)
                     "  --shelter-predation-damage 0|1  Allow attack damage to targets inside shelters\n"
                     "  --mutate-initial-ancestors 0|1  Apply one strong brain/body mutation per fresh ancestor (default 1)\n"
                     "  --founder-mass X          Initial body mass, 0.5..2\n"
+                    "  --mass-allometry 0|1      Mass-dependent feeding, strength, reserves and movement (1)\n"
+                    "  --ingestion-mass-exponent X (0.8) / --pod-mass-exponent X (2/3)\n"
+                    "  --attack-mass-exponent X (2/3) / --metabolism-mass-exponent X (0.75)\n"
+                    "  --energy-mass-exponent X (1) / --speed-mass-exponent X (0.25)\n"
+                    "  --acceleration-mass-exponent X (-0.5) / --max-acceleration X (3)\n"
                     "  --founder-carnivory X     Initial meat efficiency, 0..1\n"
                     "  --mass-mutation-probability X / --mass-mutation-sigma X\n"
                     "  --carnivory-mutation-probability X / --carnivory-mutation-sigma X\n"
@@ -341,6 +354,7 @@ int main(int argc, char** argv)
                 else if (arg == "--mutate-initial-ancestors") cfg.mutate_initial_ancestors=boolean(value,arg);
                 else if (arg == "--meta-mutation") cfg.mutation.meta_mutation_enabled=boolean(value,arg);
                 else if (arg == "--funded-reproduction") cfg.funded_reproduction=boolean(value,arg);
+                else if (arg == "--mass-allometry") cfg.mass_allometry=boolean(value,arg);
                 else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
@@ -650,6 +664,15 @@ int main(int argc, char** argv)
             << ",\"carnivory_mutation_sigma\":" << world.config.mutation.carnivory_mutation_sigma
             << ",\"attack_base_fraction\":" << world.config.attack_base_fraction
             << ",\"carnivore_basal_fraction\":" << world.config.carnivore_basal_fraction
+            << ",\"mass_allometry\":" << (world.config.mass_allometry?"true":"false")
+            << ",\"ingestion_mass_exponent\":" << world.config.ingestion_mass_exponent
+            << ",\"pod_mass_exponent\":" << world.config.pod_mass_exponent
+            << ",\"attack_mass_exponent\":" << world.config.attack_mass_exponent
+            << ",\"metabolism_mass_exponent\":" << world.config.metabolism_mass_exponent
+            << ",\"energy_mass_exponent\":" << world.config.energy_mass_exponent
+            << ",\"speed_mass_exponent\":" << world.config.speed_mass_exponent
+            << ",\"acceleration_mass_exponent\":" << world.config.acceleration_mass_exponent
+            << ",\"max_acceleration\":" << world.config.max_acceleration
             << ",\"deaths\":" << world.totals.predation_deaths << ",\"attack_energy\":" << world.totals.attacking
             << ",\"healing_energy\":" << world.totals.healing << ",\"body_construction\":" << world.totals.body_construction
             << ",\"external_body_energy\":" << world.totals.external_body_energy
