@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <iosfwd>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -40,9 +41,17 @@ struct EcoResource {
     std::uint64_t source_id = 0; // Zero for scattered, nursery food and carcasses.
     double ripening_remaining = -1; // Fruit is unavailable until this timer reaches zero.
 };
+struct PendingOffspring {
+    BodyGenes body;
+    Brain brain;
+    double mutation_scale = 1, reproduction_allocation = 0.5, cost = 0;
+    std::uint64_t inherited_genome_id = 0; // Zero means allocate a new genome ID at birth.
+};
 struct EcoCreature {
     BodyGenes body;
     double mutation_scale = 1.0; // Inherited reproductive strategy, independent of body mechanics.
+    double reproduction_allocation = 0.5, reproductive_energy = 0;
+    std::optional<PendingOffspring> gestation;
     double health = 20, damage_pulse = 0;
     std::uint64_t id = 0, parent_id = 0, generation = 0;
     Vec2 position;
@@ -131,6 +140,7 @@ public:
     double maximum_speed(const EcoCreature& creature) const;
     double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;
     BodyGenes inherit_body(const BodyGenes& parent, bool strong, Random& rng) const;
+    PendingOffspring conceive(const EcoCreature& parent);
     void remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims = {});
     // Empty actions means each living creature runs its own controller/brain.
     // Supplied actions must match the population at the beginning of the step.
@@ -144,8 +154,8 @@ public:
 };
 
 std::vector<std::string> ecosystem_input_labels(bool extended = true, bool predation = false,
-    bool typed_food_proximity = true);
-const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false);
+    bool typed_food_proximity = true, bool reproductive_senses = true);
+const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false, bool reproductive_senses = true);
 // A deliberately small, deterministic founder genome. It uses five hidden
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary
 // spiking Brain and offspring can mutate it through the normal birth path.

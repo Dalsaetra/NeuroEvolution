@@ -1,4 +1,5 @@
 #include "neuroevo/ecosystem.hpp"
+#include "ecosystem_mutation.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -8,6 +9,7 @@ void EcosystemWorld::initialize_body(EcoCreature& c)
     c.body = config.predation ? BodyGenes{config.founder_mass, config.founder_carnivory} : BodyGenes{};
     c.health = max_health(c);
     c.damage_pulse = 0;
+    c.reproduction_allocation=config.founder_reproduction_allocation;
     if (config.predation) totals.external_body_energy += config.body_energy_per_mass * c.body.mass;
 }
 
@@ -44,6 +46,39 @@ BodyGenes EcosystemWorld::inherit_body(const BodyGenes& parent, bool strong, Ran
     return child;
 }
 
+PendingOffspring EcosystemWorld::conceive(const EcoCreature& parent)
+{
+    PendingOffspring child;
+    const double draw=mutation_rng.uniform(0,1);
+    const auto p=config.mutation.inheritance_probabilities(parent.mutation_scale);
+    const bool copy=draw<p[0], strong=draw>=p[0]+p[1];
+    child.inherited_genome_id=copy ? (parent.genome_id?parent.genome_id:parent.id) : 0;
+    child.body=copy?parent.body:inherit_body(parent.body,strong,mutation_rng);
+    child.brain=parent.brain;
+    child.brain.reset_state();
+    if(!copy) child.brain.mutate(strong?detail::strong_mutation(config.mutation):detail::slight_mutation(config.mutation),
+        mutation_rng,ecosystem_input_groups(config.extended_senses,config.predation,config.brain.input_count>eco_reproduction_offset));
+    child.mutation_scale=parent.mutation_scale;
+    if(config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
+        && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
+        child.mutation_scale=std::exp(std::clamp(std::log(parent.mutation_scale)+mutation_rng.normal(0,config.mutation.meta_mutation_sigma),
+            std::log(config.mutation.min_mutation_scale),std::log(MutationConfig::max_mutation_scale)));
+        if(child.mutation_scale!=parent.mutation_scale)child.inherited_genome_id=0;
+    }
+    child.reproduction_allocation=parent.reproduction_allocation;
+    const auto& profile=strong?config.mutation.strong:config.mutation.slight;
+    if(!copy && config.mutation.allocation_mutation_probability>0 && config.mutation.allocation_mutation_sigma>0
+        && mutation_rng.chance(std::min(1.0,config.mutation.allocation_mutation_probability*profile.body_probability_scale))) {
+        child.reproduction_allocation=std::clamp(parent.reproduction_allocation
+            +mutation_rng.normal(0,config.mutation.allocation_mutation_sigma*profile.body_sigma_scale),0.0,1.0);
+    }
+    if(mutation_rng.uniform(0,1)<config.mutation.disconnected_neuron_prune_probability
+        && child.brain.remove_disconnected_hidden_neuron(mutation_rng))child.inherited_genome_id=0;
+    child.brain.reset_state();
+    child.cost=config.reproduction_cost+(config.predation?config.body_energy_per_mass*child.body.mass:0);
+    return child;
+}
+
 void EcosystemWorld::remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims)
 {
     // Process by ID so corpse IDs, events and roundoff do not depend on storage order.
@@ -56,7 +91,7 @@ void EcosystemWorld::remove_dead(double end, const std::unordered_set<std::uint6
         double discarded = 0;
         for (const auto& packet : c.digestion) discarded += packet.energy;
         if (config.predation) {
-            const double stored = config.body_energy_per_mass * c.body.mass + std::max(0.0, c.energy);
+            const double stored = config.body_energy_per_mass * c.body.mass + std::max(0.0, c.energy) + c.reproductive_energy;
             const double recovered = stored * config.carcass_recovery;
             discarded += stored - recovered;
             if (recovered > 0) {

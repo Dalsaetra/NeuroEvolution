@@ -335,6 +335,11 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
     inputs[body_offset + 2] = config.max_turn_rate > 0.0 ? unit(self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 3] = config.max_turn_rate > 0.0 ? unit(-self.turn / config.max_turn_rate) : 0.0;
     inputs[body_offset + 4] = sheltered(self.position) ? 1.0 : 0.0;
+    if(config.predation && inputs.size()>eco_reproduction_offset) {
+        inputs[eco_reproduction_offset]=self.gestation ? unit(self.reproductive_energy/self.gestation->cost) : 0;
+        inputs[eco_reproduction_offset+1]=config.reproduction_cooldown>0
+            ? unit((self.last_birth+config.reproduction_cooldown-time())/config.reproduction_cooldown) : 0;
+    }
     inputs[eco_unsheltered_input] = 1.0 - inputs[body_offset + 4];
     inputs[body_offset + 5] = unit(storm_cue());
     inputs[body_offset + 6] = unit(self.ingestion_pulse / (config.ingestion_rate * config.dt));
@@ -394,9 +399,9 @@ EcoAction EcosystemWorld::control(std::size_t creature_index,
     return action;
 }
 
-const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation)
+const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, bool reproductive_senses)
 {
-    const auto build = [](bool include_extended, bool include_predation) {
+    const auto build = [](bool include_extended, bool include_predation, bool reproduction = false) {
         Brain::InputGroups groups;
         for (std::size_t channel = 0; channel < eco_sector_channels; ++channel) {
             std::vector<std::size_t> group;
@@ -426,14 +431,15 @@ const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation)
             std::vector<std::size_t> plants;
             for (std::size_t sector = 0; sector < eco_sectors; ++sector) plants.push_back(eco_plant_offset + sector);
             groups.push_back(std::move(plants));
+            if(reproduction){groups.push_back({eco_reproduction_offset});groups.push_back({eco_reproduction_offset+1});}
         }
         return groups;
     };
-    static const auto legacy = build(false, false), current = build(true, false), combat = build(true, true);
-    return predation ? combat : extended ? current : legacy;
+    static const auto legacy = build(false, false), current = build(true, false), combat = build(true, true), reproductive = build(true,true,true);
+    return predation ? (reproductive_senses ? reproductive : combat) : extended ? current : legacy;
 }
 
-std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity)
+std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity, bool reproductive_senses)
 {
     constexpr const char* channels[] = {"obstacle_proximity", "food_present", "food_proximity",
         "food_graze", "food_fruit_a", "food_fruit_b", "food_pod", "food_stock",
@@ -467,6 +473,7 @@ std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, b
         for (std::size_t sector = 0; sector < eco_sectors; ++sector)
             labels.push_back("vision_" + std::to_string(sector) + "_plant_proximity");
     }
+    if(predation && reproductive_senses){labels.push_back("reproduction_progress");labels.push_back("reproduction_cooldown");}
     return labels;
 }
 

@@ -77,7 +77,7 @@ int main()
         original.config.phase_offset=179.95;
         original.config.storms_enabled=false;
         original.config.reproduction=true;
-        original.creatures.front().digestion.push_back({original.time()+0.25,3.75,neuroevo::FoodKind::FruitB});
+        original.creatures.front().digestion.push_back({original.time()+0.25,400,neuroevo::FoodKind::FruitB});
         original.creatures.front().age=200;
         original.creatures.front().energy=180;
         original.resources.back().progress=2.75;

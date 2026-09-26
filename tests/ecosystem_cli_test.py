@@ -54,11 +54,28 @@ class EcosystemCliTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertAlmostEqual(float(rows[-1]["mean_mutation_scale"]), 1.7)
 
+    def test_reproduction_allocation_configuration_and_import(self):
+        source = self.run_world("allocation", "--creatures", 1, "--steps", 1,
+                                "--reproduction-allocation", 0.8,
+                                "--allocation-mutation-probability", 0.4, "--allocation-mutation-sigma", 0.15)
+        imported = self.run_world("allocation_import", "--starting-genomes", source,
+                                  "--creatures", 1, "--steps", 1)
+        original = [json.loads(x) for x in (source / "ecosystem.jsonl").read_text().splitlines()]
+        records = [json.loads(x) for x in (imported / "ecosystem.jsonl").read_text().splitlines()]
+        self.assertTrue(original[0]["funded_reproduction"])
+        self.assertEqual(original[0]["allocation_mutation_probability"], 0.4)
+        self.assertEqual(original[0]["allocation_mutation_sigma"], 0.15)
+        self.assertEqual(records[1]["creatures"][0]["reproduction_allocation"], 0.8)
+        self.assertEqual(records[1]["creatures"][0]["reproductive_energy"], 0)
+        self.assertEqual(records[1]["creatures"][0]["reproduction_target"], 0)
+
     def test_import_historical_meta_scale_uses_new_floor(self):
         source = self.run_world("old_meta_source", "--creatures", 1, "--steps", 1)
         checkpoint = source / "checkpoint.eco"
         lines = checkpoint.read_text().splitlines()
         lines[0] = "NEUROEVO_ECOSYSTEM_35"
+        gestation = next((i for i, line in enumerate(lines) if line.startswith("GESTATION_1")), len(lines)-1)
+        lines = lines[:gestation] + ["END_ECOSYSTEM"]
         lines = [line for line in lines if not line.startswith(("BACKGROUND_WEATHER_1", "MASS_ENERGY_1"))]
         marker = next(i for i, line in enumerate(lines) if line.startswith("META_MUTATION_1"))
         lines[marker + 1] = " ".join(lines[marker + 1].split()[:3])
@@ -266,7 +283,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_38")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_39")
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]
         lines[0] = "NEUROEVO_ECOSYSTEM_33"
@@ -329,7 +346,7 @@ class EcosystemCliTests(unittest.TestCase):
         meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(meta["neuron_model"], "izhikevich")
         self.assertEqual(meta["brain_dt"], 0.001)
-        hidden = meta["brains"][0]["neurons"][86]
+        hidden = meta["brains"][0]["neurons"][88]
         self.assertEqual(hidden["izhikevich"]["d"], 2)
         self.assertEqual(hidden["threshold"], 30)
         resumed = self.run_world("izh_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
@@ -357,7 +374,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual([frame["step"] for frame in tail[1:]], [0, 3])
         self.assertTrue(tail[0]["brains"])
         self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
-        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 86)
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 88)
         disabled = self.run_world("tail_disabled", "--creatures", 1, "--steps", 1,
                                   "--detailed-tail-seconds", 0)
         self.assertFalse((disabled / "ecosystem_tail.jsonl").exists())
@@ -373,12 +390,12 @@ class EcosystemCliTests(unittest.TestCase):
             metadata, final = lines[0], lines[-1]
             self.assertEqual(metadata["type"], "metadata")
             self.assertEqual(len(metadata["brains"]), population)
-            self.assertEqual(len(metadata["input_labels"]), 86)
+            self.assertEqual(len(metadata["input_labels"]), 88)
             self.assertEqual(len(final["creatures"]), population)
             self.assertEqual(len({c["id"] for c in final["creatures"]}), population)
             self.assertGreater(final["totals"]["spikes"], 0)
             for creature in final["creatures"]:
-                self.assertEqual(len(creature["observation"]), 86)
+                self.assertEqual(len(creature["observation"]), 88)
                 self.assertIn("forward", creature)
                 self.assertIn("potentials", creature["brain"])
             with (path / "ecosystem_stats.csv").open(newline="") as handle:
@@ -461,8 +478,8 @@ class EcosystemCliTests(unittest.TestCase):
                               "--record-observations", 0, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
         brain = lines[0]["brains"][0]
-        self.assertEqual((brain["inputs"], brain["outputs"]), (86, 6))
-        self.assertEqual(len(brain["neurons"]), 97)
+        self.assertEqual((brain["inputs"], brain["outputs"]), (88, 6))
+        self.assertEqual(len(brain["neurons"]), 99)
         self.assertEqual(len(brain["synapses"]), 32)
         self.assertTrue(all(c["controller"] == "spiking" for c in lines[-1]["creatures"]))
         summary = json.loads((path / "summary.json").read_text())
@@ -490,7 +507,7 @@ class EcosystemCliTests(unittest.TestCase):
         tail = [json.loads(x) for x in (path / "ecosystem_tail.jsonl").read_text().splitlines()]
         self.assertEqual([frame["step"] for frame in tail[1:]], [25, 30, 35])
         self.assertEqual(len(tail[0]["brains"]), 3)
-        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 86)
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 88)
         self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
         summary = json.loads((path / "summary.json").read_text())
         self.assertFalse(summary["record_brains"])

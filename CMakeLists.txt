@@ -37,7 +37,7 @@ add_executable(neuroevo_ecosystem src/ecosystem_main.cpp)
 target_link_libraries(neuroevo_ecosystem PRIVATE neuroevo_core)
 
 enable_testing()
-foreach(test IN ITEMS ecosystem_weather_background ecosystem_parallel meta_mutation sensory_mutation pruning ecosystem_predation ecosystem_frontier
+foreach(test IN ITEMS gestation ecosystem_weather_background ecosystem_parallel meta_mutation sensory_mutation pruning ecosystem_predation ecosystem_frontier
         ecosystem_calibration ecosystem_mechanics ecosystem_sensing ecosystem_checkpoint
         ecosystem_ancestor ecosystem_dynamic_food ecosystem_food_sources autapse izhikevich filtered_lif)
     add_executable(neuroevo_${test} tests/${test}.cpp)

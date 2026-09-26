@@ -121,6 +121,9 @@ int main(int argc, char** argv)
             {"--vision-range",&cfg.vision_range},{"--fov-degrees",&cfg.fov_degrees},
             {"--hearing-range",&cfg.hearing_range},{"--interaction-range",&cfg.interaction_range},
             {"--interaction-degrees",&cfg.interaction_degrees},
+            {"--reproduction-allocation",&cfg.founder_reproduction_allocation},
+            {"--allocation-mutation-probability",&cfg.mutation.allocation_mutation_probability},
+            {"--allocation-mutation-sigma",&cfg.mutation.allocation_mutation_sigma},
             {"--energy-capacity",&cfg.energy_capacity},{"--founder-energy",&cfg.founder_energy},
             {"--basal-cost",&cfg.basal_cost},{"--movement-cost",&cfg.movement_cost},
             {"--turn-cost",&cfg.turn_cost},{"--forage-cost",&cfg.forage_cost},{"--call-cost",&cfg.call_cost},
@@ -210,7 +213,7 @@ int main(int argc, char** argv)
                     "  --record-every N          Save a replay frame every N steps\n"
                     "  --record-brains 0|1       Record neural activity\n"
                     "  --record-observations 0|1 Record sensory values per creature\n"
-                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (86 total by default)\n"
+                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (88 total by default)\n"
                     "  --typed-food-proximity 0|1  Per-food-type distance signals; also overrides resume\n"
                     "  --mutate-rewire-synapse-prob N  Rewiring operator weight (also overrides resume)\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
@@ -253,6 +256,8 @@ int main(int argc, char** argv)
                     "  --nursery-food-energy-factor X  Multiply nursery nutrition per crossing (default 0.8)\n"
                     "  --nursery-food-reduction-delay X  Seconds between reductions (default 1000); requires a new crossing\n"
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
+                    "  --funded-reproduction 0|1 / --reproduction-allocation X (default 0.5)\n"
+                    "  --allocation-mutation-probability X / --allocation-mutation-sigma X\n"
                     "  --meta-mutation 0|1 / --meta-mutation-probability X / --meta-mutation-sigma X\n"
                     "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
                     "  --storm-damage X         Health damage/second independent of mass\n"
@@ -335,6 +340,7 @@ int main(int argc, char** argv)
                 else if (arg == "--shelter-predation-damage") cfg.shelter_predation_damage=boolean(value,arg);
                 else if (arg == "--mutate-initial-ancestors") cfg.mutate_initial_ancestors=boolean(value,arg);
                 else if (arg == "--meta-mutation") cfg.mutation.meta_mutation_enabled=boolean(value,arg);
+                else if (arg == "--funded-reproduction") cfg.funded_reproduction=boolean(value,arg);
                 else if (arg == "--predation") { cfg.predation=boolean(value,arg); predation_explicit=true; }
                 else if (arg == "--calibrated-io") cfg.brain.calibrated_io=boolean(value,arg);
                 else if (arg == "--outdoor-food-relocates") cfg.outdoor_food_relocates=boolean(value,arg);
@@ -474,6 +480,7 @@ int main(int argc, char** argv)
                     world.totals.external_body_energy += world.config.body_energy_per_mass * world.creatures[i].body.mass;
                 }
                 world.creatures[i].mutation_scale=std::max(world.config.mutation.min_mutation_scale,source_creature.mutation_scale);
+                world.creatures[i].reproduction_allocation=source_creature.reproduction_allocation;
                 world.creatures[i].brain=neuroevo::Brain::from_components(brain_config,std::move(neurons),std::move(synapses));
                 world.creatures[i].brain.reset_state();
                 const auto entry=genome_ids.emplace(source_creature.genome_id,world.creatures[i].id);
@@ -690,6 +697,8 @@ int main(int argc, char** argv)
             << ",\n  \"record_brain_graphs\":" << (record_brain_graphs?"true":"false")
             << ",\n  \"detailed_tail_seconds\":" << detailed_tail_seconds
             << ",\n  \"ecology\":{\"maturity_age\":" << world.config.maturity_age
+            << ",\"funded_reproduction\":" << (world.config.funded_reproduction?"true":"false")
+            << ",\"founder_reproduction_allocation\":" << world.config.founder_reproduction_allocation
             << ",\"reproduction_threshold\":" << world.config.reproduction_threshold
             << ",\"reproduction_cost\":" << world.config.reproduction_cost
             << ",\"offspring_energy\":" << world.config.offspring_energy

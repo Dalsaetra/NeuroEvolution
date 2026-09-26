@@ -99,6 +99,7 @@ std::size_t BrainConfig::synaptic_pulse_steps() const
 void EcosystemConfig::set_predation(bool enabled)
 {
     predation = enabled;
+    if (!enabled) funded_reproduction=false;
     brain.input_count = enabled ? eco_predation_input_count
         : extended_senses ? eco_input_count : eco_legacy_input_count;
     brain.output_count = enabled ? eco_predation_output_count : eco_output_count;
@@ -215,7 +216,9 @@ void EcosystemConfig::validate() const
     positive(reproduction_threshold, "Reproduction threshold");
     positive(reproduction_cost, "Reproduction cost");
     positive(offspring_energy, "Offspring energy");
-    if (reproduction_threshold > energy_capacity || reproduction_cost > reproduction_threshold || offspring_energy > reproduction_cost) throw std::invalid_argument("Reproduction requires offspring energy <= birth cost <= threshold <= capacity");
+    if (offspring_energy > reproduction_cost) throw std::invalid_argument("Offspring energy must not exceed reproduction cost");
+    if (!funded_reproduction && (reproduction_threshold > energy_capacity || reproduction_cost > reproduction_threshold))
+        throw std::invalid_argument("Threshold reproduction requires birth cost <= threshold <= capacity");
     positive(motor_gain, "Motor gain");
     positive(actuator_tau, "Actuator time constant", true);
     if (food_assignment < -1 || food_assignment > 1) throw std::invalid_argument("Food assignment must be -1 (seeded), 0 (A rich), or 1 (B rich)");
@@ -226,6 +229,11 @@ void EcosystemConfig::validate() const
     if (!std::isfinite(max_energy(eco_min_mass)) || !std::isfinite(max_energy(eco_max_mass))
         || max_energy(eco_min_mass)<=0 || offspring_energy>max_energy(eco_min_mass))
         throw std::invalid_argument("Offspring reserve must fit the minimum body capacity");
+    if (!std::isfinite(founder_reproduction_allocation) || founder_reproduction_allocation<0 || founder_reproduction_allocation>1
+        || !std::isfinite(mutation.allocation_mutation_probability) || mutation.allocation_mutation_probability<0 || mutation.allocation_mutation_probability>1)
+        throw std::invalid_argument("Reproduction allocation and mutation probability must be 0..1");
+    positive(mutation.allocation_mutation_sigma,"Allocation mutation sigma",true);
+    if(funded_reproduction && !predation) throw std::invalid_argument("Funded reproduction requires body mechanics");
     positive(storm_damage, "Storm damage", true);
     if (storm_health_damage && !predation) throw std::invalid_argument("Storm health damage requires predation/body mechanics");
     positive(meat_decay, "Outside meat decay", true);
@@ -248,7 +256,7 @@ void EcosystemConfig::validate() const
     if (predation && !extended_senses)
         throw std::invalid_argument("Predation requires extended senses");
     const auto inputs = predation ? eco_predation_input_count : extended_senses ? eco_input_count : eco_legacy_input_count;
-    if (brain.input_count != inputs || brain.output_count != (predation ? eco_predation_output_count : eco_output_count)) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout");
+    if ((brain.input_count != inputs && !(predation && !funded_reproduction && brain.input_count==eco_reproduction_offset)) || brain.output_count != (predation ? eco_predation_output_count : eco_output_count)) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout");
     positive(brain.sensory_rate_hz, "Sensory spike rate");
     positive(brain.motor_rate_tau, "Motor rate time constant");
     positive(brain.motor_reference_hz, "Motor reference spike rate");

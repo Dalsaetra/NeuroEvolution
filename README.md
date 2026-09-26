@@ -27,7 +27,7 @@ format. Exact spatial filtering also reduces creature overlap, sensing, collisio
 and attack searches; `--spatial-index 0` retains the all-pairs reference path.
 See [performance measurements and verification](docs/performance.md).
 
-The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 86 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
+The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 88 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
 
 For a longer run with a compact history and a detailed final window:
 
@@ -192,3 +192,5 @@ Checkpoint format **24** stores the neuron model, intrinsic parameters, recovery
 [ROADMAP.md](ROADMAP.md) describes the development direction; [EXPLORATION.md](EXPLORATION.md) contains ongoing experiment notes.
 
 Inherited mutation rates: see [meta mutation](docs/meta-mutation.md) for the copy/slight/strong probability curve and global gene-mutation controls.
+
+New runs use [funded reproduction](docs/reproduction.md): an evolved allocation fraction divides digested income between survival and a separate gestation reserve.

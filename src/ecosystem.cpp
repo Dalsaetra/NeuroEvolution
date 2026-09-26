@@ -423,6 +423,9 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     for (std::size_t i = 0; i < creatures.size(); ++i) {
         if (!traversable(creatures[i].position)) throw std::runtime_error("A creature begins the step inside a wall or outside the world");
         if (!std::isfinite(creatures[i].heading) || !std::isfinite(creatures[i].energy)) throw std::runtime_error("Creature heading and energy must be finite");
+        if(!std::isfinite(creatures[i].reproduction_allocation) || creatures[i].reproduction_allocation<0 || creatures[i].reproduction_allocation>1
+            || !std::isfinite(creatures[i].reproductive_energy) || creatures[i].reproductive_energy<0)
+            throw std::runtime_error("Invalid reproductive energy or allocation");
         if (!std::isfinite(creatures[i].mutation_scale) || creatures[i].mutation_scale<config.mutation.min_mutation_scale
             || creatures[i].mutation_scale>MutationConfig::max_mutation_scale) throw std::runtime_error("Invalid inherited mutation scale");
         if (config.predation && (!std::isfinite(creatures[i].body.mass)
@@ -790,13 +793,22 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         std::size_t pending = 0;
         for (const auto& packet : creature.digestion) {
             if (!killed && packet.due <= end + epsilon) {
-                const double gain = std::min(packet.energy, std::max(0.0, config.max_energy(creature.body.mass) - creature.energy));
+                double invested=0;
+                if(config.funded_reproduction && config.reproduction && creature.reproduction_allocation>0 && packet.energy>0
+                    && creature.age+epsilon>=config.maturity_age
+                    && end-creature.last_birth+epsilon>=config.reproduction_cooldown) {
+                    if(!creature.gestation) creature.gestation=conceive(creature);
+                    invested=std::min(creature.reproduction_allocation*packet.energy,
+                        std::max(0.0,creature.gestation->cost-creature.reproductive_energy));
+                    creature.reproductive_energy+=invested;
+                }
+                const double gain = std::min(packet.energy-invested, std::max(0.0, config.max_energy(creature.body.mass) - creature.energy));
                 creature.energy += gain;
-                creature.energy_gained += gain;
-                creature.digestion_pulse += gain;
-                totals.energy_gained += gain;
-                totals.discarded_energy += packet.energy - gain;
-                events.push_back({end, "digestion", creature.id, 0, 0, gain});
+                creature.energy_gained += gain+invested;
+                creature.digestion_pulse += gain+invested;
+                totals.energy_gained += gain+invested;
+                totals.discarded_energy += packet.energy - gain - invested;
+                events.push_back({end, "digestion", creature.id, 0, 0, gain+invested});
             } else creature.digestion[pending++] = packet;
         }
         creature.digestion.resize(pending);
@@ -850,7 +862,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
     if (config.reproduction) {
         std::vector<std::size_t> parents;
         for (std::size_t i = 0; i < creatures.size(); ++i) if (creatures[i].age + epsilon >= config.maturity_age
-            && creatures[i].energy >= config.reproduction_threshold
+            && (config.funded_reproduction ? (creatures[i].gestation && creatures[i].reproductive_energy+epsilon>=creatures[i].gestation->cost)
+                : creatures[i].energy >= config.reproduction_threshold)
             && end - creatures[i].last_birth + epsilon >= config.reproduction_cooldown) parents.push_back(i);
         std::sort(parents.begin(), parents.end(), [&](std::size_t a, std::size_t b) {
             if (creatures[a].energy != creatures[b].energy) return creatures[a].energy > creatures[b].energy;
@@ -877,17 +890,49 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (!found) continue;
             EcoCreature child;
             child.id = next_creature_id;
-            // Preserve successful genomes while retaining mostly local exploration.
-            // One draw selects the configured copy / slight / strong mixture.
-            const double inheritance = mutation_rng.uniform(0.0, 1.0);
-            const auto probabilities=config.mutation.inheritance_probabilities(parent.mutation_scale);
-            const bool exact_inheritance = inheritance < probabilities[0];
-            child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
-            child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= probabilities[0] + probabilities[1], mutation_rng);
-            child.health = max_health(child);
-            const double body_cost = config.predation ? config.body_energy_per_mass * child.body.mass : 0.0;
-            const double birth_cost = config.reproduction_cost + body_cost;
-            if (parent.energy < birth_cost) continue;
+            double body_cost=0,birth_cost=0;
+            if(config.funded_reproduction) {
+                auto pending=std::move(*parent.gestation);
+                child.body=pending.body;child.brain=std::move(pending.brain);
+                child.mutation_scale=pending.mutation_scale;child.reproduction_allocation=pending.reproduction_allocation;
+                child.genome_id=pending.inherited_genome_id?pending.inherited_genome_id:child.id;
+                child.health=max_health(child);
+                body_cost=config.predation?config.body_energy_per_mass*child.body.mass:0;
+                birth_cost=pending.cost;
+                parent.reproductive_energy=0;
+                parent.gestation.reset();
+            } else {
+                // Preserve successful genomes while retaining mostly local exploration.
+                // One draw selects the configured copy / slight / strong mixture.
+                const double inheritance = mutation_rng.uniform(0.0, 1.0);
+                const auto probabilities=config.mutation.inheritance_probabilities(parent.mutation_scale);
+                const bool exact_inheritance = inheritance < probabilities[0];
+                child.genome_id = exact_inheritance ? (parent.genome_id ? parent.genome_id : parent.id) : child.id;
+                child.body = exact_inheritance ? parent.body : inherit_body(parent.body, inheritance >= probabilities[0] + probabilities[1], mutation_rng);
+                child.health = max_health(child);
+                body_cost = config.predation ? config.body_energy_per_mass * child.body.mass : 0.0;
+                birth_cost = config.reproduction_cost + body_cost;
+                if (parent.energy < birth_cost) continue;
+                child.brain = parent.brain;
+                if (!exact_inheritance) child.brain.mutate(inheritance < probabilities[0] + probabilities[1]
+                    ? detail::slight_mutation(config.mutation)
+                    : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation, config.brain.input_count>eco_reproduction_offset));
+                child.mutation_scale=parent.mutation_scale;
+                if (config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
+                    && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
+                    // Log-space clamping avoids overflowing exp with a large configured sigma.
+                    const double log_scale=std::log(parent.mutation_scale)+mutation_rng.normal(0,config.mutation.meta_mutation_sigma);
+                    child.mutation_scale=std::exp(std::clamp(log_scale,
+                        std::log(config.mutation.min_mutation_scale),std::log(MutationConfig::max_mutation_scale)));
+                    if (child.mutation_scale!=parent.mutation_scale) child.genome_id=child.id;
+                }
+                // Independent birth cleanup also applies to the copy inheritance case.
+                if (mutation_rng.uniform(0.0, 1.0) < config.mutation.disconnected_neuron_prune_probability
+                    && child.brain.remove_disconnected_hidden_neuron(mutation_rng))
+                    child.genome_id = child.id;
+                child.brain.reset_state();
+                child.reproduction_allocation=parent.reproduction_allocation;
+            }
             ++next_creature_id;
             child.origin = CreatureOrigin::Birth;
             child.parent_id = parent.id;
@@ -896,26 +941,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             child.heading = placement_rng.uniform(-pi, pi);
             child.energy = config.offspring_energy;
             child.controller = parent.controller;
-            child.brain = parent.brain;
-            if (!exact_inheritance) child.brain.mutate(inheritance < probabilities[0] + probabilities[1]
-                ? detail::slight_mutation(config.mutation)
-                : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation));
-            child.mutation_scale=parent.mutation_scale;
-            if (config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
-                && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
-                // Log-space clamping avoids overflowing exp with a large configured sigma.
-                const double log_scale=std::log(parent.mutation_scale)+mutation_rng.normal(0,config.mutation.meta_mutation_sigma);
-                child.mutation_scale=std::exp(std::clamp(log_scale,
-                    std::log(config.mutation.min_mutation_scale),std::log(MutationConfig::max_mutation_scale)));
-                if (child.mutation_scale!=parent.mutation_scale) child.genome_id=child.id;
-            }
-            // Independent birth cleanup also applies to the copy inheritance case.
-            if (mutation_rng.uniform(0.0, 1.0) < config.mutation.disconnected_neuron_prune_probability
-                && child.brain.remove_disconnected_hidden_neuron(mutation_rng))
-                child.genome_id = child.id;
-            child.brain.reset_state();
             child.neural_rng = Random(mix(config.seed ^ mix(child.id) ^ 0x6e657572616cULL));
-            parent.energy -= birth_cost;
+            if(!config.funded_reproduction) parent.energy -= birth_cost;
             parent.energy_spent += birth_cost;
             totals.body_construction += body_cost;
             parent.last_birth = end;

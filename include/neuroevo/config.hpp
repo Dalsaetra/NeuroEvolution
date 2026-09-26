@@ -44,7 +44,8 @@ constexpr std::size_t eco_other_mass_offset = eco_meat_offset + 3 * eco_sectors;
 constexpr std::size_t eco_other_health_offset = eco_other_mass_offset + eco_sectors;
 constexpr std::size_t eco_health_offset = eco_other_health_offset + eco_sectors;
 constexpr std::size_t eco_plant_offset = eco_health_offset + 2;
-constexpr std::size_t eco_predation_input_count = eco_plant_offset + eco_sectors;
+constexpr std::size_t eco_reproduction_offset = eco_plant_offset + eco_sectors;
+constexpr std::size_t eco_predation_input_count = eco_reproduction_offset + 2;
 constexpr std::size_t eco_predation_output_count = 6;
 constexpr double eco_min_mass = 0.5, eco_max_mass = 2.0;
 
@@ -134,6 +135,7 @@ struct MutationConfig {
     };
     bool balance_structural_pairs = true;
     bool allow_birth_motifs = false;
+    double allocation_mutation_probability = 0.2, allocation_mutation_sigma = 0.1;
     double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.24;
     double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.4;
 
@@ -238,6 +240,8 @@ struct EcosystemConfig {
     double storm_damage = 0.4; // Peak health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
+    bool funded_reproduction = true;
+    double founder_reproduction_allocation = 0.5;
     double maturity_age = 30, reproduction_threshold = 180, reproduction_cost = 60;
     double offspring_energy = 60, reproduction_cooldown = 20;
 

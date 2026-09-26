@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_38");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_39");
     checkpoint::write_tuple(s,checkpoint::world_config_fields(config));
     checkpoint::write_tuple(s,checkpoint::brain_fields(config.brain));
     checkpoint::write_tuple(s,checkpoint::calibrated_brain_fields(config.brain));
@@ -136,6 +136,17 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     for (const auto& c:creatures) checkpoint::write(s,c.id,c.mutation_scale);
     checkpoint::write(s,"BACKGROUND_WEATHER_1",config.background_food_patches,config.background_food_energy,config.storm_ramp);
     checkpoint::write(s,"MASS_ENERGY_1",config.mass_scaled_energy_capacity);
+    checkpoint::write(s,"GESTATION_1",config.funded_reproduction,config.founder_reproduction_allocation,
+        config.mutation.allocation_mutation_probability,config.mutation.allocation_mutation_sigma);
+    checkpoint::write(s,creatures.size());
+    for(const auto& c:creatures) {
+        checkpoint::write(s,c.id,c.reproduction_allocation,c.reproductive_energy,c.gestation.has_value());
+        if(c.gestation) {
+            const auto& g=*c.gestation;
+            checkpoint::write(s,g.body.mass,g.body.carnivory,g.mutation_scale,g.reproduction_allocation,g.cost,g.inherited_genome_id);
+            g.brain.save_state(s); // Only the one current pending genome; never emitted to replay logs.
+        }
+    }
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -143,7 +154,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool mass_energy_version = version == "NEUROEVO_ECOSYSTEM_38";
+    const bool gestation_version = version == "NEUROEVO_ECOSYSTEM_39";
+    const bool mass_energy_version = gestation_version || version == "NEUROEVO_ECOSYSTEM_38";
     const bool background_weather_version = mass_energy_version || version == "NEUROEVO_ECOSYSTEM_37";
     const bool meta_floor_version = background_weather_version || version == "NEUROEVO_ECOSYSTEM_36";
     const bool meta_version = meta_floor_version || version == "NEUROEVO_ECOSYSTEM_35";
@@ -162,6 +174,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.funded_reproduction=false;
     cfg.mass_scaled_energy_capacity=false;
     cfg.background_food_patches=0;
     cfg.storm_ramp=false; // Historical checkpoints retain flat damage and the harvest cutoff.
@@ -207,6 +220,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         throw std::runtime_error("Invalid current nursery food energy");
     if (!general_food_version && cfg.predation)
         throw std::runtime_error("Predation checkpoint uses the old food sensor layout. Start a new run; use the previous build to resume this checkpoint.");
+    // The final mode is stored in the trailing extension. Permit the new mode's
+    // independent funding target during construction, then validate the saved mode.
+    cfg.funded_reproduction=gestation_version && cfg.predation && cfg.brain.input_count==eco_predation_input_count;
     EcosystemWorld w(cfg,false);
     w.nursery_food_current_energy=nursery_energy;
     w.nursery_above_food_threshold=nursery_above;
@@ -336,6 +352,33 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     }
     for(const auto& c:w.creatures) if(c.energy>w.config.max_energy(c.body.mass)+1e-8)
         throw std::runtime_error("Creature energy exceeds its body capacity");
+    if(gestation_version) {
+        checkpoint::marker(s,"GESTATION_1");
+        checkpoint::read(s,w.config.funded_reproduction,w.config.founder_reproduction_allocation,
+            w.config.mutation.allocation_mutation_probability,w.config.mutation.allocation_mutation_sigma);
+        w.config.validate();
+        if(checkpoint::count(s,w.creatures.size())!=w.creatures.size())throw std::runtime_error("Gestation count mismatch");
+        for(auto& c:w.creatures) {
+            std::uint64_t id;bool pending;
+            checkpoint::read(s,id,c.reproduction_allocation,c.reproductive_energy,pending);
+            if(id!=c.id || c.reproduction_allocation<0 || c.reproduction_allocation>1 || c.reproductive_energy<0)
+                throw std::runtime_error("Invalid reproductive state");
+            if(pending) {
+                c.gestation.emplace();auto& g=*c.gestation;
+                checkpoint::read(s,g.body.mass,g.body.carnivory,g.mutation_scale,g.reproduction_allocation,g.cost,g.inherited_genome_id);
+                g.brain=Brain::load_state(s);
+                const double cost=w.config.reproduction_cost+(w.config.predation?w.config.body_energy_per_mass*g.body.mass:0);
+                if(!w.config.funded_reproduction || g.body.mass<eco_min_mass || g.body.mass>eco_max_mass
+                    || g.body.carnivory<0 || g.body.carnivory>1 || g.mutation_scale<w.config.mutation.min_mutation_scale
+                    || g.mutation_scale>MutationConfig::max_mutation_scale || g.reproduction_allocation<0 || g.reproduction_allocation>1
+                    || std::abs(g.cost-cost)>1e-8 || g.cost<=0 || c.reproductive_energy>g.cost+1e-8
+                    || g.inherited_genome_id>=w.next_creature_id || g.brain.config().input_count!=w.config.brain.input_count
+                    || g.brain.config().output_count!=w.config.brain.output_count
+                    || g.brain.config().neuron_model!=w.config.brain.neuron_model || std::abs(g.brain.config().dt-w.config.brain.dt)>1e-12)
+                    throw std::runtime_error("Invalid pending offspring");
+            } else if(c.reproductive_energy!=0)throw std::runtime_error("Reproductive energy without gestation");
+        }
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -399,6 +442,11 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"shelter_food_energy\":" << w.config.shelter_food_energy
       << ",\"shelter_food_capacity\":" << w.config.shelter_food_capacity
       << ",\"shelter_food_regrowth\":" << w.config.shelter_food_regrowth
+      << ",\"funded_reproduction\":" << (w.config.funded_reproduction ? "true" : "false")
+      << ",\"founder_reproduction_allocation\":" << w.config.founder_reproduction_allocation
+      << ",\"reproduction_cooldown\":" << w.config.reproduction_cooldown
+      << ",\"allocation_mutation_probability\":" << w.config.mutation.allocation_mutation_probability
+      << ",\"allocation_mutation_sigma\":" << w.config.mutation.allocation_mutation_sigma
       << ",\"mass_scaled_energy_capacity\":" << (w.config.mass_scaled_energy_capacity ? "true" : "false")
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
       << ",\"food_energy\":{\"graze\":" << w.config.graze_energy
@@ -419,7 +467,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"motor_reference_hz\":" << w.config.brain.motor_reference_hz
       << ",\"motor_gain\":" << w.config.motor_gain << ",\"actuator_tau\":" << w.config.actuator_tau
       << ",\"input_labels\":";
-    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity),[&](const std::string& v){ quoted(s,v); });
+    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity,w.config.brain.input_count>eco_reproduction_offset),[&](const std::string& v){ quoted(s,v); });
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"food_distribution\":\"" << food_distribution_name(w.config.food_distribution) << "\""
@@ -465,6 +513,10 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     array(s,w.creatures,[&](const EcoCreature& c){
         s << "{\"id\":" << c.id << ",\"parent\":" << c.parent_id << ",\"generation\":" << c.generation
           << ",\"x\":" << c.position.x << ",\"y\":" << c.position.y << ",\"heading\":" << c.heading
+          << ",\"reproduction_allocation\":" << c.reproduction_allocation
+          << ",\"reproductive_energy\":" << c.reproductive_energy
+          << ",\"reproduction_target\":" << (c.gestation ? c.gestation->cost : 0)
+          << ",\"reproduction_cooldown_remaining\":" << std::max(0.0,c.last_birth+w.config.reproduction_cooldown-w.time())
           << ",\"max_energy\":" << w.config.max_energy(c.body.mass)
           << ",\"mutation_scale\":" << c.mutation_scale
           << ",\"mass\":" << c.body.mass << ",\"carnivory\":" << c.body.carnivory
@@ -537,11 +589,12 @@ void write_ecosystem_stats_header(std::ostream& s)
          "founder_births,descendant_births,births_first_100s,natural_spiking_breeders,mature_offspring,"
          "nursery_population,frontier_population,attacking,healing,body_construction,external_body_energy,"
          "carcass_energy,meat_spoiled_energy,damage,predation_deaths,mean_mass,mean_carnivory,mean_health_fraction,meat_biomass,"
-         "nursery_food_energy,nursery_food_reductions,mean_mutation_scale,min_mutation_scale,max_mutation_scale\n";
+         "nursery_food_energy,nursery_food_reductions,mean_mutation_scale,min_mutation_scale,max_mutation_scale,total_reproductive_energy,mean_reproduction_allocation\n";
 }
 void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
 {
-    double energy=0,pending=0,biomass=0;
+    double energy=0,pending=0,biomass=0,reproductive=0,allocation=0;
+    for(const auto& c:w.creatures){reproductive+=c.reproductive_energy;allocation+=c.reproduction_allocation;}
     for (const auto& c : w.creatures) { energy+=c.energy; for (const auto& p : c.digestion) pending+=p.energy; }
     for (const auto& r : w.resources) biomass+=r.stock;
     const auto& t=w.totals;
@@ -572,6 +625,7 @@ void write_ecosystem_stats(std::ostream& s, const EcosystemWorld& w)
       << ',' << t.predation_deaths
       << ',' << mass/population << ',' << carnivory/population << ',' << health/population << ',' << meat
       << ',' << w.nursery_food_current_energy << ',' << w.nursery_food_reductions
-      << ',' << scale_sum/population << ',' << scale_min << ',' << scale_max << '\n';
+      << ',' << scale_sum/population << ',' << scale_min << ',' << scale_max
+      << ',' << reproductive << ',' << allocation/population << '\n';
 }
 } // namespace neuroevo
