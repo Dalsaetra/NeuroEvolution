@@ -105,7 +105,7 @@ void checkpoint()
     w.step({move()});std::istringstream input(saved(w));auto copy=EcosystemWorld::load_checkpoint(input);
     check(saved(w)==saved(copy),"Checkpoint lost allometry configuration or large reserves");
     for(int i=0;i<20;++i){w.step({move()});copy.step({move()});check(saved(w)==saved(copy),"Acceleration continuation diverged");}
-    w=fixture();w.config.mass_allometry=false;add(w,2);
+    w=fixture();w.config.mass_allometry=false;w.config.mutation.eye_mutation_probability=0;add(w,2);
     auto old=without_allometry_header(saved(w));old.replace(0,21,"NEUROEVO_ECOSYSTEM_39");
     std::istringstream legacy(old);copy=EcosystemWorld::load_checkpoint(legacy);
     check(!copy.config.mass_allometry,"Legacy checkpoint enabled allometry");

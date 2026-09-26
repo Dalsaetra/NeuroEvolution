@@ -6,7 +6,7 @@
 namespace neuroevo {
 void EcosystemWorld::initialize_body(EcoCreature& c)
 {
-    c.body = config.predation ? BodyGenes{config.founder_mass, config.founder_carnivory} : BodyGenes{};
+    c.body = config.predation ? BodyGenes{config.founder_mass, config.founder_carnivory, config.founder_eye_separation} : BodyGenes{};
     c.health = max_health(c);
     c.damage_pulse = 0;
     c.reproduction_allocation=config.founder_reproduction_allocation;
@@ -23,6 +23,11 @@ double EcosystemWorld::maximum_speed(const EcoCreature& c) const
     if (config.predation && config.mass_allometry)
         return config.max_speed * std::pow(c.body.mass, config.speed_mass_exponent);
     return config.max_speed / (config.predation ? std::sqrt(c.body.mass) : 1.0);
+}
+
+double EcosystemWorld::vision_fov(const EcoCreature& c) const
+{
+    return std::min(360.0, config.fov_degrees + (config.predation ? c.body.eye_separation_degrees : 0.0));
 }
 
 double EcosystemWorld::maximum_ingestion_rate(const EcoCreature& c) const
@@ -51,6 +56,10 @@ BodyGenes EcosystemWorld::inherit_body(const BodyGenes& parent, bool strong, Ran
     if (config.mutation.carnivory_mutation_probability > 0 && config.mutation.carnivory_mutation_sigma > 0
         && rng.chance(std::min(1.0, probability_scale * config.mutation.carnivory_mutation_probability)))
         child.carnivory = std::clamp(parent.carnivory + rng.normal(0, scale * config.mutation.carnivory_mutation_sigma), 0.0, 1.0);
+    if (config.mutation.eye_mutation_probability > 0 && config.mutation.eye_mutation_sigma > 0
+        && rng.chance(std::min(1.0, probability_scale * config.mutation.eye_mutation_probability)))
+        child.eye_separation_degrees = std::clamp(parent.eye_separation_degrees
+            + rng.normal(0, scale * config.mutation.eye_mutation_sigma), 0.0, std::min(150.0, config.fov_degrees));
     return child;
 }
 

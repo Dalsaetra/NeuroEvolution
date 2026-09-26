@@ -182,6 +182,11 @@ void EcosystemConfig::validate() const
     positive(vision_range, "Vision range");
     positive(hearing_range, "Hearing range");
     positive(fov_degrees, "Vision arc");
+    positive(founder_eye_separation, "Founder eye separation", true);
+    if (founder_eye_separation > std::min(150.0, fov_degrees))
+        throw std::invalid_argument("Eye separation must not exceed 150 degrees or the single-eye FOV");
+    probability(mutation.eye_mutation_probability, "Eye mutation probability");
+    positive(mutation.eye_mutation_sigma, "Eye mutation sigma", true);
     positive(interaction_degrees, "Interaction arc");
     if (fov_degrees > 360 || interaction_degrees > 360) throw std::invalid_argument("Sensory and interaction arcs cannot exceed 360 degrees");
     positive(interaction_range, "Interaction range");

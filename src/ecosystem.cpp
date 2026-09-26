@@ -431,6 +431,8 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         if (config.predation && (!std::isfinite(creatures[i].body.mass)
             || creatures[i].body.mass < eco_min_mass || creatures[i].body.mass > eco_max_mass
             || !std::isfinite(creatures[i].body.carnivory) || creatures[i].body.carnivory < 0 || creatures[i].body.carnivory > 1
+            || !std::isfinite(creatures[i].body.eye_separation_degrees) || creatures[i].body.eye_separation_degrees < 0
+            || creatures[i].body.eye_separation_degrees > std::min(150.0, config.fov_degrees)
             || !std::isfinite(creatures[i].health) || creatures[i].health > max_health(creatures[i]) + epsilon))
             throw std::runtime_error("Invalid creature body or health");
     }

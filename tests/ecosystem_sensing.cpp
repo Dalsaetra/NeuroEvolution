@@ -341,8 +341,11 @@ void test_obstacle_geometry_equivalence()
         world.terrain[y * 16 + x] = Terrain::Wall;
         boxes.push_back({double(x), double(y), double(x + 1), double(y + 1)});
     }
-    for (double fov : {45.0, 150.0, 270.0, 360.0}) {
+    for (double fov : {45.0, 150.0, 225.0, 270.0, 300.0, 360.0}) {
         world.config.fov_degrees = fov;
+        world.config.set_predation(fov==225 || fov==300);
+        world.creatures[0].body.eye_separation_degrees=(fov==225 || fov==300)?fov-150:0;
+        if(world.config.predation)world.config.fov_degrees=150;
         const double half_fov = fov * pi / 360.0;
         const double sector_width = 2.0 * half_fov / static_cast<double>(eco_sectors);
         for (int sample = 0; sample < 128; ++sample) {
@@ -429,11 +432,65 @@ void test_carnivory_totals()
     }
     world.next_creature_id=world.creatures.size()+1;
     std::ostringstream saved;world.save_checkpoint(saved);
-    auto old=saved.str();old.replace(0,21,"NEUROEVO_ECOSYSTEM_40");
+    auto old=without_eye_extension(saved.str());old.replace(0,21,"NEUROEVO_ECOSYSTEM_40");
     std::istringstream stream(old);auto resumed=EcosystemWorld::load_checkpoint(stream);
     require(resumed.observe(0).size()==eco_carnivory_offset,"Historical checkpoint input count changed");
+    require(resumed.config.mutation.eye_mutation_probability==0 && resumed.creatures[0].body.eye_separation_degrees==0,
+        "Historical checkpoint acquired evolved vision");
     require(ecosystem_input_labels(true,true,true,true,false).size()==eco_carnivory_offset,"Historical labels grew");
     resumed.step(std::vector<EcoAction>(resumed.creatures.size()));
+}
+
+void test_evolved_eyes()
+{
+    auto world=empty_world();world.config.set_predation(true);
+    world.config.fov_degrees=150;
+    world.creatures={creature(world,{8.5,8.5}),creature(world,{11.5,8.5},2)};
+    world.creatures[1].body.carnivory=1;
+    for(double separation:{0.,75.,150.}) {
+        world.creatures[0].body.eye_separation_degrees=separation;
+        const double fov=150+separation,half=fov/2,sector_width=fov/3;
+        require(near(world.vision_fov(world.creatures[0]),fov),"Eye separation produced wrong FOV");
+        for(double heading:{0.,179.,-179.})for(double angle:{-half-1,-half+1,-sector_width/2-1,-sector_width/2+1,
+                0.,sector_width/2-1,sector_width/2+1,half-1,half+1,180.}) {
+            world.creatures[0].heading=heading*pi/180;
+            const double bearing=(heading+angle)*pi/180;
+            const Vec2 target={8.5+3*std::cos(bearing),8.5+3*std::sin(bearing)};
+            world.creatures[1].position=target;
+            world.resources={food(target)};
+            const auto observation=world.observe(0);
+            const bool visible=std::abs(angle)<half;
+            const auto sector=std::min<std::size_t>(2,static_cast<std::size_t>(std::max(0.,(angle+half)/sector_width)));
+            for(std::size_t i=0;i<3;++i) {
+                const bool expected=visible && i==sector;
+                require(near(observation[i*eco_sector_channels+10],expected?1.:0.),"Evolved creature-vision sector mismatch");
+                require(near(observation[i*eco_sector_channels+1],expected?1.:0.),"Food sectors did not follow evolved eyes");
+                require(near(observation[eco_carnivory_offset+i],expected?.5:0.),"Carnivory sectors did not follow evolved eyes");
+            }
+        }
+    }
+    world.creatures[0].heading=0;world.creatures[1].position={11.5,8.5};world.resources.clear();
+    world.terrain[8*world.config.width+10]=Terrain::Wall;
+    require(near(world.observe(0)[center+10],0),"Wide eyes saw through walls");
+    require(world.observe(0)[center]>0,"Wide eyes lost obstacle sensing");
+
+    world.config.mutation.eye_mutation_probability=1;world.config.mutation.eye_mutation_sigma=15;
+    world.config.mutation.mass_mutation_probability=world.config.mutation.carnivory_mutation_probability=0;
+    world.config.mutation.strong.body_probability_scale=world.config.mutation.strong.body_sigma_scale=1;
+    Random rng(123);bool increased=false,decreased=false;
+    for(int i=0;i<200;++i) {
+        const auto child=world.inherit_body({1,.5,75},true,rng);
+        require(child.eye_separation_degrees>=0 && child.eye_separation_degrees<=150,"Eye mutation escaped bounds");
+        increased|=child.eye_separation_degrees>75;decreased|=child.eye_separation_degrees<75;
+    }
+    require(increased && decreased,"Eye mutation cannot evolve in both directions");
+    world.config.mutation.eye_mutation_sigma=1000;
+    for(double initial:{0.,150.})for(int i=0;i<50;++i) {
+        const auto child=world.inherit_body({1,.5,initial},true,rng);
+        require(child.eye_separation_degrees>=0 && child.eye_separation_degrees<=150,"Extreme eye mutation escaped bounds");
+    }
+    world.config.mutation.eye_mutation_probability=0;
+    require(world.inherit_body({1,.5,75},true,rng).eye_separation_degrees==75,"Disabled eye mutation changed gene");
 }
 
 } // namespace
@@ -443,6 +500,7 @@ int main()
     try {
         test_visibility();
         test_carnivory_totals();
+        test_evolved_eyes();
         test_sectors_and_contact();
         test_nearest_and_hidden_information();
         test_typed_food_proximity();

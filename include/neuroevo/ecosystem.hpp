@@ -14,6 +14,7 @@ namespace neuroevo {
 // Together with Brain these are the inherited genome. Health/actions are state.
 struct BodyGenes {
     double mass = 1.0, carnivory = 0.0;
+    double eye_separation_degrees = 0.0; // Eye axes are +/- half this angle from forward.
 };
 
 struct EcoAction {
@@ -138,6 +139,7 @@ public:
     void initialize_ancestral_genome(EcoCreature& creature);
     double max_health(const EcoCreature& creature) const;
     double maximum_speed(const EcoCreature& creature) const;
+    double vision_fov(const EcoCreature& creature) const;
     double maximum_ingestion_rate(const EcoCreature& creature) const;
     double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;
     BodyGenes inherit_body(const BodyGenes& parent, bool strong, Random& rng) const;

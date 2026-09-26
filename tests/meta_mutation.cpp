@@ -74,6 +74,7 @@ int main() try {
     // Version 35 did not store its 0.5 floor. Loading it must preserve that
     // historical mixture and exact continuation, even after saving as v36.
     auto historical_world=fixture(8,0.75,1);
+    historical_world.config.mutation.eye_mutation_probability=0;
     historical_world.config.mutation.min_mutation_scale=0.5;
     auto version35=without_allometry_header(saved(historical_world));
     version35.erase(version35.find("BACKGROUND_WEATHER_1"));version35+="END_ECOSYSTEM\n";

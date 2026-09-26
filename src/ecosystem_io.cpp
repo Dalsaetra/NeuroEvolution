@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_41");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_42");
     // Read capacity-affecting settings before constructing/validating the world.
     checkpoint::write(s,"MASS_ALLOMETRY_1");
     checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
@@ -150,6 +150,11 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
             g.brain.save_state(s); // Only the one current pending genome; never emitted to replay logs.
         }
     }
+    checkpoint::write(s,"EYES_1",config.founder_eye_separation,
+        config.mutation.eye_mutation_probability,config.mutation.eye_mutation_sigma);
+    checkpoint::write(s,creatures.size());
+    for(const auto& c:creatures)
+        checkpoint::write(s,c.id,c.body.eye_separation_degrees,c.gestation?c.gestation->body.eye_separation_degrees:0.0);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -157,7 +162,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool allometry_version = version == "NEUROEVO_ECOSYSTEM_41" || version == "NEUROEVO_ECOSYSTEM_40";
+    const bool eyes_version = version == "NEUROEVO_ECOSYSTEM_42";
+    const bool allometry_version = eyes_version || version == "NEUROEVO_ECOSYSTEM_41" || version == "NEUROEVO_ECOSYSTEM_40";
     const bool gestation_version = allometry_version || version == "NEUROEVO_ECOSYSTEM_39";
     const bool mass_energy_version = gestation_version || version == "NEUROEVO_ECOSYSTEM_38";
     const bool background_weather_version = mass_energy_version || version == "NEUROEVO_ECOSYSTEM_37";
@@ -178,6 +184,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.mutation.eye_mutation_probability=0; // Historical continuation keeps fixed eyes and RNG behavior.
     cfg.mass_allometry=false;
     cfg.funded_reproduction=false;
     cfg.mass_scaled_energy_capacity=false;
@@ -391,6 +398,21 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     }
     for(const auto& c:w.creatures) if(c.energy>w.config.max_energy(c.body.mass)+1e-8)
         throw std::runtime_error("Creature energy exceeds its body capacity");
+    if(eyes_version) {
+        checkpoint::marker(s,"EYES_1");
+        checkpoint::read(s,w.config.founder_eye_separation,w.config.mutation.eye_mutation_probability,w.config.mutation.eye_mutation_sigma);
+        w.config.validate();
+        if(checkpoint::count(s,w.creatures.size())!=w.creatures.size())throw std::runtime_error("Eye gene count mismatch");
+        for(auto& c:w.creatures) {
+            std::uint64_t id;double pending_eye;
+            checkpoint::read(s,id,c.body.eye_separation_degrees,pending_eye);
+            const double limit=std::min(150.0,w.config.fov_degrees);
+            if(id!=c.id || c.body.eye_separation_degrees<0 || c.body.eye_separation_degrees>limit
+                || pending_eye<0 || pending_eye>limit || (!c.gestation && pending_eye!=0))
+                throw std::runtime_error("Invalid eye gene");
+            if(c.gestation)c.gestation->body.eye_separation_degrees=pending_eye;
+        }
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -419,6 +441,9 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"mutate_initial_ancestors\":" << (w.config.mutate_initial_ancestors ? "true" : "false")
       << ",\"founder_mass\":" << w.config.founder_mass
       << ",\"founder_carnivory\":" << w.config.founder_carnivory
+      << ",\"founder_eye_separation\":" << w.config.founder_eye_separation
+      << ",\"eye_mutation_probability\":" << w.config.mutation.eye_mutation_probability
+      << ",\"eye_mutation_sigma\":" << w.config.mutation.eye_mutation_sigma
       << ",\"meta_mutation_enabled\":" << (w.config.mutation.meta_mutation_enabled ? "true" : "false")
       << ",\"meta_mutation_probability\":" << w.config.mutation.meta_mutation_probability
       << ",\"meta_mutation_sigma\":" << w.config.mutation.meta_mutation_sigma
@@ -541,6 +566,7 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
           << ",\"max_energy\":" << w.config.max_energy(c.body.mass)
           << ",\"mutation_scale\":" << c.mutation_scale
           << ",\"mass\":" << c.body.mass << ",\"carnivory\":" << c.body.carnivory
+          << ",\"eye_separation_degrees\":" << c.body.eye_separation_degrees << ",\"fov_degrees\":" << w.vision_fov(c)
           << ",\"health\":" << c.health << ",\"max_health\":" << w.max_health(c)
           << ",\"damage\":" << c.damage_pulse << ",\"attack\":" << c.action.attack
           << ",\"maximum_speed\":" << w.maximum_speed(c)

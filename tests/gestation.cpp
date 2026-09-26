@@ -29,9 +29,10 @@ double ledger(const EcosystemWorld& w) {
     for(const auto& r:w.resources)energy+=r.stock*r.energy_per_unit;return energy;
 }
 int main() try {
-    auto w=fixture();const double initial=ledger(w);
+    auto w=fixture();w.creatures[0].body.eye_separation_degrees=75;const double initial=ledger(w);
     feed(w,100);near(w.creatures[0].energy,150,"Survival split");near(w.creatures[0].reproductive_energy,50,"Reproduction split");
     check(w.creatures[0].gestation.has_value(),"No gestation");near(w.creatures[0].gestation->cost,120,"Mass target");
+    near(w.creatures[0].gestation->body.eye_separation_degrees,75,"Copy inheritance changed eyes");
     near(w.observe(0)[eco_reproduction_offset],50.0/120,"Progress sensor");
     check(w.next_creature_id==2 && w.totals.births==1,"Unborn offspring registered as birth");
     std::istringstream in(saved(w));auto copy=EcosystemWorld::load_checkpoint(in);
@@ -73,12 +74,18 @@ int main() try {
     w.config.mutation.mass_mutation_probability=1;w.config.mutation.strong.body_probability_scale=1;
     w.config.mutation.mass_mutation_sigma=.4;
     w.config.mutation.allocation_mutation_probability=1;w.config.mutation.allocation_mutation_sigma=.3;
+    w.creatures[0].body.eye_separation_degrees=75;w.config.mutation.eye_mutation_probability=1;
     feed(w,2);const auto& g=*w.creatures[0].gestation;
     check(g.body.mass!=1,"Gestation did not mutate mass");near(g.cost,60+60*g.body.mass,"Target ignored mutated mass");
     check(g.reproduction_allocation!=.5,"Allocation did not evolve");
     const auto mutated_mass=g.body.mass,allocation=g.reproduction_allocation,cost=g.cost;
+    const auto eyes=g.body.eye_separation_degrees;
+    check(eyes!=75,"Gestation did not mutate eyes");
+    std::istringstream pregnant(saved(w));auto resumed=EcosystemWorld::load_checkpoint(pregnant);
+    check(saved(w)==saved(resumed),"Pending eye gene did not survive checkpoint");
     feed(w,2*cost);w.config.max_population=2;w.step({{}});
     near(w.creatures[1].body.mass,mutated_mass,"Birth rerolled mass");near(w.creatures[1].reproduction_allocation,allocation,"Birth lost allocation");
+    near(w.creatures[1].body.eye_separation_degrees,eyes,"Birth rerolled eye gene");
 
     w=fixture();feed(w,100);w.creatures[0].health=0;const auto before=ledger(w);w.step({{}});
     check(w.creatures.empty() && w.resources.size()==1,"Gestating death produced extra bodies");

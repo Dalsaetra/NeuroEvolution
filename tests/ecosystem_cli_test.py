@@ -15,6 +15,23 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    def test_evolved_eyes_configuration_import_and_resume(self):
+        args = ("--creatures", 1, "--founder-eye-separation", 150, "--mutate-initial-ancestors", 0,
+                "--eye-mutation-probability", 0.7, "--eye-mutation-sigma", 20)
+        source = self.run_world("eyes", *args, "--steps", 1)
+        records = [json.loads(x) for x in (source / "ecosystem.jsonl").read_text().splitlines()]
+        self.assertEqual(records[0]["fov_degrees"], 150)
+        self.assertEqual(records[0]["eye_mutation_probability"], 0.7)
+        self.assertEqual(records[1]["creatures"][0]["eye_separation_degrees"], 150)
+        self.assertEqual(records[1]["creatures"][0]["fov_degrees"], 300)
+        resumed = self.run_world("eyes_resume", "--resume", source / "checkpoint.eco", "--steps", 1)
+        whole = self.run_world("eyes_whole", *args, "--steps", 2)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        imported = self.run_world("eyes_import", "--starting-genomes", source, "--creatures", 1, "--steps", 1)
+        imported_records = [json.loads(x) for x in (imported / "ecosystem.jsonl").read_text().splitlines()]
+        self.assertEqual(imported_records[1]["creatures"][0]["eye_separation_degrees"], 150)
+        self.assertEqual(imported_records[1]["creatures"][0]["fov_degrees"], 300)
+
     def test_mass_allometry_configuration_and_resume(self):
         values = dict(ingestion_mass_exponent=0.9, pod_mass_exponent=0.6,
                       attack_mass_exponent=0.7, metabolism_mass_exponent=0.8,
@@ -305,7 +322,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_41")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_42")
         del lines[1:3]  # Version 40's mass-allometry config preamble.
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]

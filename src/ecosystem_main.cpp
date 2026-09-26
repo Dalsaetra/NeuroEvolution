@@ -94,6 +94,9 @@ int main(int argc, char** argv)
             {"--acceleration-mass-exponent",&cfg.acceleration_mass_exponent},
             {"--max-acceleration",&cfg.max_acceleration},
             {"--founder-carnivory",&cfg.founder_carnivory},
+            {"--founder-eye-separation",&cfg.founder_eye_separation},
+            {"--eye-mutation-probability",&cfg.mutation.eye_mutation_probability},
+            {"--eye-mutation-sigma",&cfg.mutation.eye_mutation_sigma},
             {"--health-per-mass",&cfg.health_per_mass},
             {"--body-energy-per-mass",&cfg.body_energy_per_mass},
             {"--attack-range",&cfg.attack_range},
@@ -270,6 +273,8 @@ int main(int argc, char** argv)
                     "  --nursery-food-reduction-delay X  Seconds between reductions (default 1000); requires a new crossing\n"
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
                     "  --funded-reproduction 0|1 / --reproduction-allocation X (default 0.5)\n"
+                    "  --founder-eye-separation X  Eye-axis separation in degrees (0..150; default 0)\n"
+                    "  --eye-mutation-probability X / --eye-mutation-sigma X (degrees)\n"
                     "  --allocation-mutation-probability X / --allocation-mutation-sigma X\n"
                     "  --meta-mutation 0|1 / --meta-mutation-probability X / --meta-mutation-sigma X\n"
                     "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
@@ -658,6 +663,9 @@ int main(int argc, char** argv)
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
             << ",\"shelter_predation_damage\":" << (world.config.shelter_predation_damage?"true":"false")
             << ",\"founder_mass\":" << world.config.founder_mass << ",\"founder_carnivory\":" << world.config.founder_carnivory
+            << ",\"founder_eye_separation\":" << world.config.founder_eye_separation
+            << ",\"eye_mutation_probability\":" << world.config.mutation.eye_mutation_probability
+            << ",\"eye_mutation_sigma\":" << world.config.mutation.eye_mutation_sigma
             << ",\"mass_mutation_probability\":" << world.config.mutation.mass_mutation_probability
             << ",\"mass_mutation_sigma\":" << world.config.mutation.mass_mutation_sigma
             << ",\"carnivory_mutation_probability\":" << world.config.mutation.carnivory_mutation_probability

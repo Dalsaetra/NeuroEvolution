@@ -83,6 +83,7 @@ void harvesting_and_legacy()
 {
     auto cfg=controlled_config();cfg.initial_creatures=0;cfg.reproduction=false;cfg.storms_enabled=false;
     cfg.mutation.min_mutation_scale=0.5; // Match the policy of the forged historical checkpoint.
+    cfg.mutation.eye_mutation_probability=0;
     cfg.basal_cost=cfg.movement_cost=cfg.turn_cost=cfg.forage_cost=0;cfg.digestion_delay=0;
     EcosystemWorld w(cfg,false);
     EcoCreature c;c.id=c.genome_id=1;c.position={4,4};c.energy=50;c.brain=make_sparse_ancestral_brain(cfg);w.creatures.push_back(c);w.next_creature_id=2;

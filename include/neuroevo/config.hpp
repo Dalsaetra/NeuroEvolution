@@ -139,6 +139,7 @@ struct MutationConfig {
     double allocation_mutation_probability = 0.2, allocation_mutation_sigma = 0.1;
     double mass_mutation_probability = 0.2, mass_mutation_sigma = 0.24;
     double carnivory_mutation_probability = 0.2, carnivory_mutation_sigma = 0.4;
+    double eye_mutation_probability = 0.2, eye_mutation_sigma = 15.0; // Degrees.
 
     // Direct Brain::mutate controls. Births derive these from the profiles above.
     // A structural budget of -1 uses the sum of operator probabilities.
@@ -176,6 +177,7 @@ struct EcosystemConfig {
     bool predation = true;
     bool shelter_predation_damage = false; // Allow damage to targets in ordinary shelters; nursery stays protected.
     double founder_mass = 1.0, founder_carnivory = 0.4;
+    double founder_eye_separation = 0.0;
     double health_per_mass = 20, body_energy_per_mass = 60;
     double attack_range = 1.6, attack_degrees = 60, attack_damage = 35, attack_cost = 0.01;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.

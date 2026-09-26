@@ -2,9 +2,16 @@
 #include "neuroevo/ecosystem.hpp"
 
 namespace neuroevo {
+inline std::string without_eye_extension(std::string state)
+{
+    const auto eyes=state.find("EYES_1");
+    if(eyes!=std::string::npos)state.erase(eyes,state.find("END_ECOSYSTEM",eyes)-eyes);
+    return state;
+}
 // Synthetic historical checkpoint fixtures remove the v40 config preamble.
 inline std::string without_allometry_header(std::string state)
 {
+    state=without_eye_extension(std::move(state));
     const auto start=state.find("MASS_ALLOMETRY_1");
     if(start!=std::string::npos)state.erase(start,state.find('\n',state.find('\n',start)+1)+1-start);
     return state;

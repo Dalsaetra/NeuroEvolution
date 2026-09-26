@@ -68,7 +68,7 @@ double ray_entry(Vec2 origin, Vec2 direction, const Box& box)
 }
 
 EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConfig& config,
-    ControllerKind kind, Random& rng, double carnivory)
+    ControllerKind kind, Random& rng, double carnivory, double fov)
 {
     EcoAction action;
     const double previous_turn = inputs[body_offset + 2] - inputs[body_offset + 3];
@@ -114,7 +114,7 @@ EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConf
         if (target_sector < eco_sectors) {
             const double angle = (static_cast<double>(target_sector) + 0.5
                 - static_cast<double>(eco_sectors) / 2.0)
-                * config.fov_degrees * pi / (180.0 * static_cast<double>(eco_sectors));
+                * fov * pi / (180.0 * static_cast<double>(eco_sectors));
             turn = config.max_turn_rate > 0.0
                 ? std::clamp(angle / (config.max_turn_rate * 0.4), -1.0, 1.0) : 0.0;
             if (target_distance <= config.interaction_range
@@ -149,7 +149,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
 {
     const EcoCreature& self = creatures.at(creature_index);
     std::vector<double> inputs(config.brain.input_count, 0.0);
-    const double half_fov = config.fov_degrees * pi / 360.0;
+    const double half_fov = vision_fov(self) * pi / 360.0;
     const double sector_width = 2.0 * half_fov / static_cast<double>(eco_sectors);
     // Keep each endpoint's original arithmetic: adjacent sector boundaries can
     // differ by a rounding bit. Directions are shared by all visible obstacles.
@@ -365,7 +365,7 @@ EcoAction EcosystemWorld::control(std::size_t creature_index,
     std::vector<double> inputs = observe(creature_index, neighbours);
     creature.step_spikes = 0;
     if (creature.controller != ControllerKind::Spiking) {
-        return baseline_action(inputs, config, creature.controller, creature.neural_rng, creature.body.carnivory);
+        return baseline_action(inputs, config, creature.controller, creature.neural_rng, creature.body.carnivory, vision_fov(creature));
     }
     const BrainConfig& brain_config = creature.brain.config();
     if (brain_config.input_count != config.brain.input_count || brain_config.output_count != config.brain.output_count) {

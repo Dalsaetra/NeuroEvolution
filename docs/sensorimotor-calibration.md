@@ -31,3 +31,14 @@ The six outputs drive forward movement, left/right turning, forage, call, and at
 Tune neural gains, timing, and rates in `BrainConfig`, and bodily senses/actions in `EcosystemConfig`, both in [config.hpp](../include/neuroevo/config.hpp). Replay detail is controlled separately by `RunConfig`. Calibration tests cover rate coding, motor impulse responses, shelter visibility, and nutritional feedback.
 
 The three appended vision_N_creature_carnivory_total inputs sum all other visible creatures' carnivory within each sector. Walls, vision range, and field of view apply; distance within range adds no further falloff. For total S, the input is S / (1 + S): two 50% carnivores equal one 100% carnivore (0.5), while two 100% carnivores give 2/3. This bounded encoding keeps increasing beyond a total of 100%. The three directions form one mutation category and begin disconnected in the sparse ancestor. Version 41 writes this layout; supported older checkpoints retain their original 86 or 88 inputs. Importing older genomes into a new run appends the missing inputs.
+
+
+## Evolved eyes
+
+Each eye covers 150 degrees by default (the existing fov_degrees setting). The inherited eye_separation_degrees gene moves their axes symmetrically to minus/plus half the separation relative to heading. At the default separation of zero, both eyes face forward and preserve the previous 150-degree view. At separation 150, the axes are -75 and +75 degrees: their continuous combined view is 300 degrees, with a 60-degree blind spot behind.
+
+All visual channels divide this combined view into three equal angular sectors. Separation 0, 75, and 150 therefore produce sector widths of 50, 75, and 100 degrees respectively. Wider coverage trades angular precision for coverage without adding input neurons. Range, wall occlusion, hearing, contact, and the forward attack/feeding arcs keep their own rules. Overlapping eyes do not double-count creatures or resources.
+
+The ancestor template starts at founder_eye_separation=0. Initial founder diversification, if enabled, can mutate eyes along with the other body genes. On non-copy inheritance branches, eye_mutation_probability (default 0.2) and Gaussian eye_mutation_sigma (default 15 degrees) use the existing slight/strong body-profile scales. Separation is clamped to [0,150]; a custom per-eye FOV smaller than 150 also caps separation at that width so the combined view has no internal gap. Total coverage is capped at 360 degrees.
+
+CLI controls: --founder-eye-separation, --eye-mutation-probability, --eye-mutation-sigma. Replays show each creature's separation and combined FOV, and draw the individual vision cone. Version 42 checkpoints preserve living and pending offspring eye genes and mutation settings. Older checkpoints retain zero separation and disabled eye mutation for unchanged continuation; genome imports into new runs preserve eye genes and use the new run's mutation settings.
