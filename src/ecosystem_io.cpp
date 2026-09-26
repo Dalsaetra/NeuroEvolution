@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_42");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_43");
     // Read capacity-affecting settings before constructing/validating the world.
     checkpoint::write(s,"MASS_ALLOMETRY_1");
     checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
@@ -155,6 +155,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
     checkpoint::write(s,creatures.size());
     for(const auto& c:creatures)
         checkpoint::write(s,c.id,c.body.eye_separation_degrees,c.gestation?c.gestation->body.eye_separation_degrees:0.0);
+    checkpoint::write(s,"STORM_ENERGY_1",config.storm_energy_drain);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -162,7 +163,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool eyes_version = version == "NEUROEVO_ECOSYSTEM_42";
+    const bool storm_energy_version = version == "NEUROEVO_ECOSYSTEM_43";
+    const bool eyes_version = storm_energy_version || version == "NEUROEVO_ECOSYSTEM_42";
     const bool allometry_version = eyes_version || version == "NEUROEVO_ECOSYSTEM_41" || version == "NEUROEVO_ECOSYSTEM_40";
     const bool gestation_version = allometry_version || version == "NEUROEVO_ECOSYSTEM_39";
     const bool mass_energy_version = gestation_version || version == "NEUROEVO_ECOSYSTEM_38";
@@ -413,6 +415,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
             if(c.gestation)c.gestation->body.eye_separation_degrees=pending_eye;
         }
     }
+    w.config.storm_energy_drain=!w.config.storm_health_damage; // Historical mutually exclusive modes.
+    if(storm_energy_version) {
+        checkpoint::marker(s,"STORM_ENERGY_1");
+        checkpoint::read(s,w.config.storm_energy_drain);
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -456,6 +463,8 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"attack_base_fraction\":" << w.config.attack_base_fraction
       << ",\"carnivore_basal_fraction\":" << w.config.carnivore_basal_fraction
       << ",\"attack_cost\":" << w.config.attack_cost
+      << ",\"storm_energy_drain\":" << (w.config.storm_energy_drain ? "true" : "false")
+      << ",\"storm_cost\":" << w.config.storm_cost
       << ",\"storm_health_damage\":" << (w.config.storm_health_damage ? "true" : "false")
       << ",\"storm_damage\":" << w.config.storm_damage
       << ",\"healing_rate\":" << w.config.healing_rate

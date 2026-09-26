@@ -33,6 +33,7 @@ inline EcosystemConfig controlled_config()
     c.sparse_ancestor = false;
     c.mutate_initial_ancestors = false; // Keep controlled ancestral circuits unmodified.
     c.set_predation(false);
+    c.storm_energy_drain = true;
     c.storm_health_damage = false; // Controlled historical energy-drain storms.
     c.width = c.height = 48;
     c.max_population = 128;

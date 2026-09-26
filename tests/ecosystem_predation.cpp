@@ -51,7 +51,7 @@ void storm_health()
 {
     auto cfg=empty().config;cfg.width=cfg.height=80;cfg.nursery_frontier=true;
     cfg.storms_enabled=true;cfg.phase_offset=cfg.calm_duration+cfg.warning_duration;
-    cfg.storm_health_damage=true;cfg.storm_damage=10;cfg.storm_cost=99;cfg.healing_rate=10;
+    cfg.storm_health_damage=true;cfg.storm_energy_drain=false;cfg.storm_damage=10;cfg.storm_cost=99;cfg.healing_rate=10;
     EcosystemWorld w(cfg,false);
     add(w,{10.5,10.5},0,{1,0}); add(w,{15.5,10.5},0,{2,0});
     add(w,{40,40});add(w,{20.5,10.5});
@@ -76,7 +76,7 @@ void storm_health()
     auto energy=empty();energy.config.storms_enabled=true;energy.config.phase_offset=cfg.phase_offset;
     energy.config.storm_cost=10;add(energy,{3,3});energy.step({{}});
     near(energy.creatures[0].energy,99,"Default energy storm changed");near(energy.creatures[0].health,20,"Energy storm damaged health");
-    energy.config.storm_health_damage=true;energy.config.storm_damage=0;energy.step({{}});
+    energy.config.storm_health_damage=true;energy.config.storm_energy_drain=false;energy.config.storm_damage=0;energy.step({{}});
     near(energy.creatures[0].energy,99,"Zero-damage storm drained energy");
     energy.config.storm_damage=10;energy.config.storms_enabled=false;energy.step({{}});
     near(energy.creatures[0].health,20,"Disabled storm damaged health");
@@ -92,7 +92,7 @@ void storm_survival_scales_linearly()
     auto w=empty();
     w.config.storms_enabled=true;
     w.config.phase_offset=w.config.calm_duration+w.config.warning_duration;
-    w.config.storm_health_damage=true;w.config.storm_damage=10;
+    w.config.storm_health_damage=true;w.config.storm_energy_drain=false;w.config.storm_damage=10;
     add(w,{3,3},0,{0.5,0});add(w,{5,3},0,{1,0});add(w,{7,3},0,{2,0});
     for(int step=1;step<=40;++step) {
         w.step(std::vector<EcoAction>(w.creatures.size()));

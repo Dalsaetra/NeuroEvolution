@@ -209,10 +209,13 @@ class EcosystemCliTests(unittest.TestCase):
 
     def test_storm_health_mode_resume(self):
         first = self.run_world("storm_health", "--creatures", 1, "--steps", 2,
-                               "--storm-health-damage", 1, "--storm-damage", 7)
+                               "--storm-health-damage", 1, "--storm-damage", 7,
+                               "--storm-energy-drain", 1, "--storm-cost", 3)
         resumed = self.run_world("storm_health_resume", "--resume", first / "checkpoint.eco", "--steps", 1)
         metadata = json.loads((resumed / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertTrue(metadata["storm_health_damage"])
+        self.assertTrue(metadata["storm_energy_drain"])
+        self.assertEqual(metadata["storm_cost"], 3)
         self.assertEqual(metadata["storm_damage"], 7)
 
     def test_shelter_predation_damage_resume_and_legacy(self):
@@ -322,7 +325,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_42")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_43")
         del lines[1:3]  # Version 40's mass-allometry config preamble.
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]

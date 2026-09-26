@@ -245,7 +245,8 @@ struct EcosystemConfig {
     // Weather
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
     double storm_cost = 5.0, phase_offset = 0;
-    bool storm_health_damage = true; // Use health damage instead of energy drain; requires predation.
+    bool storm_health_damage = true; // Independent health drain; requires predation.
+    bool storm_energy_drain = false; // Can be enabled alongside health damage.
     bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
     double storm_damage = 0.5; // Peak health/second independent of mass; health capacity scales with mass.
 

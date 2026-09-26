@@ -277,7 +277,8 @@ int main(int argc, char** argv)
                     "  --eye-mutation-probability X / --eye-mutation-sigma X (degrees)\n"
                     "  --allocation-mutation-probability X / --allocation-mutation-sigma X\n"
                     "  --meta-mutation 0|1 / --meta-mutation-probability X / --meta-mutation-sigma X\n"
-                    "  --storm-health-damage 0|1  Drain health instead of energy during storms\n"
+                    "  --storm-health-damage 0|1  Enable storm health drain independently\n"
+                    "  --storm-energy-drain 0|1  Enable storm energy drain (default 0)\n"
                     "  --storm-damage X         Health damage/second independent of mass\n"
                     "  --nursery-meat-decay X    Meat biomass lost/second inside nursery; --meat-decay applies outside\n"
                     "  --founders FILE           Copy/reset living brains from a checkpoint into a new world\n"
@@ -353,6 +354,7 @@ int main(int argc, char** argv)
                     cfg.brain.conduction_speed = calibrated ? 6.0 : 1.5;
                     cfg.brain.max_delay_steps = calibrated ? 8 : 24;
                 }
+                else if (arg == "--storm-energy-drain") cfg.storm_energy_drain=boolean(value,arg);
                 else if (arg == "--storm-health-damage") cfg.storm_health_damage=boolean(value,arg);
                 else if (arg == "--storm-ramp") cfg.storm_ramp=boolean(value,arg);
                 else if (arg == "--shelter-predation-damage") cfg.shelter_predation_damage=boolean(value,arg);
@@ -735,6 +737,7 @@ int main(int argc, char** argv)
             << ",\"offspring_energy\":" << world.config.offspring_energy
             << ",\"reproduction_cooldown\":" << world.config.reproduction_cooldown
             << ",\"basal_cost\":" << world.config.basal_cost << ",\"storm_cost\":" << world.config.storm_cost
+            << ",\"storm_energy_drain\":" << (world.config.storm_energy_drain ? "true" : "false")
             << ",\"storm_health_damage\":" << (world.config.storm_health_damage ? "true" : "false")
             << ",\"storm_damage\":" << world.config.storm_damage
             << ",\"graze_energy\":" << world.config.graze_energy

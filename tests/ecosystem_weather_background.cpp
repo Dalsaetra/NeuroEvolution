@@ -10,7 +10,7 @@ void near(double a,double b,const char* message){check(std::abs(a-b)<1e-8,messag
 std::string saved(const EcosystemWorld& w){std::ostringstream s;w.save_checkpoint(s);return s.str();}
 EcosystemWorld fixture(double elapsed,bool shelter=false)
 {
-    auto cfg=controlled_config();cfg.set_predation(true);cfg.storm_health_damage=true;cfg.storm_ramp=true;
+    auto cfg=controlled_config();cfg.set_predation(true);cfg.storm_health_damage=true;cfg.storm_energy_drain=false;cfg.storm_ramp=true;
     cfg.initial_creatures=0;cfg.reproduction=false;cfg.storms_enabled=true;
     cfg.calm_duration=2;cfg.warning_duration=2;cfg.storm_duration=8;cfg.phase_offset=4+elapsed;
     cfg.storm_damage=1;cfg.healing_rate=0;cfg.outdoor_food_relocates=false;
@@ -35,9 +35,9 @@ void storm_curve()
     auto w=fixture(0);
     for(int i=0;i<80;++i)w.step({{}});
     near(w.totals.damage,4,"Integrated triangular damage must be half of flat peak damage");
-    auto energy=fixture(4);energy.config.storm_health_damage=false;energy.config.storm_cost=2;
+    auto energy=fixture(4);energy.config.storm_health_damage=false;energy.config.storm_energy_drain=true;energy.config.storm_cost=2;
     energy.step({{}});near(energy.creatures[0].energy,49.8,"Energy-mode peak did not use intensity");
-    energy=fixture(2);energy.config.storm_health_damage=false;energy.config.storm_cost=2;
+    energy=fixture(2);energy.config.storm_health_damage=false;energy.config.storm_energy_drain=true;energy.config.storm_cost=2;
     energy.step({{}});near(energy.creatures[0].energy,49.9,"Energy-mode ramp did not use intensity");
     auto disabled=fixture(4);disabled.config.storms_enabled=false;
     near(disabled.storm_intensity(),0,"Disabled storms retain intensity");
@@ -83,6 +83,34 @@ void background_food()
     EcosystemConfig cfg;cfg.initial_creatures=0;cfg.background_food_patches=0;EcosystemWorld w(cfg);
     for(const auto& r:w.resources)check(r.source_id || w.in_nursery(r.position),"Disabled background food still generated");
 }
+void combined_drains()
+{
+    for(double elapsed:{0.,2.,4.,6.,8.})for(bool health:{false,true})for(bool energy:{false,true})
+        for(bool shelter:{false,true})for(double mass:{.5,1.,2.}) {
+            auto w=fixture(elapsed,shelter);
+            w.config.storm_health_damage=health;w.config.storm_energy_drain=energy;w.config.storm_cost=2;
+            w.creatures[0].body.mass=mass;w.creatures[0].health=w.max_health(w.creatures[0]);
+            const auto initial_health=w.creatures[0].health;
+            const double intensity=w.storm_intensity();w.step({{}});
+            near(w.creatures[0].health,initial_health-(!shelter && health?intensity*.1:0),"Independent health drain wrong");
+            near(w.creatures[0].energy,50-(!shelter && energy?2*intensity*.1/mass:0),"Independent energy drain wrong");
+        }
+    auto w=fixture(0);w.config.storm_energy_drain=true;w.config.storm_cost=2;
+    for(int i=0;i<40;++i)w.step({{}});
+    std::istringstream input(saved(w));auto resumed=EcosystemWorld::load_checkpoint(input);
+    for(int i=0;i<40;++i){w.step({{}});resumed.step({{}});}
+    near(w.totals.damage,4,"Combined health triangle integral wrong");
+    near(w.totals.exposure,8,"Combined energy triangle integral wrong");
+    check(saved(w)==saved(resumed),"Combined storm checkpoint continuation changed");
+    for(bool health:{false,true}) {
+        auto legacy=fixture(2);legacy.config.storm_health_damage=health;legacy.config.storm_energy_drain=!health;
+        auto old=saved(legacy);old.erase(old.find("STORM_ENERGY_1"));old+="END_ECOSYSTEM\n";
+        old.replace(0,21,"NEUROEVO_ECOSYSTEM_42");
+        std::istringstream stream(old);auto restored=EcosystemWorld::load_checkpoint(stream);
+        check(restored.config.storm_energy_drain==!health,"Old storm mode not preserved");
+        legacy.step({{}});restored.step({{}});check(saved(legacy)==saved(restored),"Old storm continuation changed");
+    }
+}
 void checkpoint_compatibility()
 {
     auto w=fixture(2);std::istringstream input(saved(w));auto resumed=EcosystemWorld::load_checkpoint(input);
@@ -97,4 +125,4 @@ void checkpoint_compatibility()
     near(restored.totals.damage,.1,"Legacy storm lost flat damage");
 }
 }
-int main(){try{storm_curve();background_food();checkpoint_compatibility();std::cout<<"Weather and background food tests passed\n";}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{storm_curve();combined_drains();background_food();checkpoint_compatibility();std::cout<<"Weather and background food tests passed\n";}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -34,7 +34,7 @@ Exposed health damage is `storm_damage * I` per second. The configured damage
 is the **peak**, not the average: the default 0.35 over a 60-second storm deals
 10.5 health damage to a creature exposed throughout, before other effects.
 This is half the integrated damage of the old flat storm with the same setting.
-Legacy energy-drain mode also multiplies its exposure cost by intensity.
+Energy drain independently uses the same intensity: storm_cost * I / mass per second with body mechanics, or storm_cost * I without them.
 
 Harvesting scales the requested ingestion rate by `1 - 0.5*I`, for plants and
 meat. Pod-opening effort gets the same multiplier before the existing cooperative
@@ -49,3 +49,10 @@ simulation interval, as the weather system already did.
 Checkpoint format 37 stores the background settings and ramp policy. Formats
 22–36 load with no additional background food and their historical flat storm
 behavior. New worlds seeded with old genomes use the new world defaults.
+
+
+## Independent storm drains
+
+Set storm_health_damage=true and storm_energy_drain=true to enable both drains. They can also be enabled separately or both disabled. The default remains health-only (storm_energy_drain=false). storm_damage and storm_cost are their separate peak rates. With storm_ramp=true, both use the same linear rise to the midpoint and linear fall to zero. Nursery and shelter protection applies to both.
+
+For a new run, pass --storm-health-damage 1 --storm-energy-drain 1 --storm-ramp 1, plus --storm-damage and --storm-cost as desired. These are saved world settings, not resume overrides. Version 43 checkpoints store the independent energy switch. Older checkpoints preserve their former mutually exclusive policy: energy enabled when health damage was disabled.
