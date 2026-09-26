@@ -1,6 +1,6 @@
 # Sensory and motor interface
 
-Nursery brains use three vision sectors, 88 local inputs, and six motor outputs. The non-predation extended interface has 66 inputs and five outputs; the reduced control interface has 60 inputs. Sensor labels and category groups are defined in `src/ecosystem_sensing.cpp`.
+Nursery brains use three vision sectors, 91 local inputs, and six motor outputs. The non-predation extended interface has 66 inputs and five outputs; the reduced control interface has 60 inputs. Sensor labels and category groups are defined in `src/ecosystem_sensing.cpp`.
 
 Inputs describe visible obstacles, food and creatures, hearing, contact, bodily state, weather, depleted food, and shelter. Predation appends meat sensing, observed body mass/health, and own health/damage. Typed food proximity distinguishes distance to individual food types. Walls occlude vision, and fields of view limit visible signals. Controllers do not receive global resource locations or population state.
 
@@ -29,3 +29,5 @@ differ by a world step.
 The six outputs drive forward movement, left/right turning, forage, call, and attack. Effort consumes the corresponding energy budget. The sparse ancestor's attack neuron is initially disconnected; its five hidden neurons implement the initial locomotion and forage circuit.
 
 Tune neural gains, timing, and rates in `BrainConfig`, and bodily senses/actions in `EcosystemConfig`, both in [config.hpp](../include/neuroevo/config.hpp). Replay detail is controlled separately by `RunConfig`. Calibration tests cover rate coding, motor impulse responses, shelter visibility, and nutritional feedback.
+
+The three appended vision_N_creature_carnivory_total inputs sum all other visible creatures' carnivory within each sector. Walls, vision range, and field of view apply; distance within range adds no further falloff. For total S, the input is S / (1 + S): two 50% carnivores equal one 100% carnivore (0.5), while two 100% carnivores give 2/3. This bounded encoding keeps increasing beyond a total of 100%. The three directions form one mutation category and begin disconnected in the sparse ancestor. Version 41 writes this layout; supported older checkpoints retain their original 86 or 88 inputs. Importing older genomes into a new run appends the missing inputs.

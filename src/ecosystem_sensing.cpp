@@ -311,6 +311,9 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
         }
         if (distance > config.vision_range || std::abs(angle) > half_fov + epsilon) continue;
         const std::size_t sector = sector_at(angle, half_fov);
+        // Aggregate before nearest-creature filtering: every visible diet contributes.
+        if (config.predation && inputs.size()>eco_carnivory_offset)
+            inputs[eco_carnivory_offset + sector] += other.body.carnivory;
         if (distance > creature_distances[sector] + epsilon
             || (std::abs(distance - creature_distances[sector]) <= epsilon && angle >= creature_angles[sector])) continue;
         creature_distances[sector] = distance;
@@ -326,6 +329,11 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
         inputs[offset + 13] = config.communication ? unit(other.action.call) : 0.0;
     }
 
+    if (config.predation && inputs.size()>eco_carnivory_offset)
+        for (std::size_t sector=0;sector<eco_sectors;++sector) {
+            auto& total=inputs[eco_carnivory_offset+sector];
+            total=total/(1.0+total);
+        }
     if (config.predation) {
         inputs[eco_health_offset] = unit(self.health / max_health(self));
         inputs[eco_health_offset + 1] = unit(self.damage_pulse / max_health(self));
@@ -399,9 +407,9 @@ EcoAction EcosystemWorld::control(std::size_t creature_index,
     return action;
 }
 
-const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, bool reproductive_senses)
+const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, bool reproductive_senses, bool carnivory_senses)
 {
-    const auto build = [](bool include_extended, bool include_predation, bool reproduction = false) {
+    const auto build = [](bool include_extended, bool include_predation, bool reproduction = false, bool carnivory = false) {
         Brain::InputGroups groups;
         for (std::size_t channel = 0; channel < eco_sector_channels; ++channel) {
             std::vector<std::size_t> group;
@@ -432,14 +440,19 @@ const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, 
             for (std::size_t sector = 0; sector < eco_sectors; ++sector) plants.push_back(eco_plant_offset + sector);
             groups.push_back(std::move(plants));
             if(reproduction){groups.push_back({eco_reproduction_offset});groups.push_back({eco_reproduction_offset+1});}
+            if(carnivory) {
+                std::vector<std::size_t> inputs;
+                for(std::size_t sector=0;sector<eco_sectors;++sector) inputs.push_back(eco_carnivory_offset+sector);
+                groups.push_back(std::move(inputs));
+            }
         }
         return groups;
     };
-    static const auto legacy = build(false, false), current = build(true, false), combat = build(true, true), reproductive = build(true,true,true);
-    return predation ? (reproductive_senses ? reproductive : combat) : extended ? current : legacy;
+    static const auto legacy = build(false, false), current = build(true, false), combat = build(true, true), reproductive = build(true,true,true), dietary = build(true,true,true,true);
+    return predation ? (reproductive_senses ? (carnivory_senses ? dietary : reproductive) : combat) : extended ? current : legacy;
 }
 
-std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity, bool reproductive_senses)
+std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity, bool reproductive_senses, bool carnivory_senses)
 {
     constexpr const char* channels[] = {"obstacle_proximity", "food_present", "food_proximity",
         "food_graze", "food_fruit_a", "food_fruit_b", "food_pod", "food_stock",
@@ -474,6 +487,9 @@ std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, b
             labels.push_back("vision_" + std::to_string(sector) + "_plant_proximity");
     }
     if(predation && reproductive_senses){labels.push_back("reproduction_progress");labels.push_back("reproduction_cooldown");}
+    if(predation && reproductive_senses && carnivory_senses)
+        for(std::size_t sector=0;sector<eco_sectors;++sector)
+            labels.push_back("vision_"+std::to_string(sector)+"_creature_carnivory_total");
     return labels;
 }
 

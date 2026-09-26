@@ -263,7 +263,7 @@ void EcosystemConfig::validate() const
     if (predation && !extended_senses)
         throw std::invalid_argument("Predation requires extended senses");
     const auto inputs = predation ? eco_predation_input_count : extended_senses ? eco_input_count : eco_legacy_input_count;
-    if ((brain.input_count != inputs && !(predation && !funded_reproduction && brain.input_count==eco_reproduction_offset)) || brain.output_count != (predation ? eco_predation_output_count : eco_output_count)) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout");
+    if ((brain.input_count != inputs && !(predation && (brain.input_count==eco_carnivory_offset || (!funded_reproduction && brain.input_count==eco_reproduction_offset)))) || brain.output_count != (predation ? eco_predation_output_count : eco_output_count)) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout");
     positive(brain.sensory_rate_hz, "Sensory spike rate");
     positive(brain.motor_rate_tau, "Motor rate time constant");
     positive(brain.motor_reference_hz, "Motor reference spike rate");

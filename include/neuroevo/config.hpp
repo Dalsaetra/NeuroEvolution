@@ -45,7 +45,8 @@ constexpr std::size_t eco_other_health_offset = eco_other_mass_offset + eco_sect
 constexpr std::size_t eco_health_offset = eco_other_health_offset + eco_sectors;
 constexpr std::size_t eco_plant_offset = eco_health_offset + 2;
 constexpr std::size_t eco_reproduction_offset = eco_plant_offset + eco_sectors;
-constexpr std::size_t eco_predation_input_count = eco_reproduction_offset + 2;
+constexpr std::size_t eco_carnivory_offset = eco_reproduction_offset + 2;
+constexpr std::size_t eco_predation_input_count = eco_carnivory_offset + eco_sectors;
 constexpr std::size_t eco_predation_output_count = 6;
 constexpr double eco_min_mass = 0.5, eco_max_mass = 2.0;
 

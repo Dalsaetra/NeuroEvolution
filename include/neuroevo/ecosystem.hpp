@@ -155,8 +155,8 @@ public:
 };
 
 std::vector<std::string> ecosystem_input_labels(bool extended = true, bool predation = false,
-    bool typed_food_proximity = true, bool reproductive_senses = true);
-const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false, bool reproductive_senses = true);
+    bool typed_food_proximity = true, bool reproductive_senses = true, bool carnivory_senses = true);
+const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false, bool reproductive_senses = true, bool carnivory_senses = true);
 // A deliberately small, deterministic founder genome. It uses five hidden
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary
 // spiking Brain and offspring can mutate it through the normal birth path.

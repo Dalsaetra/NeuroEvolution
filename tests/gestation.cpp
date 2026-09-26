@@ -107,6 +107,6 @@ int main() try {
     bool rejected=false;try{std::istringstream bad(corrupt);EcosystemWorld::load_checkpoint(bad);}catch(const std::runtime_error&){rejected=true;}
     check(rejected,"Invalid reproductive allocation accepted");
     const auto labels=ecosystem_input_labels(true,true,true);
-    check(labels[eco_reproduction_offset]=="reproduction_progress" && labels.back()=="reproduction_cooldown","Sensor labels");
+    check(labels[eco_reproduction_offset]=="reproduction_progress" && labels[eco_reproduction_offset+1]=="reproduction_cooldown","Sensor labels");
     std::cout<<"Gestation tests passed"<<std::endl;
 }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}

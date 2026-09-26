@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -386,12 +387,62 @@ void test_contact_outside_sensory_range()
         "Distance culling must retain contact outside both vision and hearing range");
 }
 
+void test_carnivory_totals()
+{
+    auto world=empty_world();world.config.set_predation(true);
+    world.creatures.push_back(creature(world,{4.5,8.5}));
+    world.creatures[0].body.carnivory=1;
+    const auto add=[&](Vec2 position,double carnivory) {
+        auto c=creature(world,position,world.creatures.size()+1);
+        c.body.carnivory=carnivory;world.creatures.push_back(c);
+    };
+    const auto sense=[&](std::size_t sector=1){return world.observe(0)[eco_carnivory_offset+sector];};
+    require(near(sense(),0),"Carnivory sensor included self");
+    add({5.5,8.5},0);require(near(sense(),0),"Herbivore contributed carnivory");
+    add({6.5,8.5},.25);add({7.5,8.5},.75);
+    require(near(sense(),.5),"Carnivory did not aggregate beyond the nearest creature");
+    add({8.5,8.5},1);require(near(sense(),2.0/3),"Multiple carnivores clipped the signal");
+    add({6.5,6.5},.5);add({6.5,10.5},.25);
+    require(near(sense(0),1.0/3) && near(sense(2),.2),"Carnivory sectors leaked into each other");
+    add({3.5,8.5},1);add({11.5,8.5},1);
+    require(near(sense(),2.0/3),"Carnivory ignored field of view or range");
+    world.terrain[8*world.config.width+5]=Terrain::Wall;
+    require(near(sense(),0),"Carnivory sensed through a wall");
+    world.terrain[8*world.config.width+5]=Terrain::Ground;
+    const auto before=world.observe(0);
+    std::reverse(world.creatures.begin()+1,world.creatures.end());
+    require(before==world.observe(0),"Creature order changed carnivory sums");
+    const std::vector<std::size_t> neighbours{0,1,2,3,4,5,6,7,8};
+    require(before==world.observe(0,&neighbours),"Indexed carnivory observation changed");
+    const auto labels=ecosystem_input_labels(true,true);
+    require(labels.size()==eco_predation_input_count && labels[eco_carnivory_offset+1]=="vision_1_creature_carnivory_total",
+        "Carnivory labels do not match input layout");
+    const auto& groups=ecosystem_input_groups(true,true);
+    require(groups.back()==std::vector<std::size_t>{eco_carnivory_offset,eco_carnivory_offset+1,eco_carnivory_offset+2},
+        "Carnivory directions do not form one mutation group");
+
+    // Supported historical layouts keep their existing neurons when resuming.
+    world.config.brain.input_count=eco_carnivory_offset;world.config.validate();
+    for(auto& c:world.creatures) {
+        c.genome_id=c.id;
+        c.brain=make_sparse_ancestral_brain(world.config);
+    }
+    world.next_creature_id=world.creatures.size()+1;
+    std::ostringstream saved;world.save_checkpoint(saved);
+    auto old=saved.str();old.replace(0,21,"NEUROEVO_ECOSYSTEM_40");
+    std::istringstream stream(old);auto resumed=EcosystemWorld::load_checkpoint(stream);
+    require(resumed.observe(0).size()==eco_carnivory_offset,"Historical checkpoint input count changed");
+    require(ecosystem_input_labels(true,true,true,true,false).size()==eco_carnivory_offset,"Historical labels grew");
+    resumed.step(std::vector<EcoAction>(resumed.creatures.size()));
+}
+
 } // namespace
 
 int main()
 {
     try {
         test_visibility();
+        test_carnivory_totals();
         test_sectors_and_contact();
         test_nearest_and_hidden_information();
         test_typed_food_proximity();

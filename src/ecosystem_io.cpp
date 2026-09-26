@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_40");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_41");
     // Read capacity-affecting settings before constructing/validating the world.
     checkpoint::write(s,"MASS_ALLOMETRY_1");
     checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
@@ -157,7 +157,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool allometry_version = version == "NEUROEVO_ECOSYSTEM_40";
+    const bool allometry_version = version == "NEUROEVO_ECOSYSTEM_41" || version == "NEUROEVO_ECOSYSTEM_40";
     const bool gestation_version = allometry_version || version == "NEUROEVO_ECOSYSTEM_39";
     const bool mass_energy_version = gestation_version || version == "NEUROEVO_ECOSYSTEM_38";
     const bool background_weather_version = mass_energy_version || version == "NEUROEVO_ECOSYSTEM_37";
@@ -231,7 +231,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         throw std::runtime_error("Predation checkpoint uses the old food sensor layout. Start a new run; use the previous build to resume this checkpoint.");
     // The final mode is stored in the trailing extension. Permit the new mode's
     // independent funding target during construction, then validate the saved mode.
-    cfg.funded_reproduction=gestation_version && cfg.predation && cfg.brain.input_count==eco_predation_input_count;
+    cfg.funded_reproduction=gestation_version && cfg.predation && cfg.brain.input_count>=eco_carnivory_offset;
     EcosystemWorld w(cfg,false);
     w.nursery_food_current_energy=nursery_energy;
     w.nursery_above_food_threshold=nursery_above;
@@ -488,7 +488,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"motor_reference_hz\":" << w.config.brain.motor_reference_hz
       << ",\"motor_gain\":" << w.config.motor_gain << ",\"actuator_tau\":" << w.config.actuator_tau
       << ",\"input_labels\":";
-    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity,w.config.brain.input_count>eco_reproduction_offset),[&](const std::string& v){ quoted(s,v); });
+    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity,w.config.brain.input_count>eco_reproduction_offset,w.config.brain.input_count>eco_carnivory_offset),[&](const std::string& v){ quoted(s,v); });
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"food_distribution\":\"" << food_distribution_name(w.config.food_distribution) << "\""

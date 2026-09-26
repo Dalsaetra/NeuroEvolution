@@ -29,7 +29,7 @@ Brain::Neuron neuron_at(double x, double y, double threshold = 1.0)
 
 Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
 {
-    if (config.brain.input_count != (config.predation ? (config.brain.input_count==eco_reproduction_offset && !config.funded_reproduction ? eco_reproduction_offset : eco_predation_input_count) : config.extended_senses ? eco_input_count : eco_legacy_input_count)
+    if (config.brain.input_count != (config.predation ? (config.brain.input_count==eco_carnivory_offset ? eco_carnivory_offset : config.brain.input_count==eco_reproduction_offset && !config.funded_reproduction ? eco_reproduction_offset : eco_predation_input_count) : config.extended_senses ? eco_input_count : eco_legacy_input_count)
         || config.brain.output_count != (config.predation ? eco_predation_output_count : eco_output_count)) {
         throw std::invalid_argument("The sparse ecosystem ancestor requires the ecosystem sensor and motor layout");
     }
@@ -163,7 +163,7 @@ void EcosystemWorld::initialize_ancestral_genome(EcoCreature& creature)
         if (config.predation)
             totals.external_body_energy += config.body_energy_per_mass * (creature.body.mass - initial_mass);
         creature.brain.mutate(detail::strong_mutation(config.mutation), rng,
-            ecosystem_input_groups(config.extended_senses, config.predation,config.brain.input_count>eco_reproduction_offset));
+            ecosystem_input_groups(config.extended_senses, config.predation,config.brain.input_count>eco_reproduction_offset,config.brain.input_count>eco_carnivory_offset));
         creature.genome_id = creature.id;
     }
     creature.brain.reset_state();

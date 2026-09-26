@@ -65,7 +65,7 @@ PendingOffspring EcosystemWorld::conceive(const EcoCreature& parent)
     child.brain=parent.brain;
     child.brain.reset_state();
     if(!copy) child.brain.mutate(strong?detail::strong_mutation(config.mutation):detail::slight_mutation(config.mutation),
-        mutation_rng,ecosystem_input_groups(config.extended_senses,config.predation,config.brain.input_count>eco_reproduction_offset));
+        mutation_rng,ecosystem_input_groups(config.extended_senses,config.predation,config.brain.input_count>eco_reproduction_offset,config.brain.input_count>eco_carnivory_offset));
     child.mutation_scale=parent.mutation_scale;
     if(config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
         && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
