@@ -6,6 +6,10 @@ Inputs describe visible obstacles, food and creatures, hearing, contact, bodily 
 
 Calibrated sensory neurons encode intensity as spike rate, with `sensory_rate_hz` as the reference. Their inherited thresholds adjust sensitivity. Motor spikes accumulate a rate trace controlled by `motor_rate_tau` and normalized by `motor_reference_hz`; `actuator_tau` smooths actions. Brain updates use `brain.dt`, and world `dt` must be an integer multiple of it.
 
+Synapse-addition mutations sample available sensory categories equally. Selecting a category adds every missing member-to-destination connection in one structural mutation, using one shared initial weight. Existing connections and their weights are preserved; transmission delays are calculated separately from each source's position. This also applies when repairing a disconnected hidden neuron. The current brain has no synapse-count cap.
+
+Synapse removal first selects an existing edge. For a sensory edge, a 50/50 choice removes either that edge alone or every edge from its sensory category to the same destination. Hidden-origin edges retain individual removal. Weight mutation and rewiring remain individual, allowing directional specialization after a category is discovered. These rules apply to subsequent mutations in both new and resumed runs; saved connections are not modified on load.
+
 Contact has four binary channels (front, left, back, right), recomputed from current
 wall/boundary and creature proximity on every observation. They clear when contact
 ends. A calibrated input neuron's recorded `potential` is instead a fractional

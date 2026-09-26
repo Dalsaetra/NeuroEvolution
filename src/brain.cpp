@@ -340,8 +340,21 @@ void Brain::mutate(const MutationConfig& config, Random& rng, const InputGroups&
         }
         else if (choice < add + grow + motif) add_reciprocal_motif(rng, true);
         else if (choice < add + grow + motif + remove) {
-            if (!synapses_.empty())
-                synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(rng.uniform_index(synapses_.size())));
+            if (!synapses_.empty()) {
+                const auto index = rng.uniform_index(synapses_.size());
+                const auto selected = synapses_[index];
+                // Select an edge as before, then optionally remove its whole
+                // sensory category at this destination. Weights remain independent.
+                if (is_input(selected.pre) && !input_groups.empty() && rng.chance(0.5)) {
+                    const auto group = std::find_if(input_groups.begin(), input_groups.end(), [&](const auto& inputs) {
+                        return std::find(inputs.begin(), inputs.end(), selected.pre) != inputs.end();
+                    });
+                    synapses_.erase(std::remove_if(synapses_.begin(), synapses_.end(), [&](const auto& edge) {
+                        return edge.post == selected.post
+                            && std::find(group->begin(), group->end(), edge.pre) != group->end();
+                    }), synapses_.end());
+                } else synapses_.erase(synapses_.begin() + static_cast<std::ptrdiff_t>(index));
+            }
         }
         else if (choice < add + grow + motif + remove + prune) remove_random_neuron(rng);
         else if (choice < add + grow + motif + remove + prune + rewire) rewire_random_synapse(rng, input_groups);
@@ -528,6 +541,25 @@ void Brain::rebuild_runtime_state()
 void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_groups)
 {
     if (config_.hidden_count + config_.output_count == 0) return;
+    const auto add_connections = [&](std::size_t pre, std::size_t post) {
+        std::vector<std::size_t> sources{pre};
+        if (is_input(pre) && !input_groups.empty()) {
+            const auto group = std::find_if(input_groups.begin(), input_groups.end(), [&](const auto& inputs) {
+                return std::find(inputs.begin(), inputs.end(), pre) != inputs.end();
+            });
+            sources.clear();
+            for (const auto input : *group)
+                if (!synapse_exists(input, post)) sources.push_back(input);
+        }
+        // One structural operation installs every missing member with one weight.
+        // Existing members keep their evolved weights; delays follow each source's position.
+        synapses_.reserve(synapses_.size() + sources.size());
+        double weight = random_synapse_weight(rng);
+        if (weak) weight = std::copysign(std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain), weight);
+        for (const auto source : sources)
+            synapses_.push_back({source, post, weight,
+                compute_delay_steps(neurons_[source].position, neurons_[post].position)});
+    };
     std::vector<bool> incoming(total_neurons(), false), outgoing(total_neurons(), false);
     for (const auto& edge : synapses_) if (edge.pre != edge.post) {
         outgoing[edge.pre] = true; incoming[edge.post] = true;
@@ -570,10 +602,7 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
             }
             const auto& targets = repair_targets[pre];
             const auto post = targets[rng.uniform_index(targets.size())];
-            double weight = random_synapse_weight(rng);
-            if (weak) weight = std::copysign(std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain), weight);
-            synapses_.push_back({pre, post, weight,
-                compute_delay_steps(neurons_[pre].position, neurons_[post].position)});
+            add_connections(pre, post);
             return;
         }
     }
@@ -609,13 +638,7 @@ void Brain::add_random_synapse(Random& rng, bool weak, const InputGroups& input_
             continue;
         }
 
-        Synapse synapse;
-        synapse.pre = pre;
-        synapse.post = post;
-        synapse.weight = random_synapse_weight(rng);
-        if (weak) synapse.weight = std::copysign(std::min(6.0, 0.5 * 32.0 / config_.synaptic_gain), synapse.weight);
-        synapse.delay_steps = compute_delay_steps(neurons_[pre].position, neurons_[post].position);
-        synapses_.push_back(synapse);
+        add_connections(pre, post);
         return;
     }
 }
