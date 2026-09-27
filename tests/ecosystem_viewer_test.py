@@ -250,7 +250,8 @@ class EcosystemReplayTests(unittest.TestCase):
             {"id": 12, "source_id": 3, "kind": "pod", "x": 2.5, "y": 1, "capacity": 10},
         ]
         creature = {"id": 1, "x": 1, "y": 1, "energy": 50, "age": 0,
-                    "mass": 1.5, "carnivory": 0.3, "health": 20, "max_health": 30, "attack": 0.5}
+                    "mass": 1.5, "carnivory": 0.3, "health": 20, "max_health": 30, "attack": 0.5,
+                    "call": .8, "heading": 1.2, "fov_degrees": 220, "mutation_scale": 1.25, "max_energy": 80}
         child = {**creature, "id": 2, "parent": 1, "generation": 1,
                  "origin": "birth", "genome_id": 1, "brain": {
             "inputs": 1, "outputs": 1,
@@ -261,6 +262,14 @@ class EcosystemReplayTests(unittest.TestCase):
         frames = [{"time": i, "creatures": creatures, "resources": [], "events": [], "totals": {}}
                   for i, creatures in enumerate(([creature], [child], []))]
         frames[1]["resources"] = [{"id": 99, "kind": "meat", "x": 1.5, "y": 1, "stock": 1, "capacity": 2, "value": 20}]
+        frames[1]["events"] = [
+            {"type": "attack_hit", "creature": 2, "other": 1, "time": .3, "x": 1.4, "y": 1},
+            {"type": "attack_hit", "creature": 2, "other": 1, "time": .4, "x": 1.5, "y": 1},
+            {"type": "death", "creature": 1, "time": .4, "cause": "predation", "x": 1.5, "y": 1},
+        ]
+        frames[1]["totals"] = {"predation_deaths": 1}
+        frames[2]["events"] = [{"type": "death", "creature": 2, "cause": "energy", "x": 2, "y": 1}]
+        frames[2]["totals"] = {"predation_deaths": 1}
         for frame in frames:
             frame["resources"] += [
                 {"id": 10, "stock": .5, "ripening_remaining": -1},
@@ -275,7 +284,8 @@ class EcosystemReplayTests(unittest.TestCase):
         harness = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 const nodes=new Map();
-const context=new Proxy({measureText:t=>({width:String(t).length*6})},{get:(o,k)=>k in o?o[k]:(()=>{})});
+const canvasCalls=[];
+const context=new Proxy({measureText:t=>({width:String(t).length*6})},{get:(o,k)=>k in o?o[k]:((...args)=>canvasCalls.push([k,...args]))});
 function element(tag='div') {return {tagName:tag.toUpperCase(),style:{},dataset:{},children:[],listeners:{},checked:false,value:0,width:0,height:0,hidden:false,textContent:'',
 classList:{add(){},remove(){}},getContext:()=>context,getBoundingClientRect:()=>({left:0,top:0,width:400,height:220}),
 add(child){this.children.push(child)},append(...children){this.children.push(...children)},replaceChildren(...children){this.children=children},setAttribute(){},
@@ -288,7 +298,36 @@ vm.runInNewContext(SOURCE,scope);
 assert.equal(nodes.get('bodyTraits').hidden,false);
 assert.match(nodes.get('bodyTraits').textContent,/Mass 1.5/);
 assert.equal(nodes.get('actions').children.length,6);
-assert.equal(nodes.get('dietLabels').children.length,5);
+assert.equal(nodes.get('survivalAmount').textContent,'50 / 80');
+assert.equal(nodes.get('energyFill').style.width,'62.5%');
+const creaturePoint=vm.runInNewContext('point(1,1)',scope);
+nodes.get('world').listeners.mousemove({clientX:creaturePoint.x,clientY:creaturePoint.y});
+assert.match(nodes.get('tooltip').textContent,/Carnivory  30%\nVision FOV  220°\nMass  1.5\nMutation scale  1.25\nHealth  20 \/ 30/);
+assert.doesNotMatch(nodes.get('tooltip').textContent,/creature|generation/i);
+assert.equal(nodes.get('tooltip').hidden,false);
+canvasCalls.length=0;
+vm.runInNewContext('drawCreatureCues(F[0].creatures[0],point(1,1),4)',scope);
+assert.ok(canvasCalls.some(c=>c[0]==='rotate'&&c[1]===-1.2),'Attack cone must match the creature heading');
+assert.equal(canvasCalls.filter(c=>c[0]==='arc'&&c.at(-1)===2*Math.PI).length,3,'Calling shows three ripples');
+vm.runInNewContext(`
+ if(!creatureTip({}).includes('Mass  —')||!creatureTip({}).includes('Health  —'))throw Error('Missing traits must not become zero');
+ if(eventCues[0].length!==0||eventCues[1].length!==2||eventCues[2].length!==0)throw Error('Incorrect event classification or hit deduplication');
+ if(eventCues[1].some(e=>e.x!==1.5||e.time!==1))throw Error('Sampled events must use their saved position and remain visible at the retained frame');
+ setIndex(1);
+ if(visibleEventCues().length!==2)throw Error('Predation cues missing after victim disappeared');
+ playing=true;playTime=2.3;
+ if(visibleEventCues().length)throw Error('Old event cues failed to expire');
+ playing=false;setIndex(0);
+ if(visibleEventCues().length)throw Error('Scrubbing back showed a future kill');
+ const death=F[1].events[2];delete death.cause;delete death.x;delete death.y;
+ if(buildEventCues()[1].filter(e=>e.kind==='death').length!==1)throw Error('Unambiguous legacy predation should be visible');
+ F[1].totals.predation_deaths=0;
+ if(buildEventCues()[1].some(e=>e.kind==='death'))throw Error('Legacy attack hit alone does not prove predation death');
+ death.cause='storm';F[1].totals.predation_deaths=1;
+ if(buildEventCues()[1].some(e=>e.kind==='death'))throw Error('Explicit storm cause must override legacy inference');
+ death.cause='predation';death.x=1.5;death.y=1;
+`,scope);
+assert.equal(nodes.get('dietLabels').children.length,6);
 assert.equal(nodes.get('statSelect').children.length,2);
 nodes.get('statSelect').value='net_energy';
 nodes.get('statSelect').listeners.change();

@@ -135,13 +135,17 @@ void EcosystemConfig::validate() const
     const auto& fs=food_sources;
     if (background_food_patches > 1000000) throw std::invalid_argument("Too many background food patches");
     positive(background_food_energy,"Background food energy");
-    if (fs.fields > 100 || fs.fruit_trees > 1000 || fs.pod_trees > 1000
+    if (fs.fields > 100 || fs.fruit_trees > 1000 || fs.pod_trees > 1000 || fs.bitter_trees > 1000
         || fs.fruit_sites < 1 || fs.fruit_sites > 32 || fs.pod_sites < 1 || fs.pod_sites > 32)
         throw std::invalid_argument("Invalid food source or tree site count");
     positive(fs.field_radius,"Field radius");positive(fs.field_spacing,"Field spacing");
     positive(fs.source_gap,"Food source gap",true);positive(fs.tree_radius,"Tree radius");
     positive(fs.field_energy,"Field energy");positive(fs.field_capacity,"Field capacity");
     positive(fs.field_regrowth,"Field regrowth",true);
+    positive(bitter_fruit_energy,"Bitter fruit energy",true);
+    positive(bitter_fruit_damage,"Bitter fruit damage",true);
+    positive(bitter_fruit_capacity,"Bitter fruit capacity");
+    positive(fs.bitter_production,"Bitter tree production");
     positive(fs.fruit_production,"Fruit tree production");positive(fs.pod_production,"Pod tree production");
     if (fs.field_spacing < 1 || fs.field_spacing > 2 || fs.field_radius < fs.field_spacing
         || fs.field_radius > 100 || fs.tree_radius < 2 || fs.tree_radius > 30)
@@ -268,7 +272,7 @@ void EcosystemConfig::validate() const
     if (predation && !extended_senses)
         throw std::invalid_argument("Predation requires extended senses");
     const auto inputs = predation ? eco_predation_input_count : extended_senses ? eco_input_count : eco_legacy_input_count;
-    if ((brain.input_count != inputs && !(predation && (brain.input_count==eco_carnivory_offset || (!funded_reproduction && brain.input_count==eco_reproduction_offset)))) || brain.output_count != (predation ? eco_predation_output_count : eco_output_count)) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout");
+    if ((brain.input_count != inputs && !(predation && ((brain.input_count==eco_bitter_offset || brain.input_count==eco_carnivory_offset) || (!funded_reproduction && brain.input_count==eco_reproduction_offset)))) || brain.output_count != (predation ? eco_predation_output_count : eco_output_count)) throw std::invalid_argument("Ecological brains require the selected local sensor and motor layout");
     positive(brain.sensory_rate_hz, "Sensory spike rate");
     positive(brain.motor_rate_tau, "Motor rate time constant");
     positive(brain.motor_reference_hz, "Motor reference spike rate");

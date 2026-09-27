@@ -16,7 +16,7 @@ void generation()
         EcosystemConfig cfg;cfg.seed=seed;cfg.initial_creatures=0;cfg.reproduction=false;
         EcosystemWorld w(cfg),same(cfg);
         check(saved(w)==saved(same),"Source generation is not deterministic");
-        check(w.food_sources.size()==cfg.food_sources.fields+cfg.food_sources.fruit_trees+cfg.food_sources.pod_trees,"Source count mismatch");
+        check(w.food_sources.size()==cfg.food_sources.fields+cfg.food_sources.fruit_trees+cfg.food_sources.pod_trees+cfg.food_sources.bitter_trees,"Source count mismatch");
         std::size_t field_cells=0,fruits=0,pods=0;double min_capacity=1e9,max_capacity=0;
         for(const auto& source:w.food_sources) {
             for(const auto& other:w.food_sources)if(source.id!=other.id)
@@ -34,7 +34,7 @@ void generation()
                 check(seen.size()==cells.size(),"Field is not continuous");
             } else {
                 double production=0;for(const auto& r:w.resources)if(r.source_id==source.id)production+=r.regrowth;
-                near(production,source.kind==FoodSourceKind::FruitTree?cfg.food_sources.fruit_production:cfg.food_sources.pod_production,"Tree production multiplied by its sites");
+                near(production,source.kind==FoodSourceKind::BitterTree?cfg.food_sources.bitter_production:source.kind==FoodSourceKind::FruitTree?cfg.food_sources.fruit_production:cfg.food_sources.pod_production,"Tree production multiplied by its sites");
             }
         }
         for(const auto& r:w.resources)if(r.source_id) {
@@ -44,7 +44,7 @@ void generation()
         }
         check(field_cells>200 && field_cells*cfg.food_sources.field_spacing*cfg.food_sources.field_spacing<cfg.width*cfg.height*.2,"Fields do not leave large empty areas");
         check(max_capacity>min_capacity*1.5,"Field density is uniform");
-        check(fruits==cfg.food_sources.fruit_trees*cfg.food_sources.fruit_sites && pods==cfg.food_sources.pod_trees*cfg.food_sources.pod_sites,"Tree site counts mismatch");
+        check(fruits==(cfg.food_sources.fruit_trees+cfg.food_sources.bitter_trees)*cfg.food_sources.fruit_sites && pods==cfg.food_sources.pod_trees*cfg.food_sources.pod_sites,"Tree site counts mismatch");
         for(std::size_t i=0;i<w.terrain.size();++i)if(w.terrain[i]==Terrain::Shelter)
             check(!w.reserved_for_food({double(i%cfg.width)+.5,double(i/cfg.width)+.5},2),"Shelter overlaps reserved food area");
     }

@@ -15,6 +15,8 @@ The preset, source geometry, density, production rates and ripening state are sa
 
 ### Fields and trees
 
+New worlds also include three [bitter-fruit trees](bitter-fruit.md), with separate nutrition, toxicity, production, and capacity settings and dedicated vision inputs.
+
 The default 140 × 140 layout contains **three grazing fields, 18 fruit trees and three pod trees**. These counts are independently configurable; the old `grazing_patches`, `fruit_patches` and `pods` quotas apply only to scattered food.
 
 - **Fields:** connected, irregular areas of vegetation with smoothly varying density and thinner edges. Local biomass is depleted by grazing and regrows in place. A 1.5-cell sampling grid represents the continuous field; its cells cover the field in the viewer, coloured by remaining stock. Capacity and growth are weighted by density and cell area, so increasing resolution does not multiply food production. Field nutrition defaults to 25 energy/biomass, below scattered grazing's 40.

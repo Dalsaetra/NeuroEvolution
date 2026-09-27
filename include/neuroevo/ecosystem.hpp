@@ -21,7 +21,7 @@ struct EcoAction {
     double forward = 0, left = 0, right = 0, forage = 0, call = 0, attack = 0;
 };
 struct DigestivePacket { double due = 0, energy = 0; FoodKind kind = FoodKind::Graze; };
-enum class FoodSourceKind { Field, FruitTree, PodTree };
+enum class FoodSourceKind { Field, FruitTree, PodTree, BitterTree };
 const char* to_string(FoodSourceKind value);
 struct FoodSource {
     std::uint64_t id = 0;
@@ -63,7 +63,7 @@ struct EcoCreature {
     Random neural_rng;
     ControllerKind controller = ControllerKind::Spiking;
     std::vector<DigestivePacket> digestion;
-    std::array<double, 5> eaten{};
+    std::array<double, 6> eaten{};
     std::uint64_t spikes = 0, step_spikes = 0, offspring = 0;
     double energy_gained = 0, energy_spent = 0, pod_work = 0, exposed_time = 0;
     bool matured = false;
@@ -76,6 +76,8 @@ struct EcoEvent {
     std::string type;
     std::uint64_t creature = 0, other = 0, resource = 0;
     double amount = 0;
+    std::optional<Vec2> position = std::nullopt;
+    std::string cause = {};
 };
 struct EcoTotals {
     double attacking = 0, healing = 0, body_construction = 0, external_body_energy = 0;
@@ -144,7 +146,8 @@ public:
     double dietary_efficiency(const EcoCreature& creature, FoodKind kind) const;
     BodyGenes inherit_body(const BodyGenes& parent, bool strong, Random& rng) const;
     PendingOffspring conceive(const EcoCreature& parent);
-    void remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims = {});
+    void remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims = {},
+        const std::unordered_set<std::uint64_t>& toxic_victims = {});
     // Empty actions means each living creature runs its own controller/brain.
     // Supplied actions must match the population at the beginning of the step.
     void step(const std::vector<EcoAction>& actions = {});
@@ -157,8 +160,8 @@ public:
 };
 
 std::vector<std::string> ecosystem_input_labels(bool extended = true, bool predation = false,
-    bool typed_food_proximity = true, bool reproductive_senses = true, bool carnivory_senses = true);
-const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false, bool reproductive_senses = true, bool carnivory_senses = true);
+    bool typed_food_proximity = true, bool reproductive_senses = true, bool carnivory_senses = true, bool bitter_senses = true);
+const Brain::InputGroups& ecosystem_input_groups(bool extended = true, bool predation = false, bool reproductive_senses = true, bool carnivory_senses = true, bool bitter_senses = true);
 // A deliberately small, deterministic founder genome. It uses five hidden
 // neurons and a sparse subset of the ecosystem sensors; it remains an ordinary
 // spiking Brain and offspring can mutate it through the normal birth path.

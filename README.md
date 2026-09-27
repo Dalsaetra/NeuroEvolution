@@ -33,7 +33,7 @@ format. Exact spatial filtering also reduces creature overlap, sensing, collisio
 and attack searches; `--spatial-index 0` retains the all-pairs reference path.
 See [performance measurements and verification](docs/performance.md).
 
-The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 91 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
+The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 100 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
 
 For a longer run with a compact history and a detailed final window:
 
@@ -133,6 +133,16 @@ Optional CLI overrides remain available through `--help`. The launcher passes bi
 
 Runs save `ecosystem.jsonl`, `ecosystem_stats.csv`, `events.csv`, `summary.json`, `performance.csv`, and initial/final `.eco` checkpoints. Detailed tails add `ecosystem_tail.jsonl`. The viewer displays terrain, food, creatures, ancestry, diets, body traits, sensory values, and neural activity where recorded.
 
+Blue ripples mark calling, orange arcs mark attack effort, and impact flashes mark
+recorded hits. A red crossed ring marks a predation death. Hovering shows carnivory,
+vision FOV, mass, mutation scale, and health; both energy bars show numeric progress.
+New recordings save death causes and event locations (also preserved in checkpoint
+format 45, which retains support for older checkpoints). Older replays show predation
+deaths only when their counters identify them unambiguously, at the corpse or last
+recorded position. Event cues appear at the retained frame when recordings are sampled.
+Rebuild existing HTML with `scripts/rebuild-ecosystem.ps1 -RunDir runs/YOUR_RUN`
+to apply viewer changes.
+
 Main recording defaults are compact: one frame every 500 world steps, without
 brain states, graphs, sensory arrays, or routine feeding events. A detailed tail
 is enabled by default: the final 600 simulation seconds, recorded every 10 world
@@ -200,3 +210,5 @@ Checkpoint format **24** stores the neuron model, intrinsic parameters, recovery
 Inherited mutation rates: see [meta mutation](docs/meta-mutation.md) for the copy/slight/strong probability curve and global gene-mutation controls.
 
 New runs use [funded reproduction](docs/reproduction.md): an evolved allocation fraction divides digested income between survival and a separate gestation reserve.
+
+Bitter-fruit trees provide herbivore-specialist nutrition and poison creatures above 50% carnivory. See [bitter fruit](docs/bitter-fruit.md) for the dietary curves, new vision inputs, and tuning options.

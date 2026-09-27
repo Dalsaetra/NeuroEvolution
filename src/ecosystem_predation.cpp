@@ -39,6 +39,7 @@ double EcosystemWorld::maximum_ingestion_rate(const EcoCreature& c) const
 double EcosystemWorld::dietary_efficiency(const EcoCreature& c, FoodKind kind) const
 {
     if (!config.predation) return kind == FoodKind::Meat ? 0.0 : 1.0;
+    if (kind == FoodKind::BitterFruit) return std::max(0.0, 1.0 - 2.0 * c.body.carnivory);
     return kind == FoodKind::Meat ? c.body.carnivory : 1.0 - c.body.carnivory;
 }
 
@@ -74,7 +75,7 @@ PendingOffspring EcosystemWorld::conceive(const EcoCreature& parent)
     child.brain=parent.brain;
     child.brain.reset_state();
     if(!copy) child.brain.mutate(strong?detail::strong_mutation(config.mutation):detail::slight_mutation(config.mutation),
-        mutation_rng,ecosystem_input_groups(config.extended_senses,config.predation,config.brain.input_count>eco_reproduction_offset,config.brain.input_count>eco_carnivory_offset));
+        mutation_rng,ecosystem_input_groups(config.extended_senses,config.predation,config.brain.input_count>eco_reproduction_offset,config.brain.input_count>eco_carnivory_offset,config.brain.input_count>eco_bitter_offset));
     child.mutation_scale=parent.mutation_scale;
     if(config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
         && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
@@ -96,7 +97,8 @@ PendingOffspring EcosystemWorld::conceive(const EcoCreature& parent)
     return child;
 }
 
-void EcosystemWorld::remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims)
+void EcosystemWorld::remove_dead(double end, const std::unordered_set<std::uint64_t>& storm_victims,
+    const std::unordered_set<std::uint64_t>& toxic_victims)
 {
     // Process by ID so corpse IDs, events and roundoff do not depend on storage order.
     std::vector<const EcoCreature*> dead;
@@ -124,11 +126,13 @@ void EcosystemWorld::remove_dead(double end, const std::unordered_set<std::uint6
                 totals.carcass_energy += recovered;
                 events.push_back({end, "carcass", c.id, 0, meat.id, recovered});
             }
-            if (c.health <= 0 && !storm_victims.count(c.id)) ++totals.predation_deaths;
+            if (c.health <= 0 && !storm_victims.count(c.id) && !toxic_victims.count(c.id)) ++totals.predation_deaths;
         }
         totals.discarded_energy += discarded;
         ++totals.deaths;
-        events.push_back({end, "death", c.id, c.parent_id, 0, discarded});
+        const auto cause = config.predation && c.health <= 0
+            ? (toxic_victims.count(c.id) ? "poisoning" : storm_victims.count(c.id) ? "storm" : "predation") : "energy";
+        events.push_back({end, "death", c.id, c.parent_id, 0, discarded, c.position, cause});
     }
     creatures.erase(std::remove_if(creatures.begin(), creatures.end(), [&](const auto& c) {
         return c.energy <= 0 || (config.predation && c.health <= 0);

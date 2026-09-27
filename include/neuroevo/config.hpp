@@ -8,17 +8,19 @@ namespace neuroevo {
 
 // Tune new runs here, then rebuild. Checkpoints preserve their own settings.
 enum class Terrain { Ground, Rough, Wall, Shelter };
-enum class FoodKind { Graze, FruitA, FruitB, Pod, Meat };
+enum class FoodKind { Graze, FruitA, FruitB, Pod, Meat, BitterFruit };
 enum class FoodDistribution { Scattered, FieldsAndTrees };
 const char* food_distribution_name(FoodDistribution preset);
 struct FoodSourceConfig {
-    std::size_t fields = 3, fruit_trees = 18, pod_trees = 3;
-    std::size_t fruit_sites = 8, pod_sites = 5;
+    std::size_t fields = 3, fruit_trees = 18, pod_trees = 5;
+    std::size_t fruit_sites = 12, pod_sites = 8;
+    std::size_t bitter_trees = 3;
+    double bitter_production = 0.4; // Total biomass/second per bitter tree, shared by fruit_sites.
     double field_radius = 12, field_spacing = 1.5, source_gap = 5;
-    double field_energy = 25, field_capacity = 3, field_regrowth = 0.04;
+    double field_energy = 20, field_capacity = 3, field_regrowth = 0.04;
     double tree_radius = 3;
     // Total biomass/second per tree, shared by its sites; fruit ripens in batches.
-    double fruit_production = 0.4, pod_production = 0.12;
+    double fruit_production = 0.8, pod_production = 0.12;
 };
 enum class PodState { Closed, Open, Refilling };
 enum class ControllerKind { Spiking, Reactive, Random };
@@ -46,7 +48,8 @@ constexpr std::size_t eco_health_offset = eco_other_health_offset + eco_sectors;
 constexpr std::size_t eco_plant_offset = eco_health_offset + 2;
 constexpr std::size_t eco_reproduction_offset = eco_plant_offset + eco_sectors;
 constexpr std::size_t eco_carnivory_offset = eco_reproduction_offset + 2;
-constexpr std::size_t eco_predation_input_count = eco_carnivory_offset + eco_sectors;
+constexpr std::size_t eco_bitter_offset = eco_carnivory_offset + eco_sectors;
+constexpr std::size_t eco_predation_input_count = eco_bitter_offset + 3 * eco_sectors;
 constexpr std::size_t eco_predation_output_count = 6;
 constexpr double eco_min_mass = 0.5, eco_max_mass = 2.0;
 
@@ -179,7 +182,7 @@ struct EcosystemConfig {
     double founder_mass = 1.0, founder_carnivory = 0.4;
     double founder_eye_separation = 0.0;
     double health_per_mass = 20, body_energy_per_mass = 60;
-    double attack_range = 1.0, attack_degrees = 45, attack_damage = 20, attack_cost = 10.0;
+    double attack_range = 1.2, attack_degrees = 45, attack_damage = 20, attack_cost = 0.5;
     double attack_base_fraction = 0.15; // Fraction of full attack damage at zero carnivory.
     // Mass is relative to a reference body of mass 1. Historical checkpoints disable these rules.
     bool mass_allometry = true;
@@ -190,14 +193,17 @@ struct EcosystemConfig {
     double speed_mass_exponent = 0.25, acceleration_mass_exponent = -0.5;
     double max_acceleration = 3.0; // Speed units/second at mass 1; also limits braking.
     double healing_rate = 0.1, healing_cost = 10.0;
-    double meat_energy = 60, meat_decay = 0.0005, carcass_recovery = 0.95;
+    double meat_energy = 60, meat_decay = 0.0004, carcass_recovery = 0.95;
     double nursery_meat_decay = 0.005; // Biomass/second inside nursery; meat_decay applies outside.
+
+    // Per biomass: energy * max(0,1-2*carnivory), damage * max(0,2*carnivory-1).
+    double bitter_fruit_energy = 120, bitter_fruit_damage = 10, bitter_fruit_capacity = 4;
 
     // Nursery and frontier layout
     bool nursery_frontier = true; // Disable only for controlled mechanics experiments.
     std::size_t nursery_size = 16;
     std::size_t nursery_exit_width = 3;
-    std::size_t nursery_food_patches = 16;
+    std::size_t nursery_food_patches = 20;
     bool nursery_food_relocates = true;
     double nursery_food_decay = 0.005; // Biomass per second, including during storms.
     double nursery_food_energy = 100, nursery_food_capacity = 2, nursery_food_regrowth = 0;
@@ -230,9 +236,9 @@ struct EcosystemConfig {
     FoodSourceConfig food_sources;
     // Additional scattered graze in fields-and-trees worlds, including ordinary shelters.
     std::size_t background_food_patches = 250;
-    double background_food_energy = 10; // Uses same capacity as graze_capacity
+    double background_food_energy = 15; // Uses same capacity as graze_capacity
     double graze_capacity = 3, fruit_capacity = 4, pod_capacity = 10;
-    double graze_energy = 40, poor_fruit_energy = 30, rich_fruit_energy = 70, pod_energy = 120;
+    double graze_energy = 40, poor_fruit_energy = 45, rich_fruit_energy = 100, pod_energy = 200;
     // Optional passive biomass/second, also active with relocation. Pods need refill growth.
     double graze_regrowth = 0, fruit_regrowth = 0, pod_regrowth = 0.08;
     bool outdoor_food_relocates = true;
@@ -245,11 +251,11 @@ struct EcosystemConfig {
 
     // Weather
     double calm_duration = 300, warning_duration = 40, storm_duration = 60;
-    double storm_cost = 2.0, phase_offset = 0;
+    double storm_cost = 1.0, phase_offset = 0;
     bool storm_health_damage = true; // Independent health drain; requires predation.
     bool storm_energy_drain = true; // Can be enabled alongside health damage.
     bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
-    double storm_damage = 0.5; // Peak health/second independent of mass; health capacity scales with mass.
+    double storm_damage = 0.6; // Peak health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     bool funded_reproduction = true;

@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_44");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_46");
     // Read capacity-affecting settings before constructing/validating the world.
     checkpoint::write(s,"MASS_ALLOMETRY_1");
     checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
@@ -117,7 +117,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
         checkpoint::write(s,c.origin,c.genome_id,c.feeding_bouts,c.last_fed_time);
         checkpoint::write(s,c.action.forward,c.action.left,c.action.right,c.action.forage,c.action.call,c.action.attack);
         checkpoint::write(s,c.body.mass,c.body.carnivory,c.health,c.damage_pulse);
-        for (const auto v : c.eaten) checkpoint::write_value(s,v);
+        for (std::size_t k=0;k<5;++k) checkpoint::write_value(s,c.eaten[k]);
         s << '\n';
         checkpoint::write(s,c.digestion.size());
         for (const auto& p : c.digestion) checkpoint::write(s,p.due,p.energy,p.kind);
@@ -157,6 +157,17 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
         checkpoint::write(s,c.id,c.body.eye_separation_degrees,c.gestation?c.gestation->body.eye_separation_degrees:0.0);
     checkpoint::write(s,"STORM_ENERGY_1",config.storm_energy_drain);
     checkpoint::write(s,"ATTACK_COST_1",config.attack_cost_mass_exponent);
+    checkpoint::write(s,"EVENT_DETAILS_1",events.size());
+    for (const auto& e : events) {
+        checkpoint::write(s,e.position.has_value());
+        if (e.position) checkpoint::write(s,e.position->x,e.position->y);
+        checkpoint::write(s,!e.cause.empty());
+        if (!e.cause.empty()) checkpoint::write(s,e.cause);
+    }
+    checkpoint::write(s,"BITTER_FRUIT_1",config.food_sources.bitter_trees,config.food_sources.bitter_production,
+        config.bitter_fruit_energy,config.bitter_fruit_damage,config.bitter_fruit_capacity);
+    checkpoint::write(s,creatures.size());
+    for(const auto& c:creatures)checkpoint::write(s,c.id,c.eaten[5]);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -164,7 +175,9 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool attack_cost_version = version == "NEUROEVO_ECOSYSTEM_44";
+    const bool bitter_version = version == "NEUROEVO_ECOSYSTEM_46";
+    const bool event_details_version = bitter_version || version == "NEUROEVO_ECOSYSTEM_45";
+    const bool attack_cost_version = event_details_version || version == "NEUROEVO_ECOSYSTEM_44";
     const bool storm_energy_version = attack_cost_version || version == "NEUROEVO_ECOSYSTEM_43";
     const bool eyes_version = storm_energy_version || version == "NEUROEVO_ECOSYSTEM_42";
     const bool allometry_version = eyes_version || version == "NEUROEVO_ECOSYSTEM_41" || version == "NEUROEVO_ECOSYSTEM_40";
@@ -188,6 +201,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.food_sources.bitter_trees=0;
     cfg.mutation.eye_mutation_probability=0; // Historical continuation keeps fixed eyes and RNG behavior.
     cfg.mass_allometry=false;
     cfg.funded_reproduction=false;
@@ -277,7 +291,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::read(s,r.shelter_origin.x,r.shelter_origin.y);
         if (respawn_version) checkpoint::read(s,r.respawn_at);
         if (r.respawn_at < 0 && r.respawn_at != -1) throw std::runtime_error("Invalid food respawn deadline");
-        if (!ids.insert(r.id).second || r.kind < FoodKind::Graze || r.kind > (cfg.predation ? FoodKind::Meat : FoodKind::Pod)
+        if (!ids.insert(r.id).second || r.kind < FoodKind::Graze || r.kind > (bitter_version ? FoodKind::BitterFruit : cfg.predation ? FoodKind::Meat : FoodKind::Pod)
             || r.pod_state < PodState::Closed || r.pod_state > PodState::Refilling
             || r.stock < 0 || r.stock > r.capacity+1e-8 || r.capacity <= 0 || r.regrowth < 0
             || (r.kind == FoodKind::Meat && (r.regrowth != 0 || r.shelter_food))
@@ -300,7 +314,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         c.digestion.resize(checkpoint::count(s,1000000));
         for (auto& p : c.digestion) {
             checkpoint::read(s,p.due,p.energy,p.kind);
-            if (p.energy < 0 || p.kind < FoodKind::Graze || p.kind > (cfg.predation ? FoodKind::Meat : FoodKind::Pod))
+            if (p.energy < 0 || p.kind < FoodKind::Graze || p.kind > (bitter_version ? FoodKind::BitterFruit : cfg.predation ? FoodKind::Meat : FoodKind::Pod))
                 throw std::runtime_error("Invalid digestive packet checkpoint");
         }
         c.neural_rng.load_state(s);
@@ -323,11 +337,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::read(s,w.config.food_distribution);
         checkpoint::read_tuple(s,checkpoint::food_source_fields(w.config.food_sources));
         w.config.validate();
-        w.food_sources.resize(checkpoint::count(s,2100));
+        w.food_sources.resize(checkpoint::count(s,3100));
         for(std::size_t i=0;i<w.food_sources.size();++i) {
             auto& source=w.food_sources[i];
             checkpoint::read(s,source.id,source.kind,source.position.x,source.position.y,source.radius,source.phase);
-            if(source.id!=i+1 || source.kind<FoodSourceKind::Field || source.kind>FoodSourceKind::PodTree
+            if(source.id!=i+1 || source.kind<FoodSourceKind::Field || source.kind>(bitter_version?FoodSourceKind::BitterTree:FoodSourceKind::PodTree)
                 || source.radius<=0 || !w.traversable(source.position) || w.sheltered(source.position)
                 || w.config.food_distribution!=FoodDistribution::FieldsAndTrees)
                 throw std::runtime_error("Invalid food source checkpoint");
@@ -339,10 +353,12 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
                 || (!r.source_id && r.ripening_remaining!=-1))throw std::runtime_error("Invalid source resource state");
             if(!r.source_id)continue;
             const auto& source=w.food_sources[static_cast<std::size_t>(r.source_id-1)];
-            const bool fruit=r.kind==FoodKind::FruitA || r.kind==FoodKind::FruitB;
+            const bool ordinary_fruit=r.kind==FoodKind::FruitA || r.kind==FoodKind::FruitB;
+            const bool fruit=ordinary_fruit || r.kind==FoodKind::BitterFruit;
             if(w.sheltered(r.position) || length(r.position-source.position)>source.radius+1e-8
                 || r.shelter_food || (source.kind==FoodSourceKind::Field && r.kind!=FoodKind::Graze)
-                || (source.kind==FoodSourceKind::FruitTree && !fruit)
+                || (source.kind==FoodSourceKind::FruitTree && !ordinary_fruit)
+                || (source.kind==FoodSourceKind::BitterTree && r.kind!=FoodKind::BitterFruit)
                 || (source.kind==FoodSourceKind::PodTree && r.kind!=FoodKind::Pod)
                 || (fruit && (r.regrowth<=0 || (r.ripening_remaining>=0 && r.stock>1e-8)))
                 || (!fruit && r.ripening_remaining!=-1))throw std::runtime_error("Invalid food source membership");
@@ -428,6 +444,31 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
         checkpoint::read(s,w.config.attack_cost_mass_exponent);
         w.config.validate();
     }
+    if (event_details_version) {
+        checkpoint::marker(s,"EVENT_DETAILS_1");
+        if (checkpoint::count(s,w.events.size()) != w.events.size())
+            throw std::runtime_error("Event detail count mismatch");
+        for (auto& e : w.events) {
+            bool positioned; checkpoint::read(s,positioned);
+            if (positioned) {
+                Vec2 position; checkpoint::read(s,position.x,position.y);
+                e.position = position;
+            }
+            bool has_cause; checkpoint::read(s,has_cause);
+            if (has_cause) checkpoint::read(s,e.cause);
+        }
+    }
+    if(bitter_version) {
+        checkpoint::marker(s,"BITTER_FRUIT_1");
+        checkpoint::read(s,w.config.food_sources.bitter_trees,w.config.food_sources.bitter_production,
+            w.config.bitter_fruit_energy,w.config.bitter_fruit_damage,w.config.bitter_fruit_capacity);
+        w.config.validate();
+        if(checkpoint::count(s,w.creatures.size())!=w.creatures.size())throw std::runtime_error("Bitter fruit creature count mismatch");
+        for(auto& c:w.creatures) {
+            std::uint64_t id;checkpoint::read(s,id,c.eaten[5]);
+            if(id!=c.id || c.eaten[5]<0)throw std::runtime_error("Invalid bitter fruit consumption");
+        }
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -477,6 +518,11 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"storm_damage\":" << w.config.storm_damage
       << ",\"healing_rate\":" << w.config.healing_rate
       << ",\"healing_cost\":" << w.config.healing_cost
+      << ",\"bitter_trees\":" << w.config.food_sources.bitter_trees
+      << ",\"bitter_tree_production\":" << w.config.food_sources.bitter_production
+      << ",\"bitter_fruit_energy\":" << w.config.bitter_fruit_energy
+      << ",\"bitter_fruit_damage\":" << w.config.bitter_fruit_damage
+      << ",\"bitter_fruit_capacity\":" << w.config.bitter_fruit_capacity
       << ",\"meat_energy\":" << w.config.meat_energy
       << ",\"meat_decay\":" << w.config.meat_decay
       << ",\"nursery_food_respawn_delay\":" << w.config.nursery_food_respawn_delay
@@ -515,7 +561,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"energy_capacity\":" << w.config.energy_capacity << ",\"pod_work\":" << w.config.pod_work
       << ",\"food_energy\":{\"graze\":" << w.config.graze_energy
       << ",\"poor_fruit\":" << w.config.poor_fruit_energy << ",\"rich_fruit\":" << w.config.rich_fruit_energy
-      << ",\"pod\":" << w.config.pod_energy << "}"
+      << ",\"pod\":" << w.config.pod_energy << ",\"bitter_fruit\":" << w.config.bitter_fruit_energy << "}"
       << ",\"fruit_a_rich\":" << (w.fruit_a_rich ? "true" : "false")
       << ",\"controller\":"; quoted(s,to_string(w.config.controller));
     s << ",\"initial_creatures\":" << w.creatures.size() << ",\"max_population\":" << w.config.max_population
@@ -531,7 +577,7 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
       << ",\"motor_reference_hz\":" << w.config.brain.motor_reference_hz
       << ",\"motor_gain\":" << w.config.motor_gain << ",\"actuator_tau\":" << w.config.actuator_tau
       << ",\"input_labels\":";
-    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity,w.config.brain.input_count>eco_reproduction_offset,w.config.brain.input_count>eco_carnivory_offset),[&](const std::string& v){ quoted(s,v); });
+    array(s,ecosystem_input_labels(w.config.extended_senses, w.config.predation, w.config.typed_food_proximity,w.config.brain.input_count>eco_reproduction_offset,w.config.brain.input_count>eco_carnivory_offset,w.config.brain.input_count>eco_bitter_offset),[&](const std::string& v){ quoted(s,v); });
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"food_distribution\":\"" << food_distribution_name(w.config.food_distribution) << "\""
@@ -640,7 +686,10 @@ void write_ecosystem_frame(std::ostream& s, const EcosystemWorld& w, bool record
     s << ",\"events\":";
     array(s,recorded_events ? *recorded_events : w.events,[&](const EcoEvent& e){
         s << "{\"time\":" << e.time << ",\"type\":"; quoted(s,e.type);
-        s << ",\"creature\":" << e.creature << ",\"other\":" << e.other << ",\"resource\":" << e.resource << ",\"amount\":" << e.amount << '}';
+        s << ",\"creature\":" << e.creature << ",\"other\":" << e.other << ",\"resource\":" << e.resource << ",\"amount\":" << e.amount;
+        if (e.position) s << ",\"x\":" << e.position->x << ",\"y\":" << e.position->y;
+        if (!e.cause.empty()) { s << ",\"cause\":"; quoted(s,e.cause); }
+        s << '}';
     });
     s << "}\n";
     if (!s) throw std::runtime_error("Failed to write ecosystem replay");

@@ -49,6 +49,7 @@ int main()
     try {
         test_rng_runtime_mismatch();
         neuroevo::EcosystemConfig config;
+        config.food_sources.bitter_trees=0; // Also exercise pre-bitter-fruit event formats below.
         config.initial_creatures=5;
         config.graze_energy=3.25;
         config.reproduction=false;
@@ -81,9 +82,19 @@ int main()
         original.creatures.front().age=200;
         original.creatures.front().energy=180;
         original.resources.back().progress=2.75;
-        original.events.push_back({original.time(),"test_event",1,2,3,4.5});
+        original.events.push_back({original.time(),"test_event",1,2,3,4.5,neuroevo::Vec2{2.5,3.5},"predation"});
         std::istringstream input2(state(original));
         resumed=neuroevo::EcosystemWorld::load_checkpoint(input2);
+        require(state(original)==state(resumed),"Checkpoint lost event positions or death causes");
+        // The previous format lacks only the appended event details.
+        auto legacy=state(original);
+        legacy.replace(legacy.find("NEUROEVO_ECOSYSTEM_46"),21,"NEUROEVO_ECOSYSTEM_44");
+        legacy.erase(legacy.find("EVENT_DETAILS_1"));
+        legacy+="END_ECOSYSTEM\n";
+        std::istringstream legacy_input(legacy);
+        auto historical=neuroevo::EcosystemWorld::load_checkpoint(legacy_input);
+        require(!historical.events.back().position && historical.events.back().cause.empty(),
+            "Legacy event details must stay unknown");
         for (int i=0;i<8;++i) { original.step(); resumed.step(); }
         require(state(original)==state(resumed),"Checkpoint lost digestion, birth, mutation, or weather state");
         require(original.totals.births>0,"Continuation test failed to exercise offspring mutation");

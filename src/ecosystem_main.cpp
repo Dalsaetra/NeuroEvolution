@@ -65,7 +65,7 @@ int main(int argc, char** argv)
         std::map<std::string,std::size_t*> sizes{
             {"--background-food-patches",&cfg.background_food_patches},
             {"--grazing-fields",&cfg.food_sources.fields},{"--fruit-trees",&cfg.food_sources.fruit_trees},
-            {"--pod-trees",&cfg.food_sources.pod_trees},{"--fruit-sites",&cfg.food_sources.fruit_sites},
+            {"--pod-trees",&cfg.food_sources.pod_trees},{"--bitter-trees",&cfg.food_sources.bitter_trees},{"--fruit-sites",&cfg.food_sources.fruit_sites},
             {"--pod-sites",&cfg.food_sources.pod_sites},
             {"--nursery-size",&cfg.nursery_size},
             {"--nursery-food-patches",&cfg.nursery_food_patches},
@@ -83,6 +83,9 @@ int main(int argc, char** argv)
             {"--food-source-gap",&cfg.food_sources.source_gap},{"--field-energy",&cfg.food_sources.field_energy},
             {"--field-capacity",&cfg.food_sources.field_capacity},{"--field-regrowth",&cfg.food_sources.field_regrowth},
             {"--tree-radius",&cfg.food_sources.tree_radius},{"--fruit-tree-production",&cfg.food_sources.fruit_production},
+            {"--bitter-tree-production",&cfg.food_sources.bitter_production},
+            {"--bitter-fruit-energy",&cfg.bitter_fruit_energy},{"--bitter-fruit-damage",&cfg.bitter_fruit_damage},
+            {"--bitter-fruit-capacity",&cfg.bitter_fruit_capacity},
             {"--pod-tree-production",&cfg.food_sources.pod_production},
             {"--founder-mass",&cfg.founder_mass},
             {"--ingestion-mass-exponent",&cfg.ingestion_mass_exponent},
@@ -225,7 +228,7 @@ int main(int argc, char** argv)
                     "  --record-every N          Save a replay frame every N steps\n"
                     "  --record-brains 0|1       Record neural activity\n"
                     "  --record-observations 0|1 Record sensory values per creature\n"
-                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (91 total by default)\n"
+                    "  --sensorimotor X          calibrated or legacy senses; predation adds inputs (100 total by default)\n"
                     "  --typed-food-proximity 0|1  Per-food-type distance signals; also overrides resume\n"
                     "  --mutate-rewire-synapse-prob N  Rewiring operator weight (also overrides resume)\n"
                     "  --calibrated-io 0|1       Rate encoding/decoding; independent of sensory layout\n"
@@ -275,6 +278,8 @@ int main(int argc, char** argv)
                     "  --outdoor-food-respawn-delay X  Graze/fruit cooldown outside nursery (seconds)\n"
                     "  --funded-reproduction 0|1 / --reproduction-allocation X (default 0.5)\n"
                     "  --founder-eye-separation X  Eye-axis separation in degrees (0..150; default 0)\n"
+                    "  --bitter-trees N / --bitter-tree-production X / --bitter-fruit-capacity X\n"
+                    "  --bitter-fruit-energy X / --bitter-fruit-damage X (per biomass unit)\n"
                     "  --eye-mutation-probability X / --eye-mutation-sigma X (degrees)\n"
                     "  --allocation-mutation-probability X / --allocation-mutation-sigma X\n"
                     "  --meta-mutation 0|1 / --meta-mutation-probability X / --meta-mutation-sigma X\n"
@@ -592,6 +597,7 @@ int main(int argc, char** argv)
         };
         std::signal(SIGINT,request_stop); std::signal(SIGTERM,request_stop);
         std::uint64_t last_recorded=world.step_index;
+        std::uint64_t births_at_last_print=world.totals.births;
         std::cout << "Ecosystem: " << world.creatures.size() << " creatures, " << world.config.brain.input_count
             << " sensory inputs, " << world.config.brain.output_count << " motor outputs\nOutput: " << out.string() << '\n';
         if (!resume.empty()) std::cout << "Founder genomes and controllers were restored from the checkpoint.\n";
@@ -622,7 +628,9 @@ int main(int argc, char** argv)
                 const auto frontier_population=std::count_if(world.creatures.begin(),world.creatures.end(),
                     [&](const auto& creature) { return !world.in_nursery(creature.position); });
                 std::cout << "t=" << world.time() << "s population=" << world.creatures.size()
-                    << " births=" << world.totals.births << " frontier_population=" << frontier_population << std::endl;
+                    << " births_this_interval=" << world.totals.births-births_at_last_print
+                    << " frontier_population=" << frontier_population << std::endl;
+                births_at_last_print=world.totals.births;
             }
         }
         if (last_recorded!=world.step_index || !pending.empty()) record();
@@ -663,6 +671,11 @@ int main(int argc, char** argv)
             << ",\n  \"background_food_energy\":" << world.config.background_food_energy
             << ",\n  \"storm_ramp\":" << (world.config.storm_ramp ? "true" : "false")
             << ",\n  \"food_source_count\":" << world.food_sources.size()
+            << ",\n  \"bitter_trees\":" << world.config.food_sources.bitter_trees
+            << ",\n  \"bitter_tree_production\":" << world.config.food_sources.bitter_production
+            << ",\n  \"bitter_fruit_energy\":" << world.config.bitter_fruit_energy
+            << ",\n  \"bitter_fruit_damage\":" << world.config.bitter_fruit_damage
+            << ",\n  \"bitter_fruit_capacity\":" << world.config.bitter_fruit_capacity
             << ",\n  \"habitat\":\"" << (world.config.nursery_frontier?"nursery-frontier":resume.empty()?habitat:"checkpoint") << "\""
             << ",\n  \"predation\":{\"enabled\":" << (world.config.predation?"true":"false")
             << ",\"shelter_predation_damage\":" << (world.config.shelter_predation_damage?"true":"false")

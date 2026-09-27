@@ -18,14 +18,14 @@ inline std::string without_allometry_header(std::string state)
 }
 inline EcosystemConfig scattered_config()
 {
-    EcosystemConfig c;c.mass_allometry=false;c.funded_reproduction=false;c.mass_scaled_energy_capacity=false;c.mutation.meta_mutation_enabled=false;c.food_distribution=FoodDistribution::Scattered;
+    EcosystemConfig c;c.food_sources.bitter_trees=0;c.mass_allometry=false;c.funded_reproduction=false;c.mass_scaled_energy_capacity=false;c.mutation.meta_mutation_enabled=false;c.food_distribution=FoodDistribution::Scattered;
     c.background_food_patches=0;c.storm_ramp=false;return c;
 }
 // Explicit small-world conditions for mechanics tests. Production defaults are
 // exercised separately in the nursery and CLI tests.
 inline EcosystemConfig controlled_config()
 {
-    EcosystemConfig c;c.mass_allometry=false;c.funded_reproduction=false;c.mass_scaled_energy_capacity=false;c.mutation.meta_mutation_enabled=false;
+    EcosystemConfig c;c.food_sources.bitter_trees=0;c.mass_allometry=false;c.funded_reproduction=false;c.mass_scaled_energy_capacity=false;c.mutation.meta_mutation_enabled=false;
     c.background_food_patches=0;c.storm_ramp=false;
     c.food_distribution = FoodDistribution::Scattered;
     c.nursery_frontier = false;

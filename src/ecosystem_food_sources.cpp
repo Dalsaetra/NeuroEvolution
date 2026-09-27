@@ -30,6 +30,7 @@ const char* to_string(FoodSourceKind kind)
         case FoodSourceKind::Field:return "field";
         case FoodSourceKind::FruitTree:return "fruit-tree";
         case FoodSourceKind::PodTree:return "pod-tree";
+        case FoodSourceKind::BitterTree:return "bitter-tree";
     }
     throw std::invalid_argument("Invalid food source");
 }
@@ -67,6 +68,7 @@ void EcosystemWorld::place_food_sources()
     for(std::size_t i=0;i<cfg.fields;++i)add(FoodSourceKind::Field,cfg.field_radius);
     for(std::size_t i=0;i<cfg.fruit_trees;++i)add(FoodSourceKind::FruitTree,cfg.tree_radius);
     for(std::size_t i=0;i<cfg.pod_trees;++i)add(FoodSourceKind::PodTree,cfg.tree_radius);
+    for(std::size_t i=0;i<cfg.bitter_trees;++i)add(FoodSourceKind::BitterTree,cfg.tree_radius);
 }
 void EcosystemWorld::generate_source_food()
 {
@@ -97,17 +99,18 @@ void EcosystemWorld::generate_source_food()
                     append(r);
                 }
         } else {
-            const bool fruit=source.kind==FoodSourceKind::FruitTree;
+            const bool bitter=source.kind==FoodSourceKind::BitterTree;
+            const bool fruit=source.kind==FoodSourceKind::FruitTree || bitter;
             const std::size_t count=fruit?cfg.fruit_sites:cfg.pod_sites;
-            const auto kind=fruit ? ((fruit_tree++%2)==0 ? FoodKind::FruitA:FoodKind::FruitB):FoodKind::Pod;
+            const auto kind=bitter ? FoodKind::BitterFruit : fruit ? ((fruit_tree++%2)==0 ? FoodKind::FruitA:FoodKind::FruitB):FoodKind::Pod;
             for(std::size_t i=0;i<count;++i) {
                 const double angle=source.phase+2*pi*i/count;
                 const double radius=source.radius*.75;
                 EcoResource r;r.source_id=source.id;r.kind=kind;
                 r.position={source.position.x+radius*std::cos(angle),source.position.y+radius*std::sin(angle)};
-                r.capacity=fruit?config.fruit_capacity:config.pod_capacity;
-                r.regrowth=(fruit?cfg.fruit_production:cfg.pod_production)/count;
-                r.energy_per_unit=fruit ? ((kind==FoodKind::FruitA)==fruit_a_rich ? config.rich_fruit_energy:config.poor_fruit_energy):config.pod_energy;
+                r.capacity=bitter?config.bitter_fruit_capacity:fruit?config.fruit_capacity:config.pod_capacity;
+                r.regrowth=(bitter?cfg.bitter_production:fruit?cfg.fruit_production:cfg.pod_production)/count;
+                r.energy_per_unit=bitter ? config.bitter_fruit_energy : fruit ? ((kind==FoodKind::FruitA)==fruit_a_rich ? config.rich_fruit_energy:config.poor_fruit_energy):config.pod_energy;
                 if(fruit) {
                     if(rng.chance(.4))r.stock=r.capacity;
                     else r.ripening_remaining=rng.uniform(0,r.capacity/r.regrowth);
@@ -124,7 +127,7 @@ void EcosystemWorld::renew_source_food(double end, bool storm)
 {
     for(auto& r:resources) {
         if(!r.source_id)continue;
-        if(r.kind==FoodKind::FruitA || r.kind==FoodKind::FruitB) {
+        if(r.kind==FoodKind::FruitA || r.kind==FoodKind::FruitB || r.kind==FoodKind::BitterFruit) {
             const double spoiled=std::min(r.stock,config.fruit_decay*config.dt);
             r.stock-=spoiled;totals.spoiled_biomass+=spoiled;
             if(r.stock<=epsilon && r.ripening_remaining<0) r.ripening_remaining=r.capacity/r.regrowth;

@@ -15,6 +15,29 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    def test_bitter_fruit_configuration_and_resume(self):
+        values = dict(bitter_trees=2, bitter_tree_production=0.6,
+                      bitter_fruit_energy=150, bitter_fruit_damage=12, bitter_fruit_capacity=4)
+        flags = [item for key, value in values.items() for item in ("--" + key.replace("_", "-"), value)]
+        args = ("--food-distribution", "fields-and-trees", "--creatures", 1,
+                "--no-reproduction", "--detailed-tail-seconds", 0, *flags)
+        first = self.run_world("bitter", *args, "--steps", 3)
+        resumed = self.run_world("bitter_resume", "--resume", first / "checkpoint.eco",
+                                 "--steps", 3, "--detailed-tail-seconds", 0)
+        whole = self.run_world("bitter_whole", *args, "--steps", 6)
+        self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+        for run in (first, resumed):
+            metadata = json.loads((run / "ecosystem.jsonl").read_text().splitlines()[0])
+            summary = json.loads((run / "summary.json").read_text())
+            for record in (metadata, summary):
+                for key, value in values.items():
+                    self.assertEqual(record[key], value)
+            self.assertEqual(sum(s["kind"] == "bitter-tree" for s in metadata["food_sources"]), 2)
+            fruit = [r for r in metadata["resources"] if r["kind"] == "bitter-fruit"]
+            self.assertTrue(fruit)
+            self.assertTrue(all(r["capacity"] == 4 and r["value"] == 150 for r in fruit))
+            self.assertEqual(sum("bitter_fruit" in label for label in metadata["input_labels"]), 9)
+
     def test_evolved_eyes_configuration_import_and_resume(self):
         args = ("--creatures", 1, "--founder-eye-separation", 150, "--mutate-initial-ancestors", 0,
                 "--eye-mutation-probability", 0.7, "--eye-mutation-sigma", 20)
@@ -130,6 +153,7 @@ class EcosystemCliTests(unittest.TestCase):
         path = self.root / "source_default"
         result = subprocess.run([str(EXECUTABLE), "--out", str(path), "--steps", "5", "--creatures", "1",
             "--record-every", "1", "--record-brains", "0", "--record-observations", "0",
+            "--background-food-energy", "10", "--pod-trees", "3",
             "--detailed-tail-seconds", "0"], capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         records = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
@@ -141,6 +165,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual(records[1]["storm_intensity"], 0)
         self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("field"), 3)
         self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("pod-tree"), 3)
+        self.assertEqual([s["kind"] for s in metadata["food_sources"]].count("bitter-tree"), 3)
         source_ids = {s["id"] for s in metadata["food_sources"]}
         self.assertTrue(all(r["source_id"] in source_ids for r in metadata["resources"] if r["source_id"]))
         self.assertTrue(any(r["ripening_remaining"] > 0 for r in records[1]["resources"]))
@@ -325,7 +350,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_44")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_46")
         del lines[1:3]  # Version 40's mass-allometry config preamble.
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]
@@ -389,7 +414,7 @@ class EcosystemCliTests(unittest.TestCase):
         meta = json.loads((first / "ecosystem.jsonl").read_text().splitlines()[0])
         self.assertEqual(meta["neuron_model"], "izhikevich")
         self.assertEqual(meta["brain_dt"], 0.001)
-        hidden = meta["brains"][0]["neurons"][91]
+        hidden = meta["brains"][0]["neurons"][100]
         self.assertEqual(hidden["izhikevich"]["d"], 2)
         self.assertEqual(hidden["threshold"], 30)
         resumed = self.run_world("izh_resume", "--resume", first / "checkpoint.eco", "--steps", 2)
@@ -417,7 +442,7 @@ class EcosystemCliTests(unittest.TestCase):
         self.assertEqual([frame["step"] for frame in tail[1:]], [0, 3])
         self.assertTrue(tail[0]["brains"])
         self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
-        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 91)
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 100)
         disabled = self.run_world("tail_disabled", "--creatures", 1, "--steps", 1,
                                   "--detailed-tail-seconds", 0)
         self.assertFalse((disabled / "ecosystem_tail.jsonl").exists())
@@ -433,12 +458,12 @@ class EcosystemCliTests(unittest.TestCase):
             metadata, final = lines[0], lines[-1]
             self.assertEqual(metadata["type"], "metadata")
             self.assertEqual(len(metadata["brains"]), population)
-            self.assertEqual(len(metadata["input_labels"]), 91)
+            self.assertEqual(len(metadata["input_labels"]), 100)
             self.assertEqual(len(final["creatures"]), population)
             self.assertEqual(len({c["id"] for c in final["creatures"]}), population)
             self.assertGreater(final["totals"]["spikes"], 0)
             for creature in final["creatures"]:
-                self.assertEqual(len(creature["observation"]), 91)
+                self.assertEqual(len(creature["observation"]), 100)
                 self.assertIn("forward", creature)
                 self.assertIn("potentials", creature["brain"])
             with (path / "ecosystem_stats.csv").open(newline="") as handle:
@@ -521,8 +546,8 @@ class EcosystemCliTests(unittest.TestCase):
                               "--record-observations", 0, "--record-brain-graphs", 1, "--detailed-tail-seconds", 0)
         lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
         brain = lines[0]["brains"][0]
-        self.assertEqual((brain["inputs"], brain["outputs"]), (91, 6))
-        self.assertEqual(len(brain["neurons"]), 102)
+        self.assertEqual((brain["inputs"], brain["outputs"]), (100, 6))
+        self.assertEqual(len(brain["neurons"]), 111)
         self.assertEqual(len(brain["synapses"]), 32)
         self.assertTrue(all(c["controller"] == "spiking" for c in lines[-1]["creatures"]))
         summary = json.loads((path / "summary.json").read_text())
@@ -550,7 +575,7 @@ class EcosystemCliTests(unittest.TestCase):
         tail = [json.loads(x) for x in (path / "ecosystem_tail.jsonl").read_text().splitlines()]
         self.assertEqual([frame["step"] for frame in tail[1:]], [25, 30, 35])
         self.assertEqual(len(tail[0]["brains"]), 3)
-        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 91)
+        self.assertEqual(len(tail[-1]["creatures"][0]["observation"]), 100)
         self.assertIn("potentials", tail[-1]["creatures"][0]["brain"])
         summary = json.loads((path / "summary.json").read_text())
         self.assertFalse(summary["record_brains"])

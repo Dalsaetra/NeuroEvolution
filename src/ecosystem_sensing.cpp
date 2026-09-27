@@ -87,24 +87,29 @@ EcoAction baseline_action(const std::vector<double>& inputs, const EcosystemConf
         for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
             const std::size_t offset = sector * eco_sector_channels;
             // Compare independently visible plant and meat targets using only local senses.
-            for (bool meat : {false, true}) {
-                if (meat && !config.predation) continue;
-                const double efficiency = config.predation ? (meat ? carnivory : 1-carnivory) : 1;
-                const double present = meat ? inputs[eco_meat_offset + sector] : inputs[offset + 1];
-                const double stock = meat ? inputs[eco_meat_offset + 2 * eco_sectors + sector] : inputs[offset + 7];
+            for (int food_type=0;food_type<3;++food_type) {
+                const bool meat=food_type==1,bitter=food_type==2;
+                if ((meat || bitter) && !config.predation) continue;
+                if (bitter && inputs.size()<=eco_bitter_offset) continue;
+                const double efficiency = config.predation ? (bitter ? std::max(0.0,1-2*carnivory) : meat ? carnivory : 1-carnivory) : 1;
+                const double present = bitter ? inputs[eco_bitter_offset+sector] : meat ? inputs[eco_meat_offset + sector] : inputs[offset + 1];
+                const double stock = bitter ? inputs[eco_bitter_offset+2*eco_sectors+sector] : meat ? inputs[eco_meat_offset + 2 * eco_sectors + sector] : inputs[offset + 7];
                 if (efficiency <= 0 || present <= 0 || stock <= 0) continue;
                 const double plant_proximity = config.predation ? inputs[eco_plant_offset + sector] : inputs[offset + 2];
+                if (!meat && !bitter && config.predation && inputs.size()>eco_bitter_offset
+                    && inputs[eco_bitter_offset+sector]>0
+                    && std::abs(inputs[eco_bitter_offset+eco_sectors+sector]-plant_proximity)<epsilon) continue;
                 const auto nearest_type = [&](std::size_t channel) {
                     return inputs[offset + channel] > 0 && (!config.typed_food_proximity
                         || std::abs(inputs[offset + channel] - plant_proximity) < epsilon);
                 };
-                const bool refilling = !meat && nearest_type(6)
+                const bool refilling = !meat && !bitter && nearest_type(6)
                     && inputs[offset + 8] == 0.0 && inputs[offset + 9] == 0.0;
                 if (refilling) continue;
-                const double proximity = meat ? inputs[eco_meat_offset + eco_sectors + sector] : plant_proximity;
+                const double proximity = bitter ? inputs[eco_bitter_offset+eco_sectors+sector] : meat ? inputs[eco_meat_offset + eco_sectors + sector] : plant_proximity;
                 const double distance = (1.0 - proximity) * config.vision_range;
                 const double value = !meat && nearest_type(3) ? 1.0 : 1.5;
-                const bool pod = !meat && inputs[offset + 8] > 0.0;
+                const bool pod = !meat && !bitter && inputs[offset + 8] > 0.0;
                 const double score = efficiency * value * stock / (0.5 + distance + (pod ? 2.0 : 0.0));
                 if (score > best_score) {
                     best_score = score; target_sector = sector; target_distance = distance; target_pod = pod;
@@ -163,6 +168,9 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
         low_directions[sector] = {std::cos(low), std::sin(low)};
         high_directions[sector] = {std::cos(high), std::sin(high)};
     }
+    std::array<double, eco_sectors> bitter_distances,bitter_angles;
+    bitter_distances.fill(std::numeric_limits<double>::infinity());
+    bitter_angles.fill(std::numeric_limits<double>::infinity());
     std::array<double, eco_sectors> food_distances, creature_distances;
     std::array<double, eco_sectors> food_angles, creature_angles, meat_distances, meat_angles;
     meat_distances.fill(std::numeric_limits<double>::infinity());
@@ -257,8 +265,16 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
             depleted = std::max(depleted, unit(1.0 - distance / config.vision_range));
             continue;
         }
+        if(resource.kind==FoodKind::BitterFruit && config.predation && inputs.size()>eco_bitter_offset
+            && (distance<bitter_distances[sector]-epsilon
+                || (std::abs(distance-bitter_distances[sector])<=epsilon && angle<bitter_angles[sector]))) {
+            bitter_distances[sector]=distance;bitter_angles[sector]=angle;
+            inputs[eco_bitter_offset+sector]=1;
+            inputs[eco_bitter_offset+eco_sectors+sector]=unit(1-distance/config.vision_range);
+            inputs[eco_bitter_offset+2*eco_sectors+sector]=unit(resource.stock/resource.capacity);
+        }
         const std::size_t offset = sector * eco_sector_channels;
-        if (config.typed_food_proximity && resource.stock > epsilon
+        if (resource.kind!=FoodKind::BitterFruit && config.typed_food_proximity && resource.stock > epsilon
             && !(resource.kind == FoodKind::Pod && resource.pod_state == PodState::Refilling)) {
             auto& proximity = inputs[offset + 3 + static_cast<std::size_t>(resource.kind)];
             proximity = std::max(proximity, unit(1.0 - distance / config.vision_range));
@@ -273,7 +289,7 @@ std::vector<double> EcosystemWorld::observe(std::size_t creature_index,
         inputs[offset + 8] = inputs[offset + 9] = 0;
         inputs[offset + 1] = 1.0;
         inputs[offset + 2] = unit(1.0 - distance / config.vision_range);
-        if (!config.typed_food_proximity) inputs[offset + 3 + static_cast<std::size_t>(resource.kind)] = 1.0;
+        if (!config.typed_food_proximity && resource.kind!=FoodKind::BitterFruit) inputs[offset + 3 + static_cast<std::size_t>(resource.kind)] = 1.0;
         inputs[offset + 7] = resource.capacity > 0.0 ? unit(resource.stock / resource.capacity) : 0.0;
         if (resource.kind == FoodKind::Pod) {
             inputs[offset + 8] = resource.pod_state == PodState::Closed ? 1.0 : 0.0;
@@ -407,9 +423,9 @@ EcoAction EcosystemWorld::control(std::size_t creature_index,
     return action;
 }
 
-const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, bool reproductive_senses, bool carnivory_senses)
+const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, bool reproductive_senses, bool carnivory_senses, bool bitter_senses)
 {
-    const auto build = [](bool include_extended, bool include_predation, bool reproduction = false, bool carnivory = false) {
+    const auto build = [](bool include_extended, bool include_predation, bool reproduction = false, bool carnivory = false, bool bitter = false) {
         Brain::InputGroups groups;
         for (std::size_t channel = 0; channel < eco_sector_channels; ++channel) {
             std::vector<std::size_t> group;
@@ -440,6 +456,11 @@ const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, 
             for (std::size_t sector = 0; sector < eco_sectors; ++sector) plants.push_back(eco_plant_offset + sector);
             groups.push_back(std::move(plants));
             if(reproduction){groups.push_back({eco_reproduction_offset});groups.push_back({eco_reproduction_offset+1});}
+            if(bitter) for(std::size_t channel=0;channel<3;++channel) {
+                std::vector<std::size_t> inputs;
+                for(std::size_t sector=0;sector<eco_sectors;++sector)inputs.push_back(eco_bitter_offset+channel*eco_sectors+sector);
+                groups.push_back(std::move(inputs));
+            }
             if(carnivory) {
                 std::vector<std::size_t> inputs;
                 for(std::size_t sector=0;sector<eco_sectors;++sector) inputs.push_back(eco_carnivory_offset+sector);
@@ -448,11 +469,11 @@ const Brain::InputGroups& ecosystem_input_groups(bool extended, bool predation, 
         }
         return groups;
     };
-    static const auto legacy = build(false, false), current = build(true, false), combat = build(true, true), reproductive = build(true,true,true), dietary = build(true,true,true,true);
-    return predation ? (reproductive_senses ? (carnivory_senses ? dietary : reproductive) : combat) : extended ? current : legacy;
+    static const auto legacy = build(false, false), current = build(true, false), combat = build(true, true), reproductive = build(true,true,true), dietary = build(true,true,true,true), bitter = build(true,true,true,true,true);
+    return predation ? (reproductive_senses ? (carnivory_senses ? (bitter_senses ? bitter : dietary) : reproductive) : combat) : extended ? current : legacy;
 }
 
-std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity, bool reproductive_senses, bool carnivory_senses)
+std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, bool typed_food_proximity, bool reproductive_senses, bool carnivory_senses, bool bitter_senses)
 {
     constexpr const char* channels[] = {"obstacle_proximity", "food_present", "food_proximity",
         "food_graze", "food_fruit_a", "food_fruit_b", "food_pod", "food_stock",
@@ -490,6 +511,9 @@ std::vector<std::string> ecosystem_input_labels(bool extended, bool predation, b
     if(predation && reproductive_senses && carnivory_senses)
         for(std::size_t sector=0;sector<eco_sectors;++sector)
             labels.push_back("vision_"+std::to_string(sector)+"_creature_carnivory_total");
+    if(predation && reproductive_senses && carnivory_senses && bitter_senses)
+        for(const auto* channel:{"bitter_fruit_present","bitter_fruit_proximity","bitter_fruit_amount"})
+            for(std::size_t sector=0;sector<eco_sectors;++sector)labels.push_back("vision_"+std::to_string(sector)+"_"+channel);
     return labels;
 }
 

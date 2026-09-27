@@ -72,6 +72,9 @@ void storm_health()
     const auto before=ledger(w);w.step({{},{},{},{}});
     require(w.creatures.size()==3 && w.totals.predation_deaths==0,"Storm death counted as predation or victim survived");
     require(!w.resources.empty() && w.resources.back().kind==FoodKind::Meat,"Storm victim did not leave corpse");
+    const auto storm_death=std::find_if(w.events.begin(),w.events.end(),[](const auto& e){return e.type=="death";});
+    require(storm_death!=w.events.end() && storm_death->cause=="storm" && storm_death->position,
+        "Storm death replay cue must not be classified as predation");
     near(ledger(w),before,"Lethal storm duplicated energy");
     auto energy=empty();energy.config.storms_enabled=true;energy.config.phase_offset=cfg.phase_offset;
     energy.config.storm_cost=10;add(energy,{3,3});energy.step({{}});
@@ -212,6 +215,22 @@ void combat()
     near(w.totals.attacking,0.4,"Attack costs must be paid for both attacks");
     near(ledger(w),initial,"Combat or corpses created energy");
     require(w.totals.predation_deaths==2,"Missing predation death accounting");
+    for (const auto& e:w.events) if (e.type=="death") {
+        require(e.cause=="predation" && e.position,"Predation death lacks replay cause or position");
+        near(e.position->y,3,"Predation death position changed");
+    }
+    std::ostringstream replay;
+    write_ecosystem_frame(replay,w,false);
+    require(replay.str().find("\"cause\":\"predation\"")!=std::string::npos
+        && replay.str().find("\"x\":3.6,\"y\":3")!=std::string::npos,
+        "Replay lost event details after dead creatures were removed");
+    std::istringstream killed_state(saved(w));
+    require(saved(EcosystemWorld::load_checkpoint(killed_state))==saved(w),"Checkpoint lost lethal event details");
+
+    auto starved=empty();add(starved,{3,3});starved.creatures[0].energy=0;starved.step({{}});
+    const auto energy_death=std::find_if(starved.events.begin(),starved.events.end(),[](const auto& e){return e.type=="death";});
+    require(energy_death!=starved.events.end() && energy_death->cause=="energy",
+        "Energy depletion must not display a predation death cue");
 
     w=empty(); add(w,{3,3}); add(w,{3.6,3});
     w.creatures[0].energy=0.1;

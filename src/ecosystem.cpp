@@ -613,7 +613,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                     : config.attack_damage * diet_strength * paid / attack_cost
                         * (config.mass_allometry ? std::pow(c.body.mass, config.attack_mass_exponent) : 1.0);
                 damage[target] += hit;
-                events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit});
+                events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit, creatures[target].position});
             }
         }
         for (std::size_t i = 0; i < population; ++i) {
@@ -626,6 +626,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
 
     // 3. Targets use post-movement geometry and the starting resource state.
     // A seeded ID hash breaks exact distance ties without vector-order priority.
+    std::unordered_set<std::uint64_t> toxic_victims;
     std::vector<std::vector<std::size_t>> requests(resources.size());
     for (std::size_t i = 0; i < population; ++i) {
         const auto& creature = creatures[i];
@@ -637,7 +638,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
         std::uint64_t best_tie = std::numeric_limits<std::uint64_t>::max();
         for (std::size_t r = 0; r < resources.size(); ++r) {
             if(resources[r].source_id && resources[r].ripening_remaining>=0)continue;
-            if (dietary_efficiency(creature, resources[r].kind) <= 0) continue;
+            if (resources[r].kind != FoodKind::BitterFruit && dietary_efficiency(creature, resources[r].kind) <= 0) continue;
             if (config.extended_senses && (resources[r].stock <= epsilon
                 || (resources[r].kind == FoodKind::Pod && resources[r].pod_state == PodState::Refilling))) continue;
             const Vec2 difference = resources[r].position - creature.position;
@@ -716,6 +717,13 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             if (end - creature.last_fed_time > 5.0) ++creature.feeding_bouts;
             creature.last_fed_time = end;
             creature.eaten[static_cast<std::size_t>(resource.kind)] += amount;
+            if (config.predation && resource.kind == FoodKind::BitterFruit) {
+                const double damage=std::min(creature.health,amount*config.bitter_fruit_damage
+                    *std::max(0.0,2.0*creature.body.carnivory-1.0));
+                creature.health-=damage;creature.damage_pulse+=damage;totals.damage+=damage;
+                if(damage>0)events.push_back({end,"poison_damage",creature.id,0,resource.id,damage});
+                if(creature.health<=0)toxic_victims.insert(creature.id);
+            }
             const double raw_energy = amount * resource.energy_per_unit;
             const double digestible = raw_energy * dietary_efficiency(creature, resource.kind);
             totals.discarded_energy += raw_energy - digestible;
@@ -874,7 +882,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
             events.push_back({end, "maturation", creature.id, creature.parent_id, 0, creature.age});
         }
     }
-    remove_dead(end, storm_victims);
+    remove_dead(end, storm_victims, toxic_victims);
 
     // 5. Birth placement prioritizes energy, breaks ties reproducibly and validates
     // full circles against terrain and every living/born body. Failed birth is free.
@@ -935,7 +943,7 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                 child.brain = parent.brain;
                 if (!exact_inheritance) child.brain.mutate(inheritance < probabilities[0] + probabilities[1]
                     ? detail::slight_mutation(config.mutation)
-                    : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation, config.brain.input_count>eco_reproduction_offset,config.brain.input_count>eco_carnivory_offset));
+                    : detail::strong_mutation(config.mutation), mutation_rng, ecosystem_input_groups(config.extended_senses, config.predation, config.brain.input_count>eco_reproduction_offset,config.brain.input_count>eco_carnivory_offset,config.brain.input_count>eco_bitter_offset));
                 child.mutation_scale=parent.mutation_scale;
                 if (config.mutation.meta_mutation_enabled && config.mutation.meta_mutation_probability>0 && config.mutation.meta_mutation_sigma>0
                     && mutation_rng.chance(config.mutation.meta_mutation_probability)) {
@@ -1021,7 +1029,7 @@ const char* to_string(Terrain value)
 }
 const char* to_string(FoodKind value)
 {
-    switch (value) { case FoodKind::Graze: return "graze"; case FoodKind::FruitA: return "fruit-a"; case FoodKind::FruitB: return "fruit-b"; case FoodKind::Pod: return "pod"; case FoodKind::Meat: return "meat"; }
+    switch (value) { case FoodKind::Graze: return "graze"; case FoodKind::FruitA: return "fruit-a"; case FoodKind::FruitB: return "fruit-b"; case FoodKind::Pod: return "pod"; case FoodKind::Meat: return "meat"; case FoodKind::BitterFruit: return "bitter-fruit"; }
     throw std::invalid_argument("Invalid food kind");
 }
 const char* to_string(PodState value)
