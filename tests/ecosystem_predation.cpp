@@ -29,12 +29,28 @@ void add(EcosystemWorld& w, Vec2 p, double heading=0, BodyGenes body={})
 {
     EcoCreature c;
     c.id=c.genome_id=w.next_creature_id++;
-    c.position=p; c.heading=heading; c.energy=100; c.body=body;
+    c.position=p; c.heading=heading; c.energy=100; c.body=body; c.age=w.config.maturity_age;
     c.health=w.max_health(c); c.brain=make_sparse_ancestral_brain(w.config);
     w.creatures.push_back(c);
 }
 EcoAction attack() { EcoAction a; a.attack=1; return a; }
 EcoAction eat() { EcoAction a; a.forage=1; return a; }
+
+void attack_maturation()
+{
+    for (double maturity : {0.0, 10.0, 30.0}) for (double progress : {0.0, 0.25, 0.5, 1.0, 2.0}) {
+        auto w=empty();w.config.maturity_age=maturity;
+        add(w,{3,3});add(w,{3.6,3});
+        w.creatures[0].age=maturity*progress;
+        const double health=w.creatures[1].health;
+        std::istringstream input(saved(w));auto resumed=EcosystemWorld::load_checkpoint(input);
+        w.step({attack(),{}});resumed.step({attack(),{}});
+        const double expected=0.5*(maturity>0 ? std::min(1.0,progress) : 1.0);
+        near(w.creatures[1].health,health-expected,"Attack damage did not scale with maturity");
+        near(w.totals.attacking,0.2,"Maturation changed attack energy cost");
+        require(saved(w)==saved(resumed),"Immature attack changed after checkpoint resume");
+    }
+}
 double ledger(const EcosystemWorld& w)
 {
     double stored=0;
@@ -607,6 +623,6 @@ void configurable_inheritance()
 }
 int main()
 {
-    try { mass_energy_capacity(); storm_health(); storm_survival_scales_linearly(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
+    try { attack_maturation(); mass_energy_capacity(); storm_health(); storm_survival_scales_linearly(); shelter_damage(); general_food_senses(); configurable_inheritance(); combat(); dietary_attack_strength(); food_and_senses(); regional_meat_decay(); dietary_metabolism(); bodies_and_births(); std::cout<<"Predation tests passed\n"; }
     catch (const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

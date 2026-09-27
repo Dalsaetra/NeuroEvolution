@@ -21,7 +21,7 @@ EcosystemWorld fixture()
 void add(EcosystemWorld& w,double mass,double diet=0,Vec2 position={4,4})
 {
     EcoCreature c;c.id=c.genome_id=w.next_creature_id++;c.body={mass,diet};c.position=position;
-    c.energy=100;c.health=w.max_health(c);c.brain=make_sparse_ancestral_brain(w.config);w.creatures.push_back(c);
+    c.energy=100;c.health=w.max_health(c);c.age=w.config.maturity_age;c.brain=make_sparse_ancestral_brain(w.config);w.creatures.push_back(c);
 }
 void food(EcosystemWorld& w,FoodKind kind=FoodKind::Graze,double stock=10)
 {

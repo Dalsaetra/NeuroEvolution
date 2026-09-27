@@ -606,11 +606,13 @@ void EcosystemWorld::step(const std::vector<EcoAction>& supplied_actions)
                 // attacks across shelter boundaries. Effort still costs energy.
                 const double diet_strength = config.attack_base_fraction
                     + (1.0 - config.attack_base_fraction) * c.body.carnivory;
+                const double maturity_strength = config.maturity_age > 0
+                    ? std::clamp(c.age / config.maturity_age, 0.0, 1.0) : 1.0;
                 const auto target_position = creatures[target].position;
                 const bool protected_target = in_nursery(target_position)
                     || (!config.shelter_predation_damage && sheltered(target_position));
                 const double hit = protected_target ? 0.0
-                    : config.attack_damage * diet_strength * paid / attack_cost
+                    : config.attack_damage * diet_strength * maturity_strength * paid / attack_cost
                         * (config.mass_allometry ? std::pow(c.body.mass, config.attack_mass_exponent) : 1.0);
                 damage[target] += hit;
                 events.push_back({end, "attack_hit", c.id, creatures[target].id, 0, hit, creatures[target].position});
