@@ -68,6 +68,48 @@ void respawn_delays() {
         check(rejected,"Negative respawn delay accepted");
     }
 }
+void nursery_respawn_spacing() {
+    auto cfg=scattered_config();cfg.initial_creatures=0;cfg.reproduction=cfg.storms_enabled=false;
+    cfg.nursery_food_respawn_delay=0;cfg.nursery_food_decay=cfg.nursery_meat_decay=0;
+    const double x0=double((cfg.width-cfg.nursery_size)/2),y0=double((cfg.height-cfg.nursery_size)/2);
+    for(auto kind:{FoodKind::Meat,FoodKind::Graze})for(double stock:{0.0,1.0}) {
+        EcosystemWorld w(cfg,false);
+        EcoResource food;food.id=1;food.position={x0+8.5,y0+8.5};food.capacity=2;
+        w.resources.push_back(food);
+        // These 16 resources cover every candidate with the old 1.8-cell rule.
+        for(int y=3;y<=12;y+=3)for(int x=3;x<=12;x+=3) {
+            EcoResource r;r.id=w.resources.size()+1;r.kind=kind;r.stock=stock;r.capacity=1;
+            r.position={x0+x+.5,y0+y+.5};w.resources.push_back(r);
+        }
+        w.next_resource_id=w.resources.size()+1;
+        const bool expected=kind==FoodKind::Meat || stock==0;
+        check(w.relocate_nursery_food(w.resources[0],w.map_rng,true)==expected,
+            "Nursery spacing must ignore empty patches and allow food between corpses, but separate live plants");
+        if(expected && stock>0)for(std::size_t i=1;i<w.resources.size();++i)
+            check(length(w.resources[0].position-w.resources[i].position)>=0.5,"Food spawned too close to meat");
+        if(kind==FoodKind::Meat && stock>0) {
+            std::istringstream input(save(w));auto resumed=EcosystemWorld::load_checkpoint(input);
+            w.step();resumed.step();
+            check(w.resources[0].stock==2,"Meat still blocks actual nursery respawn with zero delay");
+            check(save(w)==save(resumed),"Crowded nursery respawn diverged after resume");
+        }
+    }
+    // Restrict the map to one candidate to exercise the exact exclusion distances.
+    for(auto kind:{FoodKind::Meat,FoodKind::Graze})for(double distance:{0.3,0.7,1.7,1.9}) {
+        EcosystemWorld w(cfg,false);std::fill(w.terrain.begin(),w.terrain.end(),Terrain::Wall);
+        const Vec2 p{x0+3.5,y0+3.5};
+        w.terrain[std::size_t(p.y)*cfg.width+std::size_t(p.x)]=Terrain::Ground;
+        EcoResource food;food.id=1;food.position={x0+8.5,y0+8.5};
+        EcoResource other;other.id=2;other.kind=kind;other.stock=1;other.position={p.x+distance,p.y};
+        w.resources={food,other};
+        const bool expected=distance>=(kind==FoodKind::Meat ? 0.5 : 1.8);
+        check(w.relocate_nursery_food(w.resources[0],w.map_rng,true)==expected,"Wrong nursery exclusion distance");
+        if(expected)check(length(w.resources[0].position-other.position)>=(kind==FoodKind::Meat ? 0.5 : 1.8),"Jitter violated food spacing");
+        w.resources[0].position=food.position;w.resources.resize(1);
+        EcoCreature c;c.position=p;w.creatures={c};
+        check(!w.relocate_nursery_food(w.resources[0],w.map_rng,true),"Respawn stopped avoiding living creatures");
+    }
+}
 void population_nutrition() {
     auto cfg=scattered_config(); cfg.initial_creatures=51; cfg.reproduction=false;
     cfg.storms_enabled=false; cfg.nursery_food_decay=0;
@@ -169,6 +211,7 @@ void population_nutrition_cooldown() {
     }
 }
 int main(){try{
+    nursery_respawn_spacing();
     population_nutrition_cooldown();
     population_nutrition();
     optional_regrowth();

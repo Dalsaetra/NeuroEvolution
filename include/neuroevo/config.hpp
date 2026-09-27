@@ -255,7 +255,7 @@ struct EcosystemConfig {
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
 
     // Weather
-    double calm_duration = 300, warning_duration = 60, storm_duration = 60;
+    double calm_duration = 400, warning_duration = 30, storm_duration = 60;
     double storm_cost = 1.0, phase_offset = 0;
     bool storm_health_damage = true; // Independent health drain; requires predation.
     bool storm_energy_drain = true; // Can be enabled alongside health damage.

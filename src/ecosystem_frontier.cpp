@@ -217,19 +217,29 @@ void EcosystemWorld::generate_nursery_frontier()
 bool EcosystemWorld::relocate_nursery_food(EcoResource& resource, Random& rng, bool avoid_creatures)
 {
     const auto x0=(config.width-config.nursery_size)/2,y0=(config.height-config.nursery_size)/2;
+    const auto valid = [&](Vec2 p) {
+        if (!traversable(p) || length(p-resource.position)<2) return false;
+        if (std::any_of(resources.begin(),resources.end(),[&](const auto& r) {
+            if(r.id==resource.id || r.stock<=1e-10)return false;
+            // Live plants need growing space; corpses only exclude near-overlap.
+            return length(r.position-p)<(r.kind==FoodKind::Meat ? 0.5 : 1.8);
+        })) return false;
+        return !avoid_creatures || std::none_of(creatures.begin(),creatures.end(),[&](const auto& c) {
+            return length(c.position-p)<config.interaction_range+config.radius+.5;
+        });
+    };
     std::vector<Vec2> candidates;
     for (auto y=y0+2;y<y0+config.nursery_size-2;++y) for (auto x=x0+2;x<x0+config.nursery_size-2;++x) {
         const Vec2 p{double(x)+.5,double(y)+.5};
-        if (!traversable(p) || length(p-resource.position)<2) continue;
-        if (std::any_of(resources.begin(),resources.end(),[&](const auto& r){return r.id!=resource.id && length(r.position-p)<1.8;})) continue;
-        if (avoid_creatures && std::any_of(creatures.begin(),creatures.end(),[&](const auto& c){return length(c.position-p)<config.interaction_range+config.radius+.5;})) continue;
+        if (!valid(p)) continue;
         candidates.push_back(p);
     }
     if (candidates.empty()) return false; // Remain depleted; retry next step, never overlap bodies.
-    auto p=candidates[rng.uniform_index(candidates.size())];
+    const auto center=candidates[rng.uniform_index(candidates.size())];
+    auto p=center;
     // Continuous jitter removes alignment to a predictable cell-center grid.
     p.x+=rng.uniform(-.15,.15);p.y+=rng.uniform(-.15,.15);
-    resource.position=p;
+    resource.position=valid(p) ? p : center; // Jitter must preserve the exclusion distances too.
     return true;
 }
 void EcosystemWorld::add_shelter_food(Vec2 position)

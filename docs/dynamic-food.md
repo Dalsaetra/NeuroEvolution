@@ -56,3 +56,7 @@ Tune quotas, capacity, nutrition, decay, and regrowth in the food section of [co
 During storms an exposed creature cannot harvest plants or meat, or contribute work to pods. Forage effort still costs energy. Sheltered creatures can feed, swallowed packets still digest, and food decay/relocation continues. Protection uses the creature's post-movement position and weather at step start.
 
 Checkpoints retain positions, stocks, renewal policy, and RNG state. The viewer shows moving patches and their recorded nutrition.
+
+### Nursery respawn spacing
+
+After `nursery_food_respawn_delay` expires, relocating nursery food retries every simulation step until a valid position exists. Failed placement does not restart the delay. Live plant patches require 1.8 cells of separation; meat requires only 0.5 cells, and depleted resources do not block placement. This prevents corpse clusters and empty patches from reserving the entire nursery. Placement still avoids living creatures by `interaction_range + radius + 0.5`, moves at least two cells from the patch's previous position, and uses the existing inner-nursery candidate area. Position jitter is checked against the same spacing rules. These rules also apply when resuming existing saves with the updated executable.
