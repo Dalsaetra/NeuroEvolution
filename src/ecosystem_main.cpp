@@ -63,6 +63,7 @@ int main(int argc, char** argv)
         neuroevo::EcosystemConfig cfg;
         const neuroevo::RunConfig run;
         std::map<std::string,std::size_t*> sizes{
+            {"--obstacle-scale",&cfg.obstacle_scale},
             {"--background-food-patches",&cfg.background_food_patches},
             {"--grazing-fields",&cfg.food_sources.fields},{"--fruit-trees",&cfg.food_sources.fruit_trees},
             {"--pod-trees",&cfg.food_sources.pod_trees},{"--bitter-trees",&cfg.food_sources.bitter_trees},{"--fruit-sites",&cfg.food_sources.fruit_sites},
@@ -78,6 +79,7 @@ int main(int argc, char** argv)
             {"--pods",&cfg.pods},{"--hidden",&cfg.brain.hidden_count},
             {"--mutation-max-hidden",&cfg.mutation.max_hidden_neurons}};
         std::map<std::string,double*> numbers{
+            {"--obstacle-density",&cfg.obstacle_density},
             {"--background-food-energy",&cfg.background_food_energy},
             {"--field-radius",&cfg.food_sources.field_radius},{"--field-spacing",&cfg.food_sources.field_spacing},
             {"--food-source-gap",&cfg.food_sources.source_gap},{"--field-energy",&cfg.food_sources.field_energy},
@@ -195,6 +197,7 @@ int main(int argc, char** argv)
         bool predation_explicit=false;
         bool founder_brain_explicit=false;
         bool food_distribution_explicit=false;
+        bool obstacle_preset_explicit=false;
         std::optional<neuroevo::NeuronModel> neuron_model;
         std::optional<double> brain_dt_override;
         std::optional<double> synaptic_gain_override;
@@ -213,6 +216,8 @@ int main(int argc, char** argv)
                     "  --steps N                 World steps to run (additional steps with --resume)\n"
                     "  --threads N               Controller workers: 0=auto (up to 8), 1=serial\n"
                     "  --spatial-index 0|1       Exact spatial broad phase (default 1)\n"
+                    "  --obstacle-preset X     sparse | valleys | rooms | labyrinth | mixed (default)\n"
+                    "  --obstacle-density X / --obstacle-scale N (structured presets; defaults 0.06 / 24)\n"
                     "  --food-distribution X    fields-and-trees (default) or scattered; saved in checkpoints\n"
                     "  --background-food-patches N  Extra scattered graze in fields-and-trees worlds (250; 0 disables)\n"
                     "  --background-food-energy X   Background graze energy per biomass (10)\n"
@@ -335,6 +340,14 @@ int main(int argc, char** argv)
             else {
                 config_changed=true;
                 if (arg == "--seed") cfg.seed=integer(value,arg);
+                else if (arg == "--obstacle-preset") {
+                    bool found=false;
+                    for(auto preset:{neuroevo::ObstaclePreset::Sparse,neuroevo::ObstaclePreset::Valleys,
+                        neuroevo::ObstaclePreset::Rooms,neuroevo::ObstaclePreset::Labyrinth,neuroevo::ObstaclePreset::Mixed})
+                        if(value==neuroevo::obstacle_preset_name(preset)){cfg.obstacle_preset=preset;found=true;}
+                    if(!found)throw std::invalid_argument("--obstacle-preset requires sparse, valleys, rooms, labyrinth, or mixed");
+                    obstacle_preset_explicit=true;
+                }
                 else if (arg == "--food-distribution") {
                     if(value!="scattered" && value!="fields-and-trees")
                         throw std::invalid_argument("--food-distribution requires scattered or fields-and-trees");
@@ -437,6 +450,10 @@ int main(int argc, char** argv)
             founder_brain="sparse-ancestor";
         }
         cfg.nursery_frontier=habitat=="nursery-frontier";
+        if(!cfg.nursery_frontier) {
+            if(obstacle_preset_explicit)throw std::invalid_argument("Obstacle presets require the nursery-frontier habitat");
+            cfg.obstacle_preset=neuroevo::ObstaclePreset::Sparse;
+        }
         if(!cfg.nursery_frontier && !food_distribution_explicit)cfg.food_distribution=neuroevo::FoodDistribution::Scattered;
         if(!cfg.nursery_frontier && cfg.food_distribution==neuroevo::FoodDistribution::FieldsAndTrees)
             throw std::invalid_argument("fields-and-trees requires --habitat nursery-frontier");
@@ -671,6 +688,9 @@ int main(int argc, char** argv)
             << ",\n  \"background_food_energy\":" << world.config.background_food_energy
             << ",\n  \"storm_ramp\":" << (world.config.storm_ramp ? "true" : "false")
             << ",\n  \"food_source_count\":" << world.food_sources.size()
+            << ",\n  \"obstacle_preset\":\"" << neuroevo::obstacle_preset_name(world.config.obstacle_preset) << "\""
+            << ",\n  \"obstacle_density\":" << world.config.obstacle_density
+            << ",\n  \"obstacle_scale\":" << world.config.obstacle_scale
             << ",\n  \"bitter_trees\":" << world.config.food_sources.bitter_trees
             << ",\n  \"bitter_tree_production\":" << world.config.food_sources.bitter_production
             << ",\n  \"bitter_fruit_energy\":" << world.config.bitter_fruit_energy

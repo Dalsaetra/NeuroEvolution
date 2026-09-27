@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import Any
 
 
+# Routine per-step diagnostics overwhelm long overviews; detailed tails and the
+# original recording retain them. Attacks and death causes remain visible.
+OVERVIEW_ROUTINE_EVENTS = frozenset(("ingestion", "digestion", "pod_work", "storm_damage", "poison_damage"))
+INLINE_REPLAY_BYTES = 16 * 1024 * 1024
+
+
 def _reject_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON number: {value}")
 
@@ -47,7 +53,10 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
     frame_bytes = 0
     size_sampled = False
     def encoded_size(frame: dict[str, Any]) -> int:
-        return len(json.dumps(frame, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+        # Sampling cannot shrink retained events: they are moved to the next
+        # frame. Budget only state that can actually be reduced by sampling.
+        state = {key: value for key, value in frame.items() if key != "events"}
+        return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     stride, frame_count = 1, 0
     last_frame = None
     previous_time = -1
@@ -107,7 +116,7 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
                         creature.pop("brain", None)
                         creature.pop("observation", None)
                     record["events"] = [e for e in record["events"]
-                                        if e.get("type") not in ("ingestion", "digestion", "pod_work")]
+                                        if e.get("type") not in OVERVIEW_ROUTINE_EVENTS]
                 # Bound memory while reading even a multi-GB source. Retain the
                 # first/final states and merge events into the next retained frame.
                 pending_events.extend(record["events"])
@@ -162,7 +171,7 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
         frames.append(last_frame)
     if size_sampled:
         warnings.warn(f"{source.name}: sampled {len(frames)} of {frame_count} frames to keep the HTML viewer manageable; "
-                      "first/final states, events, and original recording are preserved")
+                      "first/final states, retained events, and original recording are preserved")
     stats = []
     stats_path = source.parent / "ecosystem_stats.csv"
     if stats_path.exists():
@@ -189,16 +198,19 @@ def read_replay(path: Path, *, recover_truncated: bool = False,
 def render_html(payload: dict[str, Any], *, compress: bool = False) -> str:
     # Escaping '<' is essential: JSON strings can contain a closing script tag.
     data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    encoded = data.encode("utf-8")
+    # Main overviews can be large even with very few frames (e.g. lifecycle
+    # events or statistics). Compress losslessly instead of rejecting the run
+    # at 200 MiB or asking for frame sampling that cannot reduce those fields.
+    compress = compress or len(encoded) > INLINE_REPLAY_BYTES
     template = TEMPLATE
     if compress:
         data = json.dumps({"encoding": "gzip-base64", "data": base64.b64encode(
-            gzip.compress(data.encode("utf-8"), compresslevel=6, mtime=0)).decode("ascii")}, separators=(",", ":"))
+            gzip.compress(encoded, compresslevel=6, mtime=0)).decode("ascii")}, separators=(",", ":"))
         template = template.replace("'use strict';", "'use strict';\n(async()=>{")
         template = template.replace("const replay=JSON.parse(document.getElementById('replay-data').textContent);",
             REPLAY_LOADER + "\nconst replay=await decodeReplay(document.getElementById('replay-data'));\n")
         template = template.replace("resize();\n</script>", "resize();\n})().catch(error=>{document.getElementById('recordingInfo').textContent='Could not load replay: '+error.message;});\n</script>")
-    if not compress and len(data.encode("utf-8")) > 200 * 1024 * 1024:
-        raise ValueError("Replay exceeds the 200 MiB HTML budget. Rebuild with --max-frames 100 (or fewer); original recording is preserved.")
     for character, replacement in (("&", "\\u0026"), ("<", "\\u003c"), (">", "\\u003e"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
         data = data.replace(character, replacement)
     replacements = {
@@ -366,12 +378,15 @@ function cueTime(){return playing?playTime:F[index].time}
 function drawCreatureCues(c,p,rad){
  ctx.save();ctx.translate(p.x,p.y);
  const call=clamp(num(c.call),0,1),attack=clamp(num(c.attack),0,1);
- if(call>.05){
+ // Display only substantial call effort; decaying motor traces can remain
+ // nonzero long after the output neuron's most recent spike.
+ if(call>.3){
+  const strength=(call-.3)/.7;
   const phase=((cueTime()*1.8+num(c.id)*.17)%1+1)%1;
   for(let i=0;i<3;i++){
    const wave=(phase+i/3)%1;
    ctx.beginPath();ctx.arc(0,0,rad+6+wave*15,0,2*Math.PI);
-   ctx.strokeStyle=`rgba(35,127,164,${(.35+.6*call)*(1-wave)})`;ctx.lineWidth=1.8;ctx.stroke();
+   ctx.strokeStyle=`rgba(35,127,164,${(.12+.28*strength)*(1-wave)})`;ctx.lineWidth=1.2;ctx.stroke();
   }
  }
  if(attack>.02){

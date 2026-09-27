@@ -11,6 +11,8 @@ enum class Terrain { Ground, Rough, Wall, Shelter };
 enum class FoodKind { Graze, FruitA, FruitB, Pod, Meat, BitterFruit };
 enum class FoodDistribution { Scattered, FieldsAndTrees };
 const char* food_distribution_name(FoodDistribution preset);
+enum class ObstaclePreset { Sparse, Valleys, Rooms, Labyrinth, Mixed };
+const char* obstacle_preset_name(ObstaclePreset preset);
 struct FoodSourceConfig {
     std::size_t fields = 3, fruit_trees = 18, pod_trees = 5;
     std::size_t fruit_sites = 12, pod_sites = 8;
@@ -227,12 +229,15 @@ struct EcosystemConfig {
     bool mass_scaled_energy_capacity = true; // Allometric reserves; legacy mode scales like child construction cost.
     double max_energy(double mass) const;
     double energy_capacity = 250, founder_energy = 90, basal_cost = 1.0;
-    double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.005;
+    double movement_cost = 0.12, turn_cost = 0.1, forage_cost = 0.30, call_cost = 0.1;
     double neuron_cost = 0.00001, synapse_cost = 0.000001, spike_cost = 0.000001;
     double rough_multiplier = 1.5, ingestion_rate = 1.0, digestion_delay = 3.0;
 
     // Food nutrition, renewal and decay
     FoodDistribution food_distribution = FoodDistribution::FieldsAndTrees;
+    ObstaclePreset obstacle_preset = ObstaclePreset::Mixed;
+    double obstacle_density = 0.06; // Structured presets: maximum fraction of candidate floor painted as walls.
+    std::size_t obstacle_scale = 24; // Approximate structure span in terrain cells.
     FoodSourceConfig food_sources;
     // Additional scattered graze in fields-and-trees worlds, including ordinary shelters.
     std::size_t background_food_patches = 250;
@@ -250,12 +255,12 @@ struct EcosystemConfig {
     double pod_work = 10, pod_decay = 1, pod_open_duration = 30;
 
     // Weather
-    double calm_duration = 300, warning_duration = 40, storm_duration = 60;
+    double calm_duration = 300, warning_duration = 60, storm_duration = 60;
     double storm_cost = 1.0, phase_offset = 0;
     bool storm_health_damage = true; // Independent health drain; requires predation.
     bool storm_energy_drain = true; // Can be enabled alongside health damage.
     bool storm_ramp = true; // Triangular intensity; exposed harvest efficiency falls to 50% at peak.
-    double storm_damage = 0.6; // Peak health/second independent of mass; health capacity scales with mass.
+    double storm_damage = 1.5; // Peak health/second independent of mass; health capacity scales with mass.
 
     // Reproduction
     bool funded_reproduction = true;

@@ -155,14 +155,18 @@ disable the tail. All recording options apply afresh on resume and genome import
 
 The HTML generator makes `ecosystem.html` an overview with at most 500 frames,
 including the first and final frames. It omits neural/sensory arrays from old
-recordings too, retains milestone events and the full statistics CSV, and leaves
+recordings too, omits routine feeding/work and storm/poison damage events,
+retains attacks, deaths, milestone events and the full statistics CSV, and leaves
 the original recording intact. `ecosystem_tail.html` retains recorded detail and
 every recorded tail frame, including brain dynamics and observations. Tail HTML
 uses lossless gzip compression and stores repeated resource properties once;
 the browser reconstructs resources for the displayed frame. Open it directly in
 a current Edge, Chrome, or Firefox browser. No server or internet is required.
 Only an explicit `--max-frames N` samples a tail. The main overview retains its
-64 MiB frame budget. Outputs are replaced only after successful generation.
+64 MiB frame-state budget; retained events do not trigger ineffective frame
+sampling. Overviews above 16 MiB of JSON use lossless gzip compression automatically
+instead of failing at the former 200 MiB uncompressed limit. Detailed tails retain
+all event diagnostics. Outputs are replaced only after successful generation.
 
 The detailed tail is recorded automatically. `-TailRecordEvery 1` records every world step (0.1 s by default);
 the default interval is 10 steps (1 s). These are snapshots of the neural state
@@ -212,3 +216,5 @@ Inherited mutation rates: see [meta mutation](docs/meta-mutation.md) for the cop
 New runs use [funded reproduction](docs/reproduction.md): an evolved allocation fraction divides digested income between survival and a separate gestation reserve.
 
 Bitter-fruit trees provide herbivore-specialist nutrition and poison creatures above 50% carnivory. See [bitter fruit](docs/bitter-fruit.md) for the dietary curves, new vision inputs, and tuning options.
+
+Frontier walls support `mixed` (default), `valleys`, `rooms`, `labyrinth`, and the previous `sparse` preset. Use `-ObstaclePreset` in the simulation script; see [obstacle presets](docs/obstacle-presets.md) for density, scale, and save compatibility.

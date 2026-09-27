@@ -74,6 +74,7 @@ void EcosystemWorld::generate_nursery_frontier()
         ++placed;
     }
     if (placed!=config.shelters) throw std::invalid_argument("Not enough frontier space for shelters");
+    if (config.obstacle_preset == ObstaclePreset::Sparse) {
     // Sparse one-cell-wide polylines: 3-7 cells with at most one right-angle
     // bend. Separate components cannot touch, even diagonally, so they cannot
     // accumulate into blobs or closed caves. Shelters are eligible floor too.
@@ -130,6 +131,7 @@ void EcosystemWorld::generate_nursery_frontier()
             for(const auto& cell:previous)terrain[cell.first]=cell.second;
         } else wall_count+=previous.size();
     }
+    } else generate_structured_obstacles(outside);
     cluster_rough_ground(*this,0.18);
     Random nursery_age_rng(config.seed ^ 0x6e757273616765ULL);
     Random food_age_rng(config.seed ^ 0x666f6f64616765ULL);

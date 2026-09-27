@@ -125,6 +125,7 @@ public:
     bool sheltered(Vec2 position) const;
     bool in_nursery(Vec2 position) const;
     void generate_nursery_frontier();
+    void generate_structured_obstacles(const std::vector<std::size_t>& outside);
     void place_food_sources();
     bool reserved_for_food(Vec2 position, double margin = 0) const;
     void generate_source_food();

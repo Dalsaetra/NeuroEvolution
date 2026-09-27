@@ -74,7 +74,7 @@ void write_event(std::ostream& s, const EcoEvent& e)
 void EcosystemWorld::save_checkpoint(std::ostream& s) const
 {
     s << std::setprecision(std::numeric_limits<double>::max_digits10);
-    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_46");
+    checkpoint::write(s,"NEUROEVO_ECOSYSTEM_47");
     // Read capacity-affecting settings before constructing/validating the world.
     checkpoint::write(s,"MASS_ALLOMETRY_1");
     checkpoint::write_tuple(s,std::tuple_cat(checkpoint::allometry_fields(config),std::tie(config.mass_scaled_energy_capacity)));
@@ -168,6 +168,7 @@ void EcosystemWorld::save_checkpoint(std::ostream& s) const
         config.bitter_fruit_energy,config.bitter_fruit_damage,config.bitter_fruit_capacity);
     checkpoint::write(s,creatures.size());
     for(const auto& c:creatures)checkpoint::write(s,c.id,c.eaten[5]);
+    checkpoint::write(s,"OBSTACLES_1",config.obstacle_preset,config.obstacle_density,config.obstacle_scale);
     checkpoint::write(s,"END_ECOSYSTEM");
 }
 
@@ -175,7 +176,8 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
 {
     std::string version;
     checkpoint::read(s,version);
-    const bool bitter_version = version == "NEUROEVO_ECOSYSTEM_46";
+    const bool obstacle_version = version == "NEUROEVO_ECOSYSTEM_47";
+    const bool bitter_version = obstacle_version || version == "NEUROEVO_ECOSYSTEM_46";
     const bool event_details_version = bitter_version || version == "NEUROEVO_ECOSYSTEM_45";
     const bool attack_cost_version = event_details_version || version == "NEUROEVO_ECOSYSTEM_44";
     const bool storm_energy_version = attack_cost_version || version == "NEUROEVO_ECOSYSTEM_43";
@@ -201,6 +203,7 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
     if (!modern && version != "NEUROEVO_ECOSYSTEM_22")
         throw std::runtime_error("Unsupported ecosystem checkpoint version. Start a new nursery run; use the previous build to resume older checkpoints.");
     EcosystemConfig cfg;
+    cfg.obstacle_preset=ObstaclePreset::Sparse;
     cfg.food_sources.bitter_trees=0;
     cfg.mutation.eye_mutation_probability=0; // Historical continuation keeps fixed eyes and RNG behavior.
     cfg.mass_allometry=false;
@@ -469,6 +472,11 @@ EcosystemWorld EcosystemWorld::load_checkpoint(std::istream& s)
             if(id!=c.id || c.eaten[5]<0)throw std::runtime_error("Invalid bitter fruit consumption");
         }
     }
+    if(obstacle_version) {
+        checkpoint::marker(s,"OBSTACLES_1");
+        checkpoint::read(s,w.config.obstacle_preset,w.config.obstacle_density,w.config.obstacle_scale);
+        w.config.validate();
+    }
     checkpoint::marker(s,"END_ECOSYSTEM");
     return w;
 }
@@ -581,6 +589,9 @@ void write_ecosystem_metadata(std::ostream& s, const EcosystemWorld& w, bool rec
     s << ",\"terrain\":";
     array(s,w.terrain,[&](Terrain v){ s << static_cast<int>(v); });
     s << ",\"food_distribution\":\"" << food_distribution_name(w.config.food_distribution) << "\""
+      << ",\"obstacle_preset\":\"" << obstacle_preset_name(w.config.obstacle_preset) << "\""
+      << ",\"obstacle_density\":" << w.config.obstacle_density
+      << ",\"obstacle_scale\":" << w.config.obstacle_scale
       << ",\"background_food_patches\":" << w.config.background_food_patches
       << ",\"background_food_energy\":" << w.config.background_food_energy
       << ",\"storm_ramp\":" << (w.config.storm_ramp ? "true" : "false")

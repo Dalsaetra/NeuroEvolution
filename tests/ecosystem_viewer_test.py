@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -20,6 +21,41 @@ SPEC.loader.exec_module(VIEWER)
 
 
 class EcosystemReplayTests(unittest.TestCase):
+    def test_large_plain_payload_automatically_compresses_losslessly(self) -> None:
+        payload = {"name": "large overview", "metadata": self.metadata(),
+                   "frames": [{"time": 0, "events": [{"type": "birth", "label": "</script>&" * 2000}]}]}
+        original = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        with mock.patch.object(VIEWER, "INLINE_REPLAY_BYTES", 1024):
+            document = VIEWER.render_html(payload)
+        envelope = json.loads(re.search(r'<script id="replay-data" type="application/json">(.*?)</script>', document, re.S).group(1))
+        self.assertEqual(envelope["encoding"], "gzip-base64")
+        self.assertEqual(gzip.decompress(VIEWER.base64.b64decode(envelope["data"])), original)
+        self.assertLess(len(envelope["data"]), 1024)
+        self.assertIn("const replay=await decodeReplay", document)
+        self.assertNotIn("</script>&", document)
+
+    def test_overview_omits_routine_damage_but_preserves_attacks_and_deaths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            events = [{"type": kind, "time": 1} for kind in (
+                "storm_damage", "poison_damage", "ingestion", "digestion", "pod_work",
+                "attack_hit", "death", "birth", "carcass", "weather_storm")]
+            source = self.write_recording(Path(temp), [self.metadata(), {"type": "frame", "time": 1, "events": events}])
+            original = source.read_bytes()
+            overview = VIEWER.read_replay(source, overview=True)
+            self.assertEqual([e["type"] for e in overview["frames"][0]["events"]],
+                             ["attack_hit", "death", "birth", "carcass", "weather_storm"])
+            self.assertEqual(VIEWER.read_replay(source)["frames"][0]["events"], events)
+            self.assertEqual(source.read_bytes(), original)
+
+    def test_retained_events_do_not_force_useless_frame_sampling(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            records = [self.metadata()] + [{"type": "frame", "time": t,
+                "events": [{"type": "birth", "time": t, "label": "x" * 1000}]} for t in range(20)]
+            source = self.write_recording(Path(temp), records)
+            payload = VIEWER.read_replay(source, overview=True, max_frame_bytes=4000)
+            self.assertEqual([f["time"] for f in payload["frames"]], list(range(20)))
+            self.assertEqual([e["time"] for f in payload["frames"] for e in f["events"]], list(range(20)))
+
     @unittest.skipUnless(shutil.which("node"), "Node required for compressed replay decoding")
     def test_lossless_compressed_tail_and_random_access(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -424,7 +460,8 @@ assert.equal(nodes.get('agentTitle').textContent,'Creature 2');
             self.assertEqual(result.returncode, 0, result.stderr)
             # Exercise the actual asynchronous compressed-page startup and its
             # interactive brain controls with the same DOM/canvas fixture.
-            compressed = VIEWER.render_html(payload, compress=True)
+            with mock.patch.object(VIEWER, "INLINE_REPLAY_BYTES", 1):
+                compressed = VIEWER.render_html(payload)
             compressed_source = compressed.split("<script>", 1)[1].split("</script>", 1)[0]
             compressed_data = re.search(r'<script id="replay-data" type="application/json">(.*?)</script>', compressed, re.S).group(1)
             startup = harness.split("vm.runInNewContext(SOURCE,scope);", 1)[0]

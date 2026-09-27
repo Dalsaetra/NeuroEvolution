@@ -88,7 +88,7 @@ int main()
         require(state(original)==state(resumed),"Checkpoint lost event positions or death causes");
         // The previous format lacks only the appended event details.
         auto legacy=state(original);
-        legacy.replace(legacy.find("NEUROEVO_ECOSYSTEM_46"),21,"NEUROEVO_ECOSYSTEM_44");
+        legacy.replace(legacy.find("NEUROEVO_ECOSYSTEM_47"),21,"NEUROEVO_ECOSYSTEM_44");
         legacy.erase(legacy.find("EVENT_DETAILS_1"));
         legacy+="END_ECOSYSTEM\n";
         std::istringstream legacy_input(legacy);

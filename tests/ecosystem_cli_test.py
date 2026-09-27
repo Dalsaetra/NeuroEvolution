@@ -15,6 +15,28 @@ EXECUTABLE = Path(sys.argv.pop(1)).resolve()
 
 
 class EcosystemCliTests(unittest.TestCase):
+    def test_obstacle_presets_and_resume(self):
+        for preset in ("sparse", "valleys", "rooms", "labyrinth", "mixed"):
+            args = ("--obstacle-preset", preset, "--obstacle-density", 0.08,
+                    "--obstacle-scale", 20, "--creatures", 1, "--detailed-tail-seconds", 0)
+            first = self.run_world("obstacles_" + preset, *args, "--steps", 1)
+            resumed = self.run_world("obstacles_resume_" + preset, "--resume", first / "checkpoint.eco",
+                                     "--steps", 1, "--detailed-tail-seconds", 0)
+            whole = self.run_world("obstacles_whole_" + preset, *args, "--steps", 2)
+            self.assertEqual((resumed / "checkpoint.eco").read_bytes(), (whole / "checkpoint.eco").read_bytes())
+            for run in (first, resumed):
+                metadata = json.loads((run / "ecosystem.jsonl").read_text().splitlines()[0])
+                summary = json.loads((run / "summary.json").read_text())
+                for record in (metadata, summary):
+                    self.assertEqual(record["obstacle_preset"], preset)
+                    self.assertEqual(record["obstacle_density"], 0.08)
+                    self.assertEqual(record["obstacle_scale"], 20)
+        for args in (("--obstacle-preset", "unknown"), ("--obstacle-density", "0.2"),
+                     ("--obstacle-scale", "5"), ("--habitat", "generated", "--obstacle-preset", "rooms"),
+                     ("--resume", str(first / "checkpoint.eco"), "--obstacle-preset", "sparse")):
+            result = subprocess.run([str(EXECUTABLE), *args], text=True, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+
     def test_bitter_fruit_configuration_and_resume(self):
         values = dict(bitter_trees=2, bitter_tree_production=0.6,
                       bitter_fruit_energy=150, bitter_fruit_damage=12, bitter_fruit_capacity=4)
@@ -350,7 +372,7 @@ class EcosystemCliTests(unittest.TestCase):
     def legacy_checkpoint_lines(self, path):
         """Strip the v34 source extension before historical-format migration tests."""
         lines = path.read_text().splitlines()
-        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_46")
+        self.assertEqual(lines[0].strip(), "NEUROEVO_ECOSYSTEM_47")
         del lines[1:3]  # Version 40's mass-allometry config preamble.
         extension = next(i for i, line in enumerate(lines) if line.startswith("FOOD_SOURCES_1"))
         lines = lines[:extension] + ["END_ECOSYSTEM"]

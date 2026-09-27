@@ -130,6 +130,11 @@ double EcosystemConfig::max_energy(double mass) const
 void EcosystemConfig::validate() const
 {
     brain.validate_model();
+    if (obstacle_preset < ObstaclePreset::Sparse || obstacle_preset > ObstaclePreset::Mixed)
+        throw std::invalid_argument("Invalid obstacle preset");
+    positive(obstacle_density,"Obstacle density",true);
+    if (obstacle_density>0.15 || obstacle_scale<12 || obstacle_scale>64)
+        throw std::invalid_argument("Obstacle density must be 0..0.15 and scale 12..64");
     if (food_distribution != FoodDistribution::Scattered && food_distribution != FoodDistribution::FieldsAndTrees)
         throw std::invalid_argument("Invalid food distribution preset");
     const auto& fs=food_sources;
