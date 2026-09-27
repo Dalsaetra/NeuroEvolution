@@ -1,6 +1,6 @@
 # Developmental connectome genome: proposal and implementation roadmap
 
-Status: design draft, 2026-09-08. This document proposes an experimental encoding; it does not change simulation behavior.
+Status: design draft, 2026-09-08. This document proposes an experimental encoding; it does not change simulation behavior. References below to the five-hidden-neuron ancestor describe the historical baseline. The current default template instead has no hidden neurons and ten direct sensor-to-motor synapses; future comparisons should use that current baseline.
 
 The proposal is to inherit a compact program for building a brain: spatial fields describe neuron properties, projection rules describe connectivity, and reusable modules describe repeated circuits. A deterministic developmental compiler turns this genome into the existing spiking `Brain` at birth. Evolution modifies the program through the ecosystem's ordinary reproduction process.
 

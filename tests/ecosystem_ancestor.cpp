@@ -128,48 +128,36 @@ void sparse_genome_contract()
     EcosystemConfig config = neuroevo::controlled_config();
     const Brain ancestor = make_sparse_ancestral_brain(config);
     require(ancestor.config().input_count == eco_input_count
-        && ancestor.config().hidden_count == 2 + eco_sectors
+        && ancestor.config().hidden_count == 0
         && ancestor.config().output_count == eco_output_count,
-        "The ancestor must use two rhythm neurons plus one hidden neuron per vision sector");
-    require(ancestor.config().background_activity_enabled,
-        "The ancestral locomotion circuit must permit low-rate spontaneous restarts");
-    require(ancestor.synapses().size() == 32,
-        "The ancestral circuit must stay sparse and reviewable");
+        "The ancestor must connect sensors directly to motors without hidden neurons");
+    require(ancestor.synapses().size() == 10,
+        "The ancestral circuit must contain only the ten survival connections");
 
-    std::set<std::size_t> sensory_sources;
-    const std::size_t output_begin = eco_input_count + ancestor.config().hidden_count;
-    for (const auto& synapse : ancestor.synapses()) {
-        if (synapse.pre < eco_input_count) sensory_sources.insert(synapse.pre);
-        require(synapse.post < output_begin + eco_output_count, "Ancestral synapse endpoint is invalid");
-    }
-    require(sensory_sources.size() == 11 + 3 * eco_sectors,
-        "The ancestor should include storm, sheltered state, and all shelter directions");
     const std::size_t body = eco_sectors * eco_sector_channels + 8;
-    std::set<std::size_t> environmental{body + 4, body + 5, eco_unsheltered_input};
-    for (std::size_t sector = 0; sector < eco_sectors; ++sector)
-        environmental.insert(eco_shelter_offset + sector);
-    for (const auto source : environmental) {
-        const auto edge = std::find_if(ancestor.synapses().begin(), ancestor.synapses().end(),
-            [source](const auto& synapse) { return synapse.pre == source; });
-        require(edge != ancestor.synapses().end() && edge->post >= eco_input_count
-            && edge->post < output_begin && edge->weight != 0
-            && std::abs(edge->weight) * config.brain.synaptic_gain < 5,
-            "Environmental cues need weak connections into hidden neurons");
+    const std::size_t contact = eco_sectors * eco_sector_channels + 4;
+    const std::set<std::size_t> allowed_sources{
+        body, body + 6, contact, contact + 1, contact + 3, 2,
+        eco_sector_channels + 2, 2 * eco_sector_channels + 2};
+    std::set<std::size_t> sensory_sources;
+    for (const auto& synapse : ancestor.synapses()) {
+        sensory_sources.insert(synapse.pre);
+        require(synapse.pre < eco_input_count && synapse.post >= eco_input_count
+            && synapse.post < eco_input_count + 4,
+            "Ancestor must be feed-forward with call and attack disconnected");
     }
+    require(sensory_sources == allowed_sources,
+        "Ancestor must use only energy, ingestion, contact and general food proximity");
+    for (const auto& neuron : ancestor.neurons())
+        require(neuron.bias == 0 && neuron.background_sensitivity == 0,
+            "Ancestor must not seed autonomous firing or spontaneous motor policies");
+
     auto legacy = config;
     legacy.extended_senses = false;
     legacy.brain.input_count = eco_legacy_input_count;
     const auto legacy_ancestor = make_sparse_ancestral_brain(legacy);
-    require(legacy_ancestor.synapses().size() == 29,
-        "Legacy ancestor must seed all three available environmental cues");
-    for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
-        for (std::size_t channel : {std::size_t{3}, std::size_t{4}, std::size_t{5}, std::size_t{6},
-                 std::size_t{8}, std::size_t{9}, std::size_t{10}, std::size_t{11},
-                 std::size_t{12}, std::size_t{13}}) {
-            require(!sensory_sources.count(sector * eco_sector_channels + channel),
-                "The ancestor must ignore food identity, pods, and social vision");
-        }
-    }
+    require(legacy_ancestor.config().hidden_count == 0 && legacy_ancestor.synapses().size() == 10,
+        "Legacy sensor layouts must use the same minimal circuit");
 
     Brain child = ancestor;
     Random rng(91);
@@ -179,12 +167,15 @@ void sparse_genome_contract()
 
     Brain restarted = ancestor;
     restarted.reset_state();
-    Random activity_rng(312);
-    std::vector<double> silence(eco_input_count, 0.0);
+    std::vector<double> senses(eco_input_count, 0.0);
+    for (int i = 0; i < 500; ++i)
+        require(restarted.step(senses).motor_outputs[0] == 0,
+            "A silent ancestor must not have an autonomous movement rhythm");
+    senses[body] = 0.1;
     bool moved = false;
     for (int i = 0; i < 500 && !moved; ++i)
-        moved = restarted.step(silence, &activity_rng).motor_outputs[0] > 0;
-    require(moved, "Low-rate background activity did not restart a silent locomotion circuit");
+        moved = restarted.step(senses).motor_outputs[0] > 0;
+    require(moved, "Low newborn energy must initiate movement without hidden neurons");
 }
 
 void solo_lineage_trial()
@@ -279,6 +270,39 @@ void stable_mutation_contract()
     require(same_genome(parent, exact), "Disabled stable mutations changed the genome");
 }
 
+void default_nursery_trials()
+{
+    // Exercise the actual nursery ecology, including moving food, body costs,
+    // funded reproduction, weather and ordinary birth mutations.
+    for (const bool varied : {false, true}) {
+        for (const std::uint64_t seed : {1ULL, 8ULL, 42ULL}) {
+            EcosystemConfig config;
+            config.seed = seed;
+            config.mutate_initial_ancestors = varied;
+            EcosystemWorld world(config);
+            bool grandchild_born = false, evolved_child = false;
+            const auto ancestor = make_sparse_ancestral_brain(config);
+            for (int step = 0; step < 4800 && !world.creatures.empty()
+                && !world.capacity_limited; ++step) {
+                world.step();
+                for (const auto& creature : world.creatures) {
+                    grandchild_born |= creature.generation >= 2;
+                    evolved_child |= creature.generation > 0 && creature.age >= config.maturity_age
+                        && !same_genome(ancestor, creature.brain);
+                }
+            }
+            std::cout << "nursery seed=" << seed << " varied=" << varied
+                << " population=" << world.creatures.size() << " births=" << world.totals.births
+                << " mature=" << world.totals.mature_offspring << '\n';
+            require(!world.creatures.empty() && world.totals.energy_gained > 0,
+                "Minimal ancestors must sustain a feeding population in the default nursery");
+            require(grandchild_born && world.totals.mature_offspring > 0,
+                "Minimal ancestors must sustain multiple generations in the default nursery");
+            require(evolved_child, "Minimal ancestors must produce viable mutated descendants");
+        }
+    }
+}
+
 void crowding_escape()
 {
     auto config = nursery_config();
@@ -319,6 +343,7 @@ int main()
         stable_mutation_contract();
         crowding_escape();
         solo_lineage_trial();
+        default_nursery_trials();
         std::cout << "sparse ancestral brain and solo lineage trial passed\n";
         return 0;
     } catch (const std::exception& error) {

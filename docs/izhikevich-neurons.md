@@ -135,7 +135,8 @@ Three controls are compared:
 3. Regular-spiking Izhikevich at 1 ms.
 
 The same starting neurons, positions, weights and edges are used for each neural
-workload. The five-hidden-neuron case uses the ancestor; 32/128-hidden cases use
+workload. The ancestor case now uses zero hidden neurons; the measurements below
+used the historical five-hidden-neuron ancestor. The 32/128-hidden cases use
 the same seeded random topology. Inputs are identical deterministic intensity
 vectors. Neural microbenchmarks have no background RNG. Each measured batch is
 32 brains simulated for one second.

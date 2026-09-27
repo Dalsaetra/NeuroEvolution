@@ -33,7 +33,7 @@ format. Exact spatial filtering also reduces creature overlap, sensing, collisio
 and attack searches; `--spatial-index 0` retains the all-pairs reference path.
 See [performance measurements and verification](docs/performance.md).
 
-The default world has an 80-by-80 frontier, a protected central nursery, 24 sparse ancestral founders, predation, moving food, and weather. The ancestor template has five hidden neurons, 100 local inputs, and six motor outputs. Its attack output starts disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
+The default world has a 140-by-140 frontier, a protected central nursery, 48 sparse ancestral founders, predation, moving food, and weather. The ancestor template has no hidden neurons, ten synapses, 100 local inputs, and six motor outputs. Its call and attack outputs start disconnected before initial mutation. Descendants inherit through natural births; an extinct population stays extinct.
 
 For a longer run with a compact history and a detailed final window:
 
@@ -109,6 +109,8 @@ Within `MutationConfig`, `copy_probability` and `slight_probability` define the 
 Ecosystem checkpoint format 26 saves this setting. Loading formats 22–25 sets it to zero to preserve their disabled autapse-creation policy; the updated disconnected-neuron rule applies to all runs.
 
 The current mixture is 50% copies, 45% slight mutations, and 5% strong mutations. Each birth independently has a 25% chance to prune one disconnected hidden neuron, including copy births. To freeze inheritance, set `copy_probability = 1`, `slight_probability = 0`, and `disconnected_neuron_prune_probability = 0`.
+
+The ancestor uses direct sensor-to-motor connections for movement, food steering, foraging, slowing during ingestion, and contact escape. It has no recurrent rhythm, hidden food relays, or seeded shelter/weather responses. Frontal contact still turns left to escape symmetric collisions; this is a minimal survival seed, not a bias-free controller. Structural mutation can recruit unused senses and grow hidden neurons. Initial founder mutation can therefore add hidden neurons even though the template has none. Existing checkpoints and imported genomes keep their saved circuits.
 
 `brain.hidden_count` controls random founders. The sparse ancestor's circuit and initial inherited neuron values are defined in [src/ecosystem_ancestor.cpp](src/ecosystem_ancestor.cpp). Set `sparse_ancestor = false` for random founder brains. Use `set_predation(false)` for per-experiment configurations so input/output dimensions follow body rules.
 

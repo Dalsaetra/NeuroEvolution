@@ -569,8 +569,8 @@ class EcosystemCliTests(unittest.TestCase):
         lines = [json.loads(line) for line in (path / "ecosystem.jsonl").read_text().splitlines()]
         brain = lines[0]["brains"][0]
         self.assertEqual((brain["inputs"], brain["outputs"]), (100, 6))
-        self.assertEqual(len(brain["neurons"]), 111)
-        self.assertEqual(len(brain["synapses"]), 32)
+        self.assertEqual(len(brain["neurons"]), 106)
+        self.assertEqual(len(brain["synapses"]), 10)
         self.assertTrue(all(c["controller"] == "spiking" for c in lines[-1]["creatures"]))
         summary = json.loads((path / "summary.json").read_text())
         self.assertEqual(summary["founder_brain"], "sparse-ancestor")

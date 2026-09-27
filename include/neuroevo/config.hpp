@@ -68,7 +68,7 @@ struct BrainConfig {
     void validate_model() const;
     std::size_t synaptic_pulse_steps() const;
     std::size_t input_count = eco_predation_input_count;
-    std::size_t hidden_count = 16; // Random founders only; the sparse ancestor has five.
+    std::size_t hidden_count = 16; // Random founders only; the sparse ancestor has none.
     std::size_t output_count = eco_predation_output_count;
     double dt = 0.02;
     double membrane_tau = 0.10;

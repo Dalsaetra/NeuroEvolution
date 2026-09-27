@@ -13,8 +13,6 @@ constexpr std::size_t body_offset = eco_sectors * eco_sector_channels + 8;
 constexpr std::size_t contact_offset = eco_sectors * eco_sector_channels + 4;
 constexpr std::size_t energy_input = body_offset;
 constexpr std::size_t ingestion_input = body_offset + 6;
-constexpr std::size_t digestion_input = body_offset + 7;
-constexpr std::size_t episode_start_input = body_offset + 8;
 
 Brain::Neuron neuron_at(double x, double y, double threshold = 1.0)
 {
@@ -38,13 +36,10 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
     }
 
     BrainConfig brain_config = config.brain;
-    brain_config.hidden_count = 2 + eco_sectors;
+    brain_config.hidden_count = 0;
     brain_config.initial_connection_probability = 0.0;
 
-    const std::size_t hidden = brain_config.input_count;
-    const std::size_t output = hidden + brain_config.hidden_count;
-    const std::size_t locomotion_a = hidden;
-    const std::size_t locomotion_b = hidden + 1;
+    const std::size_t output = brain_config.input_count;
     const std::size_t forward = output;
     const std::size_t turn_left = output + 1;
     const std::size_t turn_right = output + 2;
@@ -56,24 +51,8 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
         const double y = (static_cast<double>(i) + 0.5) / static_cast<double>(brain_config.input_count);
         neurons.push_back(neuron_at(0.05, y));
     }
-    // Energy is a tonic drive even for a low-energy newborn. It therefore
-    // restarts locomotion after ingestion has paused the rhythm.
+    // Energy supplies movement directly, including for low-energy newborns.
     neurons[energy_input].threshold = 0.25;
-    // Distant obstacle signals should not compete continuously with food
-    // steering. Legacy LIF inputs fire only in the nearer 40% of vision;
-    // calibrated inputs retain distant information at a reduced spike rate.
-    for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
-        neurons[sector * eco_sector_channels].threshold = 1.5;
-    }
-    neurons.push_back(neuron_at(0.46, 0.30));
-    neurons.push_back(neuron_at(0.54, 0.30));
-    // A rare background event restarts the locomotion rhythm after mutation,
-    // inhibition, or low energy has silenced it. Other ancestral neurons remain
-    // noise-insensitive, and this sensitivity can itself evolve.
-    neurons[locomotion_a].background_sensitivity = 2.0;
-    for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
-        neurons.push_back(neuron_at(0.50, 0.48 + 0.08 * static_cast<double>(sector), 1.2));
-    }
     for (std::size_t i = 0; i < brain_config.output_count; ++i) {
         const double y = (static_cast<double>(i) + 0.5) / static_cast<double>(brain_config.output_count);
         neurons.push_back(neuron_at(0.95, y));
@@ -91,59 +70,27 @@ Brain make_sparse_ancestral_brain(const EcosystemConfig& config)
         synapses.push_back({pre, post, nominal_weight * scale, 1});
     };
 
-    // A newborn pulse starts a two-neuron rhythm. Energy can restart it if a
-    // perturbation silences it. This rhythm is the ancestor's only forward drive.
-    connect(episode_start_input, locomotion_a, 2.0);
-    connect(energy_input, locomotion_a, 2.0);
-    connect(locomotion_a, locomotion_b, 2.0);
-    connect(locomotion_b, locomotion_a, 2.0);
-    connect(locomotion_a, forward, 1.8);
-    // Once feeding begins, pause over the patch instead of merely skimming it.
-    // Digestion provides a restart pulse after the available biomass is gone.
-    connect(ingestion_input, locomotion_a, -3.5);
-    connect(ingestion_input, locomotion_b, -3.5);
-    connect(digestion_input, locomotion_a, 2.0);
+    // A minimal feed-forward seed: move while alive and slow during ingestion.
+    // All connections and intrinsic parameters remain ordinary mutable genes.
+    connect(energy_input, forward, 1.8);
     connect(ingestion_input, forward, -3.0);
-    connect(ingestion_input, turn_left, -2.5);
-    connect(ingestion_input, turn_right, -2.5);
-
-    // Weak environmental access for evolution: these weights can change sign
-    // or disappear like any other synapse. No direct shelter-steering reflex.
-    connect(body_offset + 5, locomotion_a, -0.15); // storm warning/intensity
-    connect(body_offset + 4, locomotion_b, -0.15); // currently sheltered
-    connect(eco_unsheltered_input, locomotion_a, 0.15); // weak movement drive outside shelter
-    if (config.extended_senses) {
-        for (std::size_t sector = 0; sector < eco_sectors; ++sector)
-            connect(eco_shelter_offset + sector, hidden + 2 + sector, -0.15);
-    }
 
     // Proximity carries enough information to bias simultaneous signals toward
     // the nearest patch. The ancestor cannot compare stock or nutritional value.
     connect(0 * eco_sector_channels + 2, turn_right, 1.75);
     connect((eco_sectors - 1) * eco_sector_channels + 2, turn_left, 1.75);
 
-    // Weak initial avoidance (half the original weights) leaves food attraction
-    // more influence near walls. These ordinary synapses remain evolvable.
-    // A symmetric obstacle ahead still biases left.
-    connect(0 * eco_sector_channels, turn_left, 1.1);
-    connect((eco_sectors / 2) * eco_sector_channels, turn_left, 1.1);
-    connect((eco_sectors - 1) * eco_sector_channels, turn_right, 1.1);
-
-    // Contact is body-relative: front, left, back, right. Side contacts turn
-    // away; a frontal contact picks a stable side; pressure from behind keeps
-    // forward drive alive. This lets crowded bodies separate through their
-    // brain rather than adding a non-neural movement reflex.
+    // Contact escape prevents walls and crowded newborns from trapping a
+    // lineage. Frontal contact retains one explicit leftward tie-break.
     connect(contact_offset + 0, turn_left, 2.4);
     connect(contact_offset + 1, turn_right, 2.2);
-    connect(contact_offset + 2, forward, 1.8);
     connect(contact_offset + 3, turn_left, 2.2);
 
-    // Each sector has a high-pass relay: close food spikes rapidly enough to
-    // cross its threshold, while the slower signal from distant food decays.
+    // Food drives forage directly; there are no hidden relays or recurrence.
+    // Other senses and the call/attack motors start disconnected and are
+    // available to structural mutation, without seeded environmental policies.
     for (std::size_t sector = 0; sector < eco_sectors; ++sector) {
-        const std::size_t near_food = hidden + 2 + sector;
-        connect(sector * eco_sector_channels + 2, near_food, 1.5);
-        connect(near_food, forage, 2.0);
+        connect(sector * eco_sector_channels + 2, forage, 1.5);
     }
 
     for (auto& n : neurons) n.izhikevich = brain_config.izhikevich_defaults;

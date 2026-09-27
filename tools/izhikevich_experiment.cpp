@@ -41,11 +41,11 @@ void profile(const std::filesystem::path& out) {
         const double ms=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
         if(repeat>=0)f<<"kernel_quiet,"<<v.name<<','<<repeat<<','<<v.dt<<",256,0,5000,"<<ms<<','<<ms*1e6/5000<<",0\n";
     }
-    for(int size:{5,32,128}) for(int repeat=-1;repeat<7;++repeat) for(int order=0;order<3;++order) {
+    for(int size:{0,32,128}) for(int repeat=-1;repeat<7;++repeat) for(int order=0;order<3;++order) {
         const auto& v=vv[(order+repeat+3)%3];
         EcosystemConfig eco;eco.brain.hidden_count=size;
         Random topology(811);
-        const auto base=size==5 ? make_sparse_ancestral_brain(eco) : Brain::random(eco.brain,topology);
+        const auto base=size==0 ? make_sparse_ancestral_brain(eco) : Brain::random(eco.brain,topology);
         auto c=config(v);c.hidden_count=size;
         auto prototype=Brain::from_components(c,base.neurons(),base.synapses());
         constexpr int batch=32;

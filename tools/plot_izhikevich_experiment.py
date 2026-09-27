@@ -47,14 +47,15 @@ colors = {"lif20":"#929daa","lif1":"#b5b7c3","izh_rs":"#237ba1",
 names = {"lif20":"LIF 20 ms","lif1":"LIF 1 ms","izh_rs":"Izh RS",
          "izh_low_adaptation":"Izh less adaptation","izh_fast":"Izh fast recovery"}
 ax=axes[0,0]
-workloads=["brain_5","brain_32","brain_128","ecosystem_24_default_noise"]
+ancestor_workload = "brain_0" if "brain_0" in summary["profile"] else "brain_5"
+workloads=[ancestor_workload,"brain_32","brain_128","ecosystem_24_default_noise"]
 x=np.arange(len(workloads))
 for shift,model in ((-0.19,"lif1"),(0.19,"izh_rs")):
     values=[summary["profile"][w][model]["median_ms"]/summary["profile"][w]["lif20"]["median_ms"] for w in workloads]
     bars=ax.bar(x+shift,values,width=0.36,color=colors[model],label=names[model])
     ax.bar_label(bars,labels=[f"{v:.1f}x" for v in values],padding=3,fontsize=9)
 ax.axhline(1,color="#707070",ls=":",lw=1)
-ax.set(xticks=x,xticklabels=["5 hidden","32 hidden","128 hidden","24-creature\nworld"],
+ax.set(xticks=x,xticklabels=[f"{ancestor_workload.split('_')[1]} hidden","32 hidden","128 hidden","24-creature\nworld"],
        ylabel="Runtime / LIF 20 ms runtime",title="A. Most neural overhead comes from 20x more updates")
 ax.set_ylim(0,max(b.get_height() for b in ax.patches)*1.2)
 ax.legend()

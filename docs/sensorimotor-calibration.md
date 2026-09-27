@@ -26,7 +26,7 @@ Observations describe the recorded world positions; brain state comes from the
 controller update before that step's movement, so instantaneous transitions can
 differ by a world step.
 
-The six outputs drive forward movement, left/right turning, forage, call, and attack. Effort consumes the corresponding energy budget. The sparse ancestor's attack neuron is initially disconnected; its five hidden neurons implement the initial locomotion and forage circuit.
+The six outputs drive forward movement, left/right turning, forage, call, and attack. Effort consumes the corresponding energy budget. The sparse ancestor has no hidden neurons and ten direct sensor-to-motor synapses for movement, food steering, foraging, ingestion slowdown, and contact escape. Call and attack start disconnected before initial mutation.
 
 Tune neural gains, timing, and rates in `BrainConfig`, and bodily senses/actions in `EcosystemConfig`, both in [config.hpp](../include/neuroevo/config.hpp). Replay detail is controlled separately by `RunConfig`. Calibration tests cover rate coding, motor impulse responses, shelter visibility, and nutritional feedback.
 
